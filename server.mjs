@@ -22,7 +22,9 @@ db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
  CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS admin_sessions (digest TEXT PRIMARY KEY, csrf TEXT NOT NULL, expiry INTEGER NOT NULL);
  CREATE INDEX IF NOT EXISTS admin_sessions_exp ON admin_sessions(expiry);
- CREATE TABLE IF NOT EXISTS owner_sessions (digest TEXT PRIMARY KEY, expiry INTEGER NOT NULL);`);
+ CREATE TABLE IF NOT EXISTS owner_sessions (digest TEXT PRIMARY KEY, expiry INTEGER NOT NULL);
+ CREATE TABLE IF NOT EXISTS photo_grants (digest TEXT PRIMARY KEY, expiry INTEGER NOT NULL);
+ CREATE TABLE IF NOT EXISTS photo_records (id TEXT PRIMARY KEY, data BLOB NOT NULL, expiry INTEGER NOT NULL);`);
 const getSettingStmt = db.prepare('SELECT value FROM settings WHERE key=?');
 const putSettingStmt = db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value');
 const delSettingStmt = db.prepare('DELETE FROM settings WHERE key=?');
@@ -34,6 +36,11 @@ const sessionPut = db.prepare('INSERT INTO admin_sessions(digest,csrf,expiry) VA
 const sessionGet = db.prepare('SELECT csrf,expiry FROM admin_sessions WHERE digest=? AND expiry>?');
 const ownerSessionPut = db.prepare('INSERT INTO owner_sessions(digest,expiry) VALUES(?,?)');
 const ownerSessionGet = db.prepare('SELECT expiry FROM owner_sessions WHERE digest=? AND expiry>?');
+const photoGrantGet = db.prepare('SELECT expiry FROM photo_grants WHERE digest=? AND expiry>?');
+const photoGrantPut = db.prepare('INSERT INTO photo_grants(digest,expiry) VALUES(?,?)');
+const photoGrantUse = db.prepare('DELETE FROM photo_grants WHERE digest=? AND expiry>?');
+const photoPut = db.prepare('INSERT INTO photo_records(id,data,expiry) VALUES(?,?,?)');
+const photoGet = db.prepare('SELECT data FROM photo_records WHERE id=? AND expiry>?');
 const setting = (name, fallback = '') => getSettingStmt.get(name)?.value ?? fallback;
 const save = (name, value) => putSettingStmt.run(name, String(value));
 const random = () => crypto.randomBytes(32).toString('base64url');
@@ -135,11 +142,12 @@ function session(req) {
 function signedOwnerLink(origin) {
   const exp=Math.floor(Date.now()/1000)+3600;
   const sig=crypto.createHmac('sha256',setting('owner_signing_key')).update(`owner:${exp}`).digest('hex');
-  return `${origin}/owner-confirm?expires=${exp}&sig=${sig}`;
+  return `${origin}/owner-confirm/${exp}/${sig}`;
 }
 function verifyOwnerLink(url) {
-  const exp=Number(url.searchParams.get('expires'));
-  const sig=url.searchParams.get('sig')||'';
+  const match=url.pathname.match(/^\/owner-confirm\/(\d{10,12})\/([a-f0-9]{64})$/);
+  const exp=Number(match?.[1] || url.searchParams.get('expires'));
+  const sig=match?.[2] || url.searchParams.get('sig') || '';
   if(!Number.isSafeInteger(exp) || exp<Math.floor(Date.now()/1000) || exp>Math.floor(Date.now()/1000)+3700) return false;
   const expected=crypto.createHmac('sha256',setting('owner_signing_key')).update(`owner:${exp}`).digest('hex');
   return constantEq(sig,expected);
@@ -147,6 +155,18 @@ function verifyOwnerLink(url) {
 function isOwner(req) {
   const token=sessions(req).movecar_owner;
   return token && ownerSessionGet.get(hash(token),Date.now());
+}
+async function inputPhoto(req,limit=1572864) {
+  let total=0;const chunks=[];
+  for await(const chunk of req) {
+    total+=chunk.length;
+    if(total>limit)throw Object.assign(Error('照片太大，请压缩到 1.5MB 以下'),{status:413});
+    chunks.push(chunk);
+  }
+  const b=Buffer.concat(chunks);
+  if(b.length<32||b[0]!==255||b[1]!==216||b[b.length-2]!==255||b[b.length-1]!==217)
+    throw Object.assign(Error('照片格式无效，只接受 JPEG'),{status:415});
+  return b;
 }
 async function outbound(url,options) {
   const r=await fetch(url,{...options,redirect:'error',signal:AbortSignal.timeout(12000)});
@@ -169,25 +189,26 @@ async function sendWeChat(key,title,message,ownerUrl) {
   const result=await r.json().catch(()=>({}));
   if(result.code!==0) throw Error('微信推送服务返回失败，请检查 SendKey 和剩余额度');
 }
-async function sendSc3(key,title,message,ownerUrl) {
+async function sendSc3(key,title,message,ownerUrl,richMarkdown=false) {
   const uid = validateSc3Key(key).match(/^sctp(\d+)t/)[1];
   const endpoint = `https://${uid}.push.ft07.com/send/${key}.send`;
   const url = (isTest && process.env.MOVECAR_TEST_SC3_ENDPOINT) || endpoint;
-  const short = String(message).replace(/\s+/g,' ').slice(0,100);
-  const safeMessage = String(message).replace(/([\\`*_\[\]<>])/g,'\\$1');
-  const body = JSON.stringify({title,short,desp:`${safeMessage}\n\n[车主点击确认挪车](${ownerUrl})`,tags:'挪车'});
+  const normalizedMessage=String(message).split('\\n').join('\n');
+  const short = normalizedMessage.replace(/\s+/g,' ').slice(0,100);
+  const safeMessage = normalizedMessage.replace(/([\\`*_\[\]<>])/g,'\\$1');
+  const body = JSON.stringify({title,short,desp:`${richMarkdown?normalizedMessage:safeMessage}\n\n[车主点击确认挪车](${ownerUrl})`,tags:'挪车'});
   const r = await outbound(url,{method:'POST',headers:{'Content-Type':'application/json'},body});
   const result = await r.json().catch(()=>({}));
   if(result.code!==0) throw Error('Server酱³ 返回失败，请检查 SendKey 和手机注册状态');
 }
-async function notifyChannels({title,message,ownerUrl,query='',channel='all'}) {
+async function notifyChannels({title,message,ownerUrl,query='',channel='all',richMarkdown=false}) {
   const tasks=[];
   const names=[];
   const wanted = name => channel==='all' || channel===name;
   const bark=setting('bark_url'), turbo=setting('serverchan_sendkey'), sc3=setting('sc3_sendkey');
   if(bark && wanted('bark')) { names.push('bark'); tasks.push(sendBark(bark,title,message,ownerUrl,query)); }
   if(turbo && wanted('serverchan')) { names.push('serverchan'); tasks.push(sendWeChat(turbo,title,message,ownerUrl)); }
-  if(sc3 && wanted('sc3')) { names.push('sc3'); tasks.push(sendSc3(sc3,title,message,ownerUrl)); }
+  if(sc3 && wanted('sc3')) { names.push('sc3'); tasks.push(sendSc3(sc3,title,message,ownerUrl,richMarkdown)); }
   if(!tasks.length) throw Object.assign(Error(channel==='all'?'尚未配置推送渠道，请先进入 /admin 设置':'所选渠道尚未配置，请先保存密钥'),{status:503});
   const results=await Promise.allSettled(tasks);
   const statuses=Object.fromEntries(results.map((item,index)=>[names[index],item.status==='fulfilled'?'ok':'failed']));
@@ -212,7 +233,7 @@ const globals={
     const base=new URL(WORKER_BARK);
     if(u.origin!==base.origin || !u.pathname.startsWith(base.pathname+'/')) throw Error('Unexpected upstream external request');
     const parts=u.pathname.slice(base.pathname.length+1).split('/').map(decodeURIComponent);
-    const title=parts[0]||'挪车提醒';const message=parts.slice(1).join('/')||'请及时挪车';
+    const title=parts[0]||'挪车提醒';const message=(parts.slice(1).join('/')||'请及时挪车').split('\\n').join('\n');
     const linked=u.searchParams.get('url');
     if(!linked) throw Error('Missing confirmation URL');
     const target=new URL(linked);
@@ -228,8 +249,20 @@ function invokeWorker(request) { let result; listener({request,respondWith(p){re
 async function sendWorker(response,res,head=false){
   const headers=Object.fromEntries(response.headers);
   headers['cache-control']='no-store'; headers['x-content-type-options']='nosniff';headers['referrer-policy']='no-referrer';headers['x-frame-options']='DENY';
-  if(headers['content-type']?.includes('text/html')) headers['content-security-policy']="frame-ancestors 'none'";
-  const payload=head?null:Buffer.from(await response.arrayBuffer());res.writeHead(response.status,headers);res.end(payload);
+  const isHtml=headers['content-type']?.includes('text/html');
+  if(isHtml) headers['content-security-policy']="frame-ancestors 'none'";
+  let payload=head?null:Buffer.from(await response.arrayBuffer());
+  if(isHtml&&payload&&payload.includes('id="successView"')){
+    let html=payload.toString('utf8');
+    // The original Worker waits 30 seconds without GPS. This adapter now delivers immediately.
+    html=html.replace('const delayed = !userLocation; // 无位置则延迟','const delayed = false; // 不分享定位也立即推送');
+    html=html.replace('if (res.ok) {\n            if (delayed)', 'if (res.ok) {\n            const result = await res.clone().json().catch(() => ({}));\n            window.moveCarPhotoGrant = result.photoToken || null;\n            if (delayed)');
+    html=html.replace('<div class="card action-card">', `<div class="card photo-card" id="photoCard"><h3>📸 补充现场照片</h3><p>首次通知成功后，可以补发现场照片给车主。</p><input id="photoPicker" type="file" accept="image/*" capture="environment" hidden><button id="photoChooseBtn" type="button" style="width:100%;padding:18px;border:0;border-radius:16px;background:#d8f4ff;color:#116a95;font-weight:750;font-size:16px">📷 拍摄 / 选择现场照片</button><img id="photoPreview" alt="现场照片预览" style="display:none;max-width:100%;margin:12px auto;border-radius:12px"><p id="photoStatus" role="status" style="font-size:13px"></p><button id="photoSendBtn" type="button" style="display:none;width:100%;padding:16px;border:0;border-radius:15px;background:#139c73;color:#fff;font-weight:750">发送现场照片给车主</button></div><div class="card action-card">`);
+    html=html.replace('</body>','<script src="/photo-ui.js" defer></script></body>');
+    payload=Buffer.from(html,'utf8');
+    headers['content-security-policy']="frame-ancestors 'none'; img-src 'self' data: https:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'";
+  }
+  res.writeHead(response.status,headers);res.end(payload);
 }
 function staticFile(res,name,type) {
   const txt=fs.readFileSync(path.join(import.meta.dirname,name));
@@ -241,6 +274,8 @@ setInterval(()=>{
  db.prepare('DELETE FROM rate_limit WHERE until<=?').run(now);
  db.prepare('DELETE FROM admin_sessions WHERE expiry<=?').run(now);
  db.prepare('DELETE FROM owner_sessions WHERE expiry<=?').run(now);
+ db.prepare('DELETE FROM photo_grants WHERE expiry<=?').run(now);
+ db.prepare('DELETE FROM photo_records WHERE expiry<=?').run(now);
  for (const [ip,item] of failStats) if(item.until<now)failStats.delete(ip);
 },3600000).unref();
 const server=http.createServer(async(req,res)=>{
@@ -253,6 +288,7 @@ const server=http.createServer(async(req,res)=>{
     if(route==='/admin'||route==='/admin/')return req.method==='GET'?staticFile(res,'admin.html','text/html; charset=utf-8'):reply(res,405,'Method not allowed');
     if(route==='/admin.js')return req.method==='GET'?staticFile(res,'admin.js','text/javascript; charset=utf-8'):reply(res,405,'Method not allowed');
     if(route==='/admin.css')return req.method==='GET'?staticFile(res,'admin.css','text/css; charset=utf-8'):reply(res,405,'Method not allowed');
+    if(route==='/photo-ui.js')return req.method==='GET'?staticFile(res,'photo-ui.js','text/javascript; charset=utf-8'):reply(res,405,'Method not allowed');
     if(route.startsWith('/api/admin/')){
       if(route==='/api/admin/login'&&req.method==='POST'){
         const loginOrigin=trustedAdminOrigin(req);
@@ -320,14 +356,41 @@ const server=http.createServer(async(req,res)=>{
       return json(res,404,{error:'接口不存在'});
     }
     const hasOwner=!!isOwner(req);
-    if(route==='/owner-confirm'&&!hasOwner){
+    if((route==='/owner-confirm'||route.startsWith('/owner-confirm/'))&&!hasOwner){
       if(!verifyOwnerLink(u))return reply(res,403,'车主确认链接无效或已过期，请重新发起挪车通知。');
       const tok=random();ownerSessionPut.run(hash(tok),Date.now()+3600000);
       res.writeHead(303,{'Location':'/owner-confirm','Set-Cookie':cookie('movecar_owner',tok,origin),'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});return res.end();
     }
     if((route==='/api/get-location'||route==='/api/owner-confirm')&&!hasOwner)return reply(res,403,'车主认证失败');
-    const methods={'/api/notify':'POST','/api/get-location':'GET','/api/owner-confirm':'POST','/api/check-status':'GET','/owner-confirm':'GET'};
+    const methods={'/api/notify':'POST','/api/get-location':'GET','/api/owner-confirm':'POST','/api/check-status':'GET','/owner-confirm':'GET','/api/photo':'POST'};
     if(methods[route] && req.method!==methods[route])return reply(res,405,'Method not allowed');
+    if(route.startsWith('/api/photo/') && req.method==='GET'){
+      const id=route.slice('/api/photo/'.length);
+      if(!/^[a-zA-Z0-9_-]{43}$/.test(id))return reply(res,404,'照片不存在');
+      const record=photoGet.get(id,Date.now());
+      if(!record)return reply(res,404,'照片已过期或不存在');
+      return reply(res,200,record.data,{'Content-Type':'image/jpeg','Cache-Control':'private, no-store','Content-Disposition':'inline; filename="car-photo.jpg"','Content-Security-Policy':"default-src 'none'; sandbox"});
+    }
+    if(route==='/api/photo'&&req.method==='POST'){
+      if(trustedAdminOrigin(req)===null)return json(res,403,{error:'来源不可信'});
+      if(req.headers['content-type']!=='image/jpeg')return json(res,415,{error:'仅接受 JPEG 图片'});
+      const token=req.headers['x-photo-token'];
+      if(typeof token!=='string'||!/^[a-zA-Z0-9_-]{43}$/.test(token))return json(res,403,{error:'拍照授权无效'});
+      const digest=hash(token),now=Date.now();
+      if(!photoGrantGet.get(digest,now))return json(res,403,{error:'请先成功发送一次挪车通知，再上传照片'});
+      const bytes=await inputPhoto(req);
+      if(photoGrantUse.run(digest,Date.now()).changes!==1)return json(res,409,{error:'这次挪车通知已上传过照片'});
+      const id=random();photoPut.run(id,bytes,Date.now()+3600000);
+      const imageUrl=`${origin}/api/photo/${id}`;
+      const message=`现场照片已上传。\n\n![现场照片](${imageUrl})\n\n[查看现场照片](${imageUrl})`;
+      try {
+        await notifyChannels({title:'📷 挪车现场照片',message,ownerUrl:signedOwnerLink(origin),richMarkdown:true});
+        return json(res,200,{ok:true});
+      }catch(e){
+        console.error('Photo saved but push failed (credentials hidden):',e.status||'unknown');
+        return json(res,502,{ok:false,error:'照片已保存，但补充通知发送失败，请联系车主'});
+      }
+    }
     if(route==='/api/notify'){
       if(!setting('bark_url')&&!setting('serverchan_sendkey')&&!setting('sc3_sendkey'))return json(res,503,{error:'车主尚未配置消息推送，请联系车主'});
       const key=req.socket.remoteAddress||'unknown',now=Date.now(),window=Number(setting('rate_limit_seconds','60'));
@@ -335,12 +398,22 @@ const server=http.createServer(async(req,res)=>{
       const data=await inputJson(req);
       if(typeof data.message!=='string'||data.message.length>200) return reply(res,400,'留言长度须在 200 字以内');
       if(data.location!=null && (typeof data.location!=='object'||!Number.isFinite(data.location.lat)||!Number.isFinite(data.location.lng)||Math.abs(data.location.lat)>90||Math.abs(data.location.lng)>180))return reply(res,400,'位置数据无效');
-      if(window>0)ratePut.run(key,now+window*1000);
-      const request=new Request(new URL(route+u.search,origin),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:data.message,location:data.location||null,delayed:!data.location})});
-      return sendWorker(await invokeWorker(request),res);
+      // Failed notifications should not prevent a retry: set rate limit after success.
+      const request=new Request(new URL(route+u.search,origin),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:data.message,location:data.location||null,delayed:false})});
+      const response=await invokeWorker(request);
+      if(response.ok) {
+        const delivered=await response.clone().json().catch(()=>({}));
+        if(delivered.success===true){
+          if(window>0)ratePut.run(key,Date.now()+window*1000);
+          const photoToken=random();
+          photoGrantPut.run(hash(photoToken),Date.now()+20*60*1000);
+          return json(res,200,{...delivered,photoToken});
+        }
+      }
+      return sendWorker(response,res);
     }
     const bytes=req.method==='POST'?Buffer.from(JSON.stringify(await inputJson(req))):undefined;
-    const reqWorker=new Request(new URL(route+u.search,origin),{method:req.method==='HEAD'?'GET':req.method,...(bytes?{body:bytes,headers:{'Content-Type':'application/json'}}:{})});
+    const reqWorker=new Request(new URL((route.startsWith('/owner-confirm/')?'/owner-confirm':route)+u.search,origin),{method:req.method==='HEAD'?'GET':req.method,...(bytes?{body:bytes,headers:{'Content-Type':'application/json'}}:{})});
     return sendWorker(await invokeWorker(reqWorker),res,req.method==='HEAD');
   } catch(err) {
     const status=err.status||500;
