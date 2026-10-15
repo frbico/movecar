@@ -1,0 +1,7 @@
+.env
+.git
+*.zip
+data
+node_modules
+upstream/LICENSE
+upstream/README.md

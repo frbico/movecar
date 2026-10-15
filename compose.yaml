@@ -1,0 +1,23 @@
+services:
+  movecar:
+    build: .
+    container_name: movecar
+    restart: unless-stopped
+    init: true
+    env_file: .env
+    environment:
+      PORT: '8080'
+      DB_PATH: /app/data/state.sqlite
+      SOURCE_PATH: /app/upstream/movecar.js
+    ports:
+      - "${HOST_BIND:-127.0.0.1}:${HOST_PORT:-8080}:8080"
+    volumes:
+      - movecar_data:/app/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+volumes:
+  movecar_data:

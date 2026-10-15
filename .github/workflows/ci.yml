@@ -1,0 +1,22 @@
+name: CI
+on:
+  push:
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Syntax checks and integration test
+        run: |
+          bash -n install.sh run-linux.sh scripts/fetch-upstream.sh
+          node --check server.mjs
+          node --test tests/*.test.mjs
+      - name: Fetch upstream and verify Docker build
+        run: |
+          ./scripts/fetch-upstream.sh
+          docker build -t movecar:ci .

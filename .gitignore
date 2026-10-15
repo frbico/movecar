@@ -1,0 +1,15 @@
+# Secrets and machine-specific configuration
+.env
+.env.*
+!.env.example
+
+# Persisted data and local dependencies
+data/
+node_modules/
+*.sqlite*
+
+# Downloaded upstream code and license (retrieved by fetch-upstream.sh)
+upstream/movecar.js
+upstream/LICENSE
+
+.DS_Store
