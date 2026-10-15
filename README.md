@@ -1,6 +1,6 @@
 # MoveCar · Linux / Docker 自部署版
 
-在 Linux 一键部署 [lesnolie/movecar](https://github.com/lesnolie/movecar) 的挪车页面，保留原始 Worker 前端与状态处理，增加 SQLite 兼容层、**管理后台**、**Bark + 微信 Server酱 推送**。
+在 Linux 一键部署 [lesnolie/movecar](https://github.com/lesnolie/movecar) 的挪车页面，保留原始 Worker 前端与状态处理，增加 SQLite 兼容层、**管理后台**、**Bark + 微信 Server酱 + Server酱³ 推送**。
 
 > 本项目为第三方独立适配版，不是上游作者的官方 Docker 版本；上游代码由 `scripts/fetch-upstream.sh` 在首次安装时从 GitHub 下载。请自行审查后用于正式环境。
 
@@ -28,7 +28,7 @@ cd movecar
    - **Bark**（iPhone）：`https://api.day.app/你的DeviceKey`；支持自建 HTTPS Bark 服务。
    - **微信**：先在 [Server酱 Turbo](https://sct.ftqq.com) 用微信扫码登录，复制以 `SCT` 开头的 **SendKey**，粘贴到后台。免费版有日推送限额；这是第三方平台，非微信官方直接推送 API。
 3. 点击**保存所有设置**，再点击**发送测试通知**。
-4. 如果两种渠道都已配置，将同时发送；某个渠道失败而另一个成功时视为推送成功。
+4. 如果多个渠道都已配置，将同时发送；某个渠道失败而另一个成功时视为推送成功。
 5. **公网访问地址**可以暂时不填：程序会使用当前访问使用的 IP/主机名生成车主确认链接。但是正式使用请填写 HTTPS 公网域名，例如 `https://car.example.com`，否则微信/Bark 中的确认链接可能无法从外网访问。
 
 **配置保存到 Docker 数据卷的 SQLite 数据库中，重启后仍然存在。** 后台不回显 Bark / SendKey；留空表示不修改已有值，可显式清除。
@@ -105,3 +105,25 @@ CI 执行语法测试、登录/配置/推送集成测试、脚本执行权限检
 ## License
 
 兼容层采用仓库内 `LICENSE` 所载许可。下载的上游项目使用其原始许可证，见 `upstream/LICENSE`。
+
+
+## 📲 Server酱³ Android / iOS 原生推送
+
+新版后台支持 **Bark、Server酱³ 和微信 Server酱 Turbo** 三种独立通知渠道，互不覆盖，可同时发送。
+
+1. 在 [Server酱³](https://sc3.ft07.com) 获取 `sctp` 开头的 SendKey；这是独立于微信 Turbo 的 `SCT` 密钥。
+2. 小米国行与三星美版安装 Server酱³ App，绑定同一个账户，确认厂商推送 / Google FCM 与通知权限正常。
+3. 打开 `/admin` →「通知渠道」，输入 SendKey 后保存，并点击 **Server酱³ 单独测试**。
+4. 可继续启用 Bark 和微信备用通道。后台会显示各渠道是否已配置；**密钥不回显**，留空保留已保存密钥，勾选「清除」可删除密钥。
+5. 为方便车主点击通知中的链接，建议在「基本设置」填写可从手机访问的 HTTPS 公网域名。
+
+SC3 使用官方 HTTPS API：`https://<uid>.push.ft07.com/send/<sendkey>.send`，请求体包含 `title`、`short`、`desp` 和 `tags`。请求成功仅说明推送服务接受消息，仍需要在两台手机上检查锁屏通知是否实际送达。
+
+升级现有容器：
+
+```sh
+git pull --ff-only
+docker compose up -d --build
+```
+
+**不要执行 `docker compose down -v`**，否则会删除原数据卷。旧的 SQLite 配置和管理员密码无需迁移或重设。

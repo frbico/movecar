@@ -1,57 +1,17 @@
 'use strict';
-const $ = id => document.getElementById(id);
-let csrf = '';
-let toastTimer;
-const alertMsg = message => {
-  const el = $('toast');el.textContent=message;el.classList.add('show');
-  clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),4200);
-};
-async function api(path, data, method='POST') {
-  const r=await fetch(path,{method: data===undefined?'GET':method,credentials:'same-origin',headers:{...(data===undefined?{}:{'Content-Type':'application/json','X-CSRF-Token':csrf})},...(data===undefined?{}:{body:JSON.stringify(data)})});
-  const body=await r.json().catch(()=>({}));
-  if(!r.ok)throw Error(body.error||`HTTP ${r.status}`);
-  return body;
-}
-function showLogin(){$('panel').hidden=true;$('loginView').hidden=false;csrf='';}
-async function showPanel(){
-  const sess=await api('/api/admin/session');csrf=sess.csrf;
-  const config=await api('/api/admin/config');
-  $('publicUrl').value=config.publicUrl||'';
-  $('phoneNumber').value=config.phoneNumber||'';
-  $('rateLimit').value=config.rateLimitSeconds??60;
-  $('barkState').textContent=config.barkConfigured?'已启用':'未配置';
-  $('wechatState').textContent=config.serverchanConfigured?'已启用':'未配置';
-  $('barkUrl').value='';$('sendkey').value='';$('clearBark').checked=false;$('clearWechat').checked=false;
-  $('panel').hidden=false;$('loginView').hidden=true;
-}
-$('loginForm').addEventListener('submit',async e=>{
-  e.preventDefault();const btn=e.currentTarget.querySelector('button');btn.disabled=true;
-  try{await api('/api/admin/login',{password:$('loginPassword').value});$('loginPassword').value='';await showPanel();alertMsg('登录成功');}
-  catch(err){alertMsg(err.message);}finally{btn.disabled=false;}
-});
-$('settingsForm').addEventListener('submit',async e=>{
-  e.preventDefault();const btn=e.submitter;btn.disabled=true;
-  try{
-    await api('/api/admin/settings',{
-      publicUrl:$('publicUrl').value.trim(),phoneNumber:$('phoneNumber').value.trim(),rateLimitSeconds:Number($('rateLimit').value),
-      barkUrl:$('barkUrl').value.trim(),serverchanSendKey:$('sendkey').value.trim(),
-      clearBark:$('clearBark').checked,clearServerchan:$('clearWechat').checked
-    });
-    await showPanel();alertMsg('设置已保存并立即生效，无需重启容器');
-  }catch(err){alertMsg(err.message);}finally{btn.disabled=false;}
-});
-$('testPush').addEventListener('click',async e=>{
-  const btn=e.currentTarget;btn.disabled=true;
-  try{await api('/api/admin/test-push',{});alertMsg('测试通知发送成功，请检查手机');}catch(err){alertMsg(err.message);}finally{btn.disabled=false;}
-});
-$('passwordForm').addEventListener('submit',async e=>{
-  e.preventDefault();const btn=e.submitter;btn.disabled=true;
-  try{
-    await api('/api/admin/password',{currentPassword:$('oldPassword').value,newPassword:$('newPassword').value});
-    $('oldPassword').value='';$('newPassword').value='';showLogin();alertMsg('管理员密码已更新，请使用新密码重新登录');
-  }catch(err){alertMsg(err.message);}finally{btn.disabled=false;}
-});
-$('logout').addEventListener('click',async()=>{
-  try{await api('/api/admin/logout',{});}catch{}showLogin();alertMsg('已退出');
-});
-showPanel().catch(showLogin);
+const $=id=>document.getElementById(id);let csrf='',view='overview',timer;
+function toast(t,error=false){const el=$('toast');el.textContent=t;el.classList.toggle('error',error);el.classList.add('show');clearTimeout(timer);timer=setTimeout(()=>el.classList.remove('show'),4600)}
+async function api(path,data){const get=data===undefined;const r=await fetch(path,{method:get?'GET':'POST',credentials:'same-origin',headers:get?{}:{'Content-Type':'application/json','X-CSRF-Token':csrf},...(get?{}:{body:JSON.stringify(data)})});const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'HTTP '+r.status);return j}
+function loginView(){$('appShell').hidden=true;$('loginView').hidden=false;csrf=''}
+function switchView(next){view=next;document.querySelectorAll('.view').forEach(x=>x.hidden=x.id!=='view-'+next);document.querySelectorAll('[data-view]').forEach(x=>{x.classList.toggle('active',x.dataset.view===next);if(x.dataset.view===next)x.setAttribute('aria-current','page');else x.removeAttribute('aria-current')});$('pageName').textContent={overview:'控制台',channels:'通知渠道',settings:'基本设置',security:'账户安全'}[next]}
+function base(){return{publicUrl:$('publicUrl').value.trim(),phoneNumber:$('phoneNumber').value.trim(),rateLimitSeconds:Number($('rateLimit').value)}}
+async function panel(){const s=await api('/api/admin/session');csrf=s.csrf;const c=await api('/api/admin/config');$('publicUrl').value=c.publicUrl||'';$('phoneNumber').value=c.phoneNumber||'';$('rateLimit').value=c.rateLimitSeconds??60;const map=[['bark',c.barkConfigured],['sc3',c.sc3Configured],['wechat',c.serverchanConfigured]];for(const [name,on]of map){$(name+'State').textContent=on?'已启用':'未配置';$(name+'Overview').textContent=on?'已启用':'未配置'}$('activeCount').textContent=map.filter(x=>x[1]).length;for(const id of ['barkUrl','sendkey','sc3SendKey'])$(id).value='';for(const id of ['clearBark','clearWechat','clearSc3'])$(id).checked=false;$('appShell').hidden=false;$('loginView').hidden=true;switchView(view)}
+$('loginForm').onsubmit=async e=>{e.preventDefault();const btn=e.submitter;btn.disabled=true;try{await api('/api/admin/login',{password:$('loginPassword').value});$('loginPassword').value='';view='overview';await panel();toast('登录成功')}catch(e){toast(e.message,true)}finally{btn.disabled=false}};
+async function save(payload,btn){btn.disabled=true;try{await api('/api/admin/settings',payload);await panel();toast('设置已保存，立即生效')}catch(e){toast(e.message,true)}finally{btn.disabled=false}}
+$('channelsForm').onsubmit=e=>{e.preventDefault();void save({...base(),barkUrl:$('barkUrl').value.trim(),serverchanSendKey:$('sendkey').value.trim(),sc3SendKey:$('sc3SendKey').value.trim(),clearBark:$('clearBark').checked,clearServerchan:$('clearWechat').checked,clearSc3:$('clearSc3').checked},e.submitter)};
+$('settingsForm').onsubmit=e=>{e.preventDefault();void save(base(),e.submitter)};
+$('passwordForm').onsubmit=async e=>{e.preventDefault();const btn=e.submitter;btn.disabled=true;try{await api('/api/admin/password',{currentPassword:$('oldPassword').value,newPassword:$('newPassword').value});$('oldPassword').value='';$('newPassword').value='';loginView();toast('密码修改成功，请重新登录')}catch(e){toast(e.message,true)}finally{btn.disabled=false}};
+$('logout').onclick=async()=>{try{await api('/api/admin/logout',{})}catch{}loginView();toast('已退出登录')};
+document.querySelectorAll('[data-view],[data-go]').forEach(b=>b.onclick=()=>switchView(b.dataset.view||b.dataset.go));
+document.querySelectorAll('[data-test-channel]').forEach(b=>b.onclick=async()=>{b.disabled=true;try{const r=await api('/api/admin/test-push',{channel:b.dataset.testChannel});const ok=Object.entries(r.channels||{}).filter(x=>x[1]==='ok').map(x=>x[0]);const bad=Object.entries(r.channels||{}).filter(x=>x[1]!=='ok').map(x=>x[0]);toast('发送成功：'+(ok.join('、')||'无')+(bad.length?'；失败：'+bad.join('、'):'。请检查手机'),bad.length>0)}catch(e){toast(e.message,true)}finally{b.disabled=false}});
+panel().catch(loginView);
