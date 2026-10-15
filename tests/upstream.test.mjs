@@ -26,8 +26,8 @@ test('real downloaded upstream Worker serves homepage and admin without initial 
       await new Promise(r=>setTimeout(r,50));
     }
     assert.ok(ready,'Real Worker did not start: '+errors);
-    const home=await fetch(origin);assert.equal(home.status,200);const homeHTML=await home.text();assert.match(homeHTML,/html/i);assert.match(homeHTML,/id="photoCard"/);assert.match(homeHTML,/photo-ui\.js/);assert.match(homeHTML,/const delayed = false/);assert.match(homeHTML,/window\.moveCarPhotoGrant/);
-    const photoscript=await fetch(`${origin}/photo-ui.js`);assert.equal(photoscript.status,200);assert.match(await photoscript.text(),/photoSendBtn/);
+    const home=await fetch(origin);assert.equal(home.status,200);const homeHTML=await home.text();assert.match(homeHTML,/html/i);assert.match(homeHTML,/request-ui\.js/);
+    const photoscript=await fetch(`${origin}/request-ui.js`);assert.equal(photoscript.status,200);assert.match(await photoscript.text(),/photoChooseBtn/);
     const admin=await fetch(`${origin}/admin`);assert.equal(admin.status,200);
   } finally{
     const exit=proc.exitCode===null?new Promise(r=>proc.once('exit',r)):Promise.resolve();
@@ -67,7 +67,7 @@ test('real Worker sends immediately without GPS and uses formatted SC3 text',{sk
     const desp=mock.calls[0].desp;
     assert.ok(desp.includes('\n'),'Body must have real newline');
     assert.ok(!desp.includes('\\n'),'Body must not contain literal escaped newline');
-    assert.match(desp,/\/owner-confirm\/\d{10,12}\/[a-f0-9]{64}/);
+    assert.match(desp,/\/owner-confirm\/[A-Za-z0-9_-]{43}/);
     const ok=(await notified.json());assert.ok(ok.photoToken);
   }finally{
     const done=proc.exitCode===null?new Promise(r=>proc.once('exit',r)):Promise.resolve();
