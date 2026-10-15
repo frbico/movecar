@@ -83,7 +83,7 @@ test('one-click bootstrap, admin login, two channels, secure owner action and pe
     assert.equal(request.status,200,await request.text());
     assert.equal(wechatCalls.length,2);assert.equal(barkCalls.length,2);
     const link=new URL(barkCalls[1]).searchParams.get('url');
-    assert.ok(link.includes('/owner-confirm?expires='));
+    assert.match(link,/\/owner-confirm\/\d{10,12}\/[a-f0-9]{64}$/);
     assert.equal(link.includes('token='),false);
     const auth=await fetch(link,{redirect:'manual'});assert.equal(auth.status,303);
     const ownerCookie=auth.headers.get('set-cookie').split(';')[0];
