@@ -5,6 +5,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import vm from 'node:vm';
 import { DatabaseSync } from 'node:sqlite';
+import { createRequestFlow } from './request-flow.mjs';
 
 const port = Number(process.env.PORT || 8888);
 const dbPath = path.resolve(process.env.DB_PATH || './data/state.sqlite');
@@ -194,7 +195,7 @@ async function sendSc3(key,title,message,ownerUrl,richMarkdown=false) {
   const endpoint = `https://${uid}.push.ft07.com/send/${key}.send`;
   const url = (isTest && process.env.MOVECAR_TEST_SC3_ENDPOINT) || endpoint;
   const normalizedMessage=String(message).split('\\n').join('\n');
-  const short = normalizedMessage.replace(/\s+/g,' ').slice(0,100);
+  const short = richMarkdown ? '查看留言、现场位置和确认按钮' : normalizedMessage.replace(/\s+/g,' ').slice(0,80);
   const safeMessage = normalizedMessage.replace(/([\\`*_\[\]<>])/g,'\\$1');
   const body = JSON.stringify({title,short,desp:`${richMarkdown?normalizedMessage:safeMessage}\n\n[车主点击确认挪车](${ownerUrl})`,tags:'挪车'});
   const r = await outbound(url,{method:'POST',headers:{'Content-Type':'application/json'},body});
@@ -254,13 +255,10 @@ async function sendWorker(response,res,head=false){
   let payload=head?null:Buffer.from(await response.arrayBuffer());
   if(isHtml&&payload&&payload.includes('id="successView"')){
     let html=payload.toString('utf8');
-    // The original Worker waits 30 seconds without GPS. This adapter now delivers immediately.
-    html=html.replace('const delayed = !userLocation; // 无位置则延迟','const delayed = false; // 不分享定位也立即推送');
-    html=html.replace('if (res.ok) {\n            if (delayed)', 'if (res.ok) {\n            const result = await res.clone().json().catch(() => ({}));\n            window.moveCarPhotoGrant = result.photoToken || null;\n            if (delayed)');
-    html=html.replace('<div class="card action-card">', `<div class="card photo-card" id="photoCard"><h3>📸 补充现场照片</h3><p>首次通知成功后，可以补发现场照片给车主。</p><input id="photoPicker" type="file" accept="image/*" capture="environment" hidden><button id="photoChooseBtn" type="button" style="width:100%;padding:18px;border:0;border-radius:16px;background:#d8f4ff;color:#116a95;font-weight:750;font-size:16px">📷 拍摄 / 选择现场照片</button><img id="photoPreview" alt="现场照片预览" style="display:none;max-width:100%;margin:12px auto;border-radius:12px"><p id="photoStatus" role="status" style="font-size:13px"></p><button id="photoSendBtn" type="button" style="display:none;width:100%;padding:16px;border:0;border-radius:15px;background:#139c73;color:#fff;font-weight:750">发送现场照片给车主</button></div><div class="card action-card">`);
-    html=html.replace('</body>','<script src="/photo-ui.js" defer></script></body>');
+    if(!html.includes('</body>'))throw Error('上游页面缺少 body 结束标签');
+    html=html.replace('</body>','<script src="/request-ui.js" defer></script></body>');
     payload=Buffer.from(html,'utf8');
-    headers['content-security-policy']="frame-ancestors 'none'; img-src 'self' data: https:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'";
+    headers['content-security-policy']="frame-ancestors 'none'; img-src 'self' data: https:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'";
   }
   res.writeHead(response.status,headers);res.end(payload);
 }
@@ -268,6 +266,7 @@ function staticFile(res,name,type) {
   const txt=fs.readFileSync(path.join(import.meta.dirname,name));
   reply(res,200,txt,{'Content-Type':type,'Content-Security-Policy':"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"});
 }
+const requestFlow=createRequestFlow({db,setting,random,hash,notifyChannels,inputJson,inputPhoto,json,reply,rateGet,ratePut});
 const failStats=new Map();
 setInterval(()=>{
  const now=Date.now();db.prepare('DELETE FROM kv WHERE expiry IS NOT NULL AND expiry<=?').run(now);
@@ -276,6 +275,7 @@ setInterval(()=>{
  db.prepare('DELETE FROM owner_sessions WHERE expiry<=?').run(now);
  db.prepare('DELETE FROM photo_grants WHERE expiry<=?').run(now);
  db.prepare('DELETE FROM photo_records WHERE expiry<=?').run(now);
+ requestFlow.cleanup();
  for (const [ip,item] of failStats) if(item.until<now)failStats.delete(ip);
 },3600000).unref();
 const server=http.createServer(async(req,res)=>{
@@ -289,6 +289,7 @@ const server=http.createServer(async(req,res)=>{
     if(route==='/admin.js')return req.method==='GET'?staticFile(res,'admin.js','text/javascript; charset=utf-8'):reply(res,405,'Method not allowed');
     if(route==='/admin.css')return req.method==='GET'?staticFile(res,'admin.css','text/css; charset=utf-8'):reply(res,405,'Method not allowed');
     if(route==='/photo-ui.js')return req.method==='GET'?staticFile(res,'photo-ui.js','text/javascript; charset=utf-8'):reply(res,405,'Method not allowed');
+    if(await requestFlow.handle(req,res,origin,u))return;
     if(route.startsWith('/api/admin/')){
       if(route==='/api/admin/login'&&req.method==='POST'){
         const loginOrigin=trustedAdminOrigin(req);
