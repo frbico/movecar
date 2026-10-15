@@ -46,6 +46,18 @@ test('one-click bootstrap, admin login, two channels, secure owner action and pe
     assert.equal((await admin('/api/admin/login',{password:'wrong'})).status,401);
     const logged=await admin('/api/admin/login',{password});assert.equal(logged.status,200);
     adminCookie=logged.headers.get('set-cookie').split(';')[0];
+    // The browser may use HTTPS while its reverse proxy talks HTTP to Node.
+    const proxied=await call('/api/admin/login',{method:'POST',headers:{Origin:`https://127.0.0.1:${port}`,'Sec-Fetch-Site':'same-origin','Content-Type':'application/json'},body:JSON.stringify({password})});
+    assert.equal(proxied.status,200,await proxied.text());
+    assert.match(proxied.headers.get('set-cookie'),/; Secure/);
+    const proxyCookie=proxied.headers.get('set-cookie').split(';')[0];
+    const proxySession=await call('/api/admin/session',{headers:{Cookie:proxyCookie}});
+    assert.equal(proxySession.status,200);
+    const proxyCsrf=(await proxySession.json()).csrf;
+    const proxyUpdate=await call('/api/admin/settings',{method:'POST',headers:{Origin:`https://127.0.0.1:${port}`,'Sec-Fetch-Site':'same-origin',Cookie:proxyCookie,'X-CSRF-Token':proxyCsrf,'Content-Type':'application/json'},body:JSON.stringify({publicUrl:'',phoneNumber:'',rateLimitSeconds:60})});
+    assert.equal(proxyUpdate.status,200,await proxyUpdate.text());
+    const evil=await call('/api/admin/login',{method:'POST',headers:{Origin:'https://evil.example.test','Sec-Fetch-Site':'cross-site','Content-Type':'application/json'},body:JSON.stringify({password})});
+    assert.equal(evil.status,403);
     assert.match(logged.headers.get('set-cookie'),/HttpOnly/);
     const session=await call('/api/admin/session',{headers:{Cookie:adminCookie}});csrf=(await session.json()).csrf;
     const before=await call('/api/admin/config',{headers:{Cookie:adminCookie}});
@@ -55,6 +67,12 @@ test('one-click bootstrap, admin login, two channels, secure owner action and pe
     const saved=await admin('/api/admin/settings',settings);assert.equal(saved.status,200,await saved.text());
     const cfg=await(await call('/api/admin/config',{headers:{Cookie:adminCookie}})).json();
     assert.equal(cfg.barkConfigured,true);assert.equal(cfg.serverchanConfigured,true);assert.equal(cfg.phoneNumber,'13800000000');
+    // The configured public notification URL must not lock out direct-IP admin access.
+    const configured=await admin('/api/admin/settings',{...settings,publicUrl:'https://car.example.test'});
+    assert.equal(configured.status,200,await configured.text());
+    const directLogin=await admin('/api/admin/login',{password});
+    assert.equal(directLogin.status,200,await directLogin.text());
+    await admin('/api/admin/settings',settings);
     assert.equal(JSON.stringify(cfg).includes('SCT123'),false);
     const testPush=await admin('/api/admin/test-push',{});assert.equal(testPush.status,200,await testPush.text());
     assert.equal(wechatCalls.length,1);assert.equal(barkCalls.length,1);

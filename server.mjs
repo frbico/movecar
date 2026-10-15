@@ -92,19 +92,33 @@ async function inputJson(req) {
   try { const obj=JSON.parse(Buffer.concat(arr).toString('utf8')); if(!obj || typeof obj!=='object'||Array.isArray(obj)) throw Error(); return obj; }
   catch { throw Object.assign(Error('JSON 数据无效'),{status:400}); }
 }
-function requestOrigin(req) {
-  const configured = setting('public_url');
-  if (configured) return validateOrigin(configured);
-  const host = req.headers.host;
+function requestHostOrigin(req) {
+  const host=req.headers.host;
   if (!host || host.length>255 || !/^(?:\[[0-9a-fA-F:.]+\]|[A-Za-z0-9.-]+)(?::\d{1,5})?$/.test(host)) throw Object.assign(Error('Host 无效'),{status:400});
-  // Never trust arbitrary forwarded headers. Configure Public URL for TLS reverse proxies.
-  return `http://${host}`;
+  return new URL('http://' + host).origin;
 }
-function checkCsrf(req, origin, csrf) {
-  const suppliedOrigin=req.headers.origin;
-  if (suppliedOrigin && suppliedOrigin !== origin) return false;
-  if (req.headers['sec-fetch-site'] === 'cross-site') return false;
-  return constantEq(req.headers['x-csrf-token']||'',csrf);
+function requestOrigin(req) {
+  // Public URL controls notification links, never the admin login origin.
+  const configured=setting('public_url');
+  return configured ? validateOrigin(configured) : requestHostOrigin(req);
+}
+function trustedAdminOrigin(req) {
+  // Preserve CSRF security while allowing HTTPS reverse proxies that pass through Host.
+  // Never trust arbitrary X-Forwarded-* headers.
+  const site=req.headers['sec-fetch-site'];
+  if (site==='cross-site'||site==='same-site') return null;
+  const localOrigin=requestHostOrigin(req);
+  const raw=req.headers.origin;
+  if (!raw) return localOrigin; // non-browser CLI calls; writes still need the CSRF token
+  let candidate;
+  try { candidate=validateOrigin(raw); } catch { return null; }
+  const sameHost=new URL(candidate).host.toLowerCase()===new URL(localOrigin).host.toLowerCase();
+  const publicUrl=setting('public_url');
+  if(sameHost||(publicUrl&&candidate===publicUrl)) return candidate;
+  return null;
+}
+function checkCsrf(req,csrf) {
+  return trustedAdminOrigin(req)!==null && constantEq(req.headers['x-csrf-token']||'',csrf);
 }
 function session(req) {
   const token=sessions(req).movecar_admin;
@@ -218,7 +232,8 @@ const server=http.createServer(async(req,res)=>{
     if(route==='/admin.css')return req.method==='GET'?staticFile(res,'admin.css','text/css; charset=utf-8'):reply(res,405,'Method not allowed');
     if(route.startsWith('/api/admin/')){
       if(route==='/api/admin/login'&&req.method==='POST'){
-        if (req.headers.origin && req.headers.origin!==origin) return json(res,403,{error:'来源不可信'});
+        const loginOrigin=trustedAdminOrigin(req);
+        if (!loginOrigin) return json(res,403,{error:'来源不可信：请通过当前访问地址打开后台，检查代理是否保留 Host 头'});
         const ip=req.socket.remoteAddress||'unknown';const stat=failStats.get(ip)||{fails:0,until:0};
         if(stat.until>Date.now())return json(res,429,{error:'尝试次数过多，请 15 分钟后重试'});
         const data=await inputJson(req);const password=data.password;
@@ -230,16 +245,16 @@ const server=http.createServer(async(req,res)=>{
         }
         failStats.delete(ip);
         const token=random(), csrf=random();sessionPut.run(hash(token),csrf,Date.now()+86400000);
-        return json(res,200,{ok:true},{'Set-Cookie':cookie('movecar_admin',token,origin,86400)});
+        return json(res,200,{ok:true},{'Set-Cookie':cookie('movecar_admin',token,loginOrigin,86400)});
       }
       const auth=session(req);
       if(!auth)return json(res,401,{error:'请先登录'});
       if(route==='/api/admin/session'&&req.method==='GET')return json(res,200,{csrf:auth.csrf});
       if(route==='/api/admin/config'&&req.method==='GET')return json(res,200,{publicUrl:setting('public_url'),phoneNumber:setting('phone_number'),rateLimitSeconds:Number(setting('rate_limit_seconds','60')),barkConfigured:!!setting('bark_url'),serverchanConfigured:!!setting('serverchan_sendkey')});
-      if(!['POST','PUT'].includes(req.method)||!checkCsrf(req,origin,auth.csrf))return json(res,403,{error:'请求未通过验证'});
+      if(!['POST','PUT'].includes(req.method)||!checkCsrf(req,auth.csrf))return json(res,403,{error:'请求未通过验证'});
       if(route==='/api/admin/logout'){
         const tok=sessions(req).movecar_admin;db.prepare('DELETE FROM admin_sessions WHERE digest=?').run(hash(tok));
-        return json(res,200,{ok:true},{'Set-Cookie':cookie('movecar_admin','',origin,0)});
+        return json(res,200,{ok:true},{'Set-Cookie':cookie('movecar_admin','',trustedAdminOrigin(req)||origin,0)});
       }
       if(route==='/api/admin/settings' && req.method==='POST') {
         const data=await inputJson(req);
@@ -269,7 +284,7 @@ const server=http.createServer(async(req,res)=>{
         const salt=crypto.randomBytes(16).toString('hex');save('admin_salt',salt);save('admin_hash',crypto.scryptSync(data.newPassword,salt,64).toString('hex'));
         db.exec('DELETE FROM admin_sessions');
         try{fs.unlinkSync(initialFile);}catch(e){if(e.code!=='ENOENT')console.warn('Could not remove bootstrap password file');}
-        return json(res,200,{ok:true,message:'密码修改成功，请重新登录'},{'Set-Cookie':cookie('movecar_admin','',origin,0)});
+        return json(res,200,{ok:true,message:'密码修改成功，请重新登录'},{'Set-Cookie':cookie('movecar_admin','',trustedAdminOrigin(req)||origin,0)});
       }
       return json(res,404,{error:'接口不存在'});
     }
