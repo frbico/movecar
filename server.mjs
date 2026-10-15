@@ -249,8 +249,20 @@ function invokeWorker(request) { let result; listener({request,respondWith(p){re
 async function sendWorker(response,res,head=false){
   const headers=Object.fromEntries(response.headers);
   headers['cache-control']='no-store'; headers['x-content-type-options']='nosniff';headers['referrer-policy']='no-referrer';headers['x-frame-options']='DENY';
-  if(headers['content-type']?.includes('text/html')) headers['content-security-policy']="frame-ancestors 'none'";
-  const payload=head?null:Buffer.from(await response.arrayBuffer());res.writeHead(response.status,headers);res.end(payload);
+  const isHtml=headers['content-type']?.includes('text/html');
+  if(isHtml) headers['content-security-policy']="frame-ancestors 'none'";
+  let payload=head?null:Buffer.from(await response.arrayBuffer());
+  if(isHtml&&payload&&payload.includes('id="successView"')){
+    let html=payload.toString('utf8');
+    // The original Worker waits 30 seconds without GPS. This adapter now delivers immediately.
+    html=html.replace('const delayed = !userLocation; // 无位置则延迟','const delayed = false; // 不分享定位也立即推送');
+    html=html.replace('if (res.ok) {\n            if (delayed)', 'if (res.ok) {\n            const result = await res.clone().json().catch(() => ({}));\n            window.moveCarPhotoGrant = result.photoToken || null;\n            if (delayed)');
+    html=html.replace('<div class="card action-card">', `<div class="card photo-card" id="photoCard"><h3>📸 补充现场照片</h3><p>首次通知成功后，可以补发现场照片给车主。</p><input id="photoPicker" type="file" accept="image/*" capture="environment" hidden><button id="photoChooseBtn" type="button" style="width:100%;padding:18px;border:0;border-radius:16px;background:#d8f4ff;color:#116a95;font-weight:750;font-size:16px">📷 拍摄 / 选择现场照片</button><img id="photoPreview" alt="现场照片预览" style="display:none;max-width:100%;margin:12px auto;border-radius:12px"><p id="photoStatus" role="status" style="font-size:13px"></p><button id="photoSendBtn" type="button" style="display:none;width:100%;padding:16px;border:0;border-radius:15px;background:#139c73;color:#fff;font-weight:750">发送现场照片给车主</button></div><div class="card action-card">`);
+    html=html.replace('</body>','<script src="/photo-ui.js" defer></script></body>');
+    payload=Buffer.from(html,'utf8');
+    headers['content-security-policy']="frame-ancestors 'none'; img-src 'self' data: https:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'";
+  }
+  res.writeHead(response.status,headers);res.end(payload);
 }
 function staticFile(res,name,type) {
   const txt=fs.readFileSync(path.join(import.meta.dirname,name));
