@@ -26,6 +26,10 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
       request_id TEXT NOT NULL,
       expires_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS move_request_photos (
+      request_id TEXT PRIMARY KEY,
+      photo_id TEXT NOT NULL UNIQUE
+    );
   `);
   const insert=db.prepare('INSERT INTO move_requests(id,owner_digest,poll_digest,message,location_json,created_at,expires_at) VALUES(?,?,?,?,?,?,?)');
   const remove=db.prepare('DELETE FROM move_requests WHERE id=?');
@@ -36,7 +40,15 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
   const grantInsert=db.prepare('INSERT INTO move_photo_grants(digest,request_id,expires_at) VALUES(?,?,?)');
   const grantSelect=db.prepare('SELECT request_id FROM move_photo_grants WHERE digest=? AND expires_at>?');
   const photoUsed=db.prepare('UPDATE move_requests SET photo_sent=1 WHERE id=? AND photo_sent=0 AND expires_at>?');
-  const insertPhoto=db.prepare('INSERT INTO photo_records(id,data,expiry) VALUES(?,?,?)');
+  const insertPhoto=db.prepare('INSERT INTO photo_records(id,data,expiry,mime) VALUES(?,?,?,?)');
+  const associatePhoto=db.prepare('INSERT INTO move_request_photos(request_id,photo_id) VALUES(?,?)');
+  const deletePhoto=db.prepare('DELETE FROM photo_records WHERE id=?');
+  const photoAssociations=db.prepare('SELECT photo_id FROM move_request_photos WHERE request_id=?');
+  const deleteAssociations=db.prepare('DELETE FROM move_request_photos WHERE request_id=?');
+  const deleteGrantsByRequest=db.prepare('DELETE FROM move_photo_grants WHERE request_id=?');
+  const countRequests=db.prepare('SELECT COUNT(*) AS total FROM move_requests');
+  const oldestRequests=db.prepare('SELECT id FROM move_requests ORDER BY created_at DESC,rowid DESC LIMIT -1 OFFSET ?');
+  const expiredRequests=db.prepare('SELECT id FROM move_requests WHERE expires_at<=?');
   const dropGrant=db.prepare('DELETE FROM move_photo_grants WHERE digest=?');
   const isToken=t=>typeof t==='string'&&/^[A-Za-z0-9_-]{43}$/.test(t);
   const ownerTokenFor=id=>crypto.createHmac('sha256',setting('owner_signing_key')).update('movecar-owner-v2:'+id).digest('base64url');
@@ -51,13 +63,29 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
   };
   const page=fs.readFileSync(new URL('./owner-view.html',import.meta.url));
   const deny=(res,code=404)=>json(res,code,{error:'请求不存在或链接已过期，请重新发起挪车请求'});
+  function removeRequest(id){
+    const linked=photoAssociations.get(id);
+    if(linked)deletePhoto.run(linked.photo_id);
+    deleteAssociations.run(id);
+    deleteGrantsByRequest.run(id);
+    remove.run(id);
+  }
+  function retentionLimit(){
+    const limit=Number(setting('request_retention_limit','50'));
+    return Number.isInteger(limit)&&limit>=1&&limit<=500?limit:50;
+  }
   function cleanup(){
     const now=Date.now();
+    for(const item of expiredRequests.all(now))removeRequest(item.id);
     db.prepare('DELETE FROM move_photo_grants WHERE expires_at<=?').run(now);
-    db.prepare('DELETE FROM move_requests WHERE expires_at<=?').run(now);
   }
+  function trimRetention(){
+    cleanup();
+    for(const item of oldestRequests.all(retentionLimit()))removeRequest(item.id);
+  }
+  trimRetention(); // Apply default 50 to existing databases on startup.
   return {
-    cleanup,
+    cleanup,trimRetention,retentionLimit,count:()=>countRequests.get().total,
     async handle(req,res,origin,u){
       const route=u.pathname,method=req.method;
       if(route==='/owner-view.js') {
@@ -135,6 +163,7 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
           const channels=await notifyChannels({title:'🚗 MoveCar · 有人请求挪车',message:lines.join('\n'),ownerUrl,richMarkdown:true});
           grantInsert.run(hash(photoToken),id,Date.now()+20*60000);
           if(seconds>0)ratePut.run(addr,Date.now()+seconds*1000);
+          trimRetention();
           json(res,200,{success:true,requestId:id,pollToken,photoToken,channels});return true;
         }catch(e){
           remove.run(id);
@@ -143,24 +172,25 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
       }
       if(route==='/api/photo'){
         if(method!=='POST')return reply(res,405,'Method not allowed'),true;
-        if(req.headers['content-type']!=='image/jpeg')return json(res,415,{error:'仅接受 JPEG 照片'}),true;
+        if(!['image/jpeg','image/png','image/webp','image/heic','image/heif'].includes(req.headers['content-type']))return json(res,415,{error:'仅支持 JPEG、PNG、WebP、HEIC/HEIF 照片'}),true;
         const token=req.headers['x-photo-token'];
         if(!isToken(token))return deny(res,403),true;
         const grant=grantSelect.get(hash(token),Date.now());
         if(!grant)return deny(res,403),true;
         const record=byId.get(grant.request_id,Date.now());
         if(!record||record.photo_sent)return json(res,409,{error:'照片已发送或请求已过期'}),true;
-        const bytes=await inputPhoto(req);
+        const {bytes,mime}=await inputPhoto(req);
         const photoId=random(),imageUrl=`${origin}/api/photo/${photoId}`;
-        insertPhoto.run(photoId,bytes,Date.now()+3600000);
+        insertPhoto.run(photoId,bytes,Date.now()+3600000,mime);
         const message=`## 📷 挪车现场照片\n\n![现场照片](${imageUrl})\n\n[点击查看原图](${imageUrl})`;
         const ownerUrl=`${origin}/owner-confirm/${ownerTokenFor(record.id)}`;
         try{
           await notifyChannels({title:'📷 MoveCar · 现场照片',message,ownerUrl,richMarkdown:true});
-          if(photoUsed.run(record.id,Date.now()).changes===1)dropGrant.run(hash(token));
+          if(photoUsed.run(record.id,Date.now()).changes===1){associatePhoto.run(record.id,photoId);dropGrant.run(hash(token));}
           json(res,200,{success:true,photoUrl:imageUrl});return true;
         }catch(e){
-          json(res,502,{error:'照片已保存但推送失败，请稍后重试'});return true;
+          deletePhoto.run(photoId);
+          json(res,502,{error:'图片推送失败，可重试上传同一张照片'});return true;
         }
       }
       return false;

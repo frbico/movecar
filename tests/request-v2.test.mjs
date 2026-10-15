@@ -72,6 +72,42 @@ test('two independent requests, clickable maps, owner tokens, SC3 formatting and
     assert.equal(await status(second),'waiting');
     assert.equal((await api('/api/confirm-move',{token:firstToken})).status,200);
     assert.equal(await status(second),'waiting');
+    // Accept original PNG data without a browser Canvas decode or re-encoding step.
+    const png=Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),Buffer.alloc(64,55)]);
+    const upload=(token,type,bytes)=>fetch(origin+'/api/photo',{method:'POST',headers:{'Content-Type':type,'X-Photo-Token':token},body:bytes});
+    const firstImage=await upload(first.photoToken,'image/png',png);
+    assert.equal(firstImage.status,200,await firstImage.clone().text());
+    const pngUrl=calls.at(-1).desp.match(/https?:\/\/127\.0\.0\.1:\d+\/api\/photo\/[A-Za-z0-9_-]{43}/)[0];
+    const savedPng=await fetch(pngUrl);
+    assert.equal(savedPng.headers.get('content-type'),'image/png');
+    assert.deepEqual(Buffer.from(await savedPng.arrayBuffer()),png);
+    // HEIC originals are passed through as-is; they do not require browser decoding.
+    const heic=Buffer.alloc(64);
+    heic.writeUInt32BE(64,0);heic.write('ftyp',4);heic.write('heic',8);
+    const mismatch=await upload(second.photoToken,'image/jpeg',heic);
+    assert.equal(mismatch.status,415);
+    const secondImage=await upload(second.photoToken,'image/heic',heic);
+    assert.equal(secondImage.status,200,await secondImage.clone().text());
+    const heicUrl=calls.at(-1).desp.match(/https?:\/\/127\.0\.0\.1:\d+\/api\/photo\/[A-Za-z0-9_-]{43}/)[0];
+    const savedHeic=await fetch(heicUrl);
+    assert.equal(savedHeic.headers.get('content-type'),'image/heic');
+    assert.deepEqual(Buffer.from(await savedHeic.arrayBuffer()),heic);
+    // Admin retention changes take effect immediately and cascade-delete associated photos.
+    const cap=await fetch(origin+'/api/admin/settings',{method:'POST',
+      headers:{Origin:origin,Cookie:cookie,'X-CSRF-Token':csrf,'Content-Type':'application/json'},
+      body:JSON.stringify({publicUrl:'',phoneNumber:'',rateLimitSeconds:0,requestRetentionLimit:1})});
+    assert.equal(cap.status,200,await cap.clone().text());
+    const info=await (await fetch(origin+'/api/admin/config',{headers:{Cookie:cookie}})).json();
+    assert.equal(info.requestRetentionLimit,1);
+    assert.equal(info.requestCount,1);
+    assert.equal((await api('/api/request-status',{requestId:first.requestId,pollToken:first.pollToken})).status,410);
+    assert.equal(await status(second),'waiting');
+    assert.equal((await fetch(pngUrl)).status,404);
+    assert.equal((await fetch(heicUrl)).status,200);
+    const invalidLimit=await fetch(origin+'/api/admin/settings',{method:'POST',
+      headers:{Origin:origin,Cookie:cookie,'X-CSRF-Token':csrf,'Content-Type':'application/json'},
+      body:JSON.stringify({publicUrl:'',phoneNumber:'',rateLimitSeconds:0,requestRetentionLimit:0})});
+    assert.equal(invalidLimit.status,400);
   }finally{
     const done=processServer.exitCode===null?new Promise(r=>processServer.once('exit',r)):Promise.resolve();
     if(processServer.exitCode===null)processServer.kill('SIGTERM');await done;

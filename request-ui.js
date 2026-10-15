@@ -86,7 +86,7 @@
  };
  const card=document.createElement('section');
  card.id='photoCard';card.className='card photo-card';
- card.innerHTML='<h3 style="margin-bottom:10px">📸 补充现场照片</h3><p style="margin-bottom:14px;color:#657a8b">首次通知成功后，可拍照并单独发送给车主。</p><input id="photoPicker" type="file" accept="image/*" capture="environment" style="position:absolute;left:-9999px;width:1px;height:1px" aria-label="拍摄现场照片"><button id="photoChooseBtn" type="button" style="width:100%;padding:16px;background:#d6f5fa;border:1px solid #93cdda;color:#006978;border-radius:14px;font-weight:bold;font-size:17px">📷 拍照 / 选择照片</button><img id="photoPreview" alt="已选择的现场照片" hidden style="width:100%;max-height:300px;object-fit:contain;margin-top:12px;border-radius:12px"><p id="photoStatus" role="status" style="margin:12px 0;color:#355e6b;font-size:14px"></p><button id="photoSendBtn" type="button" hidden style="width:100%;background:#159f79;color:#fff;padding:15px;border:0;border-radius:14px;font-weight:bold">发送照片给车主</button>';
+ card.innerHTML='<h3 style="margin-bottom:10px">📸 补充现场照片</h3><p style="margin-bottom:14px;color:#657a8b">首次通知成功后可直接发送原图，不会强制压缩（最大 8 MB）。</p><input id="photoPicker" type="file" accept="image/*" capture="environment" style="position:absolute;left:-9999px;width:1px;height:1px" aria-label="拍摄现场照片"><button id="photoChooseBtn" type="button" style="width:100%;padding:16px;background:#d6f5fa;border:1px solid #93cdda;color:#006978;border-radius:14px;font-weight:bold;font-size:17px">📷 拍照 / 选择照片</button><img id="photoPreview" alt="已选择的现场照片" hidden style="width:100%;max-height:300px;object-fit:contain;margin-top:12px;border-radius:12px"><p id="photoStatus" role="status" style="margin:12px 0;color:#355e6b;font-size:14px"></p><button id="photoSendBtn" type="button" hidden style="width:100%;background:#159f79;color:#fff;padding:15px;border:0;border-radius:14px;font-weight:bold">发送照片给车主</button>';
  const actionCard=success.querySelector('.action-card');
  success.insertBefore(card,actionCard||null);
  const choose=document.getElementById('photoChooseBtn');
@@ -101,31 +101,29 @@
  });
  picker.addEventListener('change',async()=>{
    const file=picker.files?.[0];if(!file)return;
-   send.hidden=true;
+   send.hidden=true;photo=null;
    try{
-     if(!file.type.startsWith('image/'))throw Error('请选择图片');
-     state.textContent='正在处理照片…';
-     const img=await new Promise((resolve,reject)=>{
-       const url=URL.createObjectURL(file),image=new Image();
-       image.onload=()=>{URL.revokeObjectURL(url);resolve(image);};
-       image.onerror=()=>{URL.revokeObjectURL(url);reject(Error('照片解码失败'));};
-       image.src=url;
-     });
-     const canvas=document.createElement('canvas');
-     const scale=Math.min(1,1200/Math.max(img.naturalWidth,img.naturalHeight));
-     canvas.width=Math.max(1,Math.round(img.naturalWidth*scale));
-     canvas.height=Math.max(1,Math.round(img.naturalHeight*scale));
-     const ctx=canvas.getContext('2d');
-     if(!ctx)throw Error('设备不支持图片压缩');
-     ctx.drawImage(img,0,0,canvas.width,canvas.height);
-     photo=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',0.72));
-     if(!photo||photo.size>1572864||photo.size<32)throw Error('照片过大，请换一张');
+     const head=new Uint8Array(await file.slice(0,32).arrayBuffer());
+     const ascii=(a,b)=>Array.from(head.slice(a,b),x=>String.fromCharCode(x)).join('');
+     let type='';
+     if(head[0]===255&&head[1]===216&&head[2]===255)type='image/jpeg';
+     else if(head.length>=8&&[137,80,78,71,13,10,26,10].every((v,i)=>head[i]===v))type='image/png';
+     else if(ascii(0,4)==='RIFF'&&ascii(8,12)==='WEBP')type='image/webp';
+     else if(ascii(4,8)==='ftyp'&&['heic','heix','hevc','hevx','mif1','msf1','heis','heim'].includes(ascii(8,12)))type='image/heic';
+     if(!type)throw Error('仅支持 JPEG、PNG、WebP 或 HEIC/HEIF 原图');
+     if(file.size<32||file.size>8*1024*1024)throw Error('请选取不超过 8 MB 的原图');
+     photo={file,type};
      if(objectUrl)URL.revokeObjectURL(objectUrl);
-     objectUrl=URL.createObjectURL(photo);
-     preview.src=objectUrl;preview.hidden=false;
+     objectUrl=URL.createObjectURL(file);
+     // Preview is optional: decoding is NOT required to upload the original file.
+     preview.onerror=()=>{preview.hidden=true;state.textContent='✅ 原图已就绪（当前浏览器无法预览此格式），仍可直接发送';};
+     preview.onload=()=>{preview.hidden=false;};
+     preview.src=objectUrl;preview.hidden=type==='image/heic';
      send.hidden=false;
-     state.textContent='✅ 照片已准备好，点击下方发送按钮';
-   }catch(e){state.textContent='❌ '+e.message;}
+     state.textContent=type==='image/heic'
+       ? '✅ HEIC 原图已就绪，可直接发送；部分消息 App 不支持内嵌预览'
+       : '✅ 原图已就绪（'+(file.size/1048576).toFixed(1)+' MB），点击下方发送';
+   }catch(e){state.textContent='❌ '+e.message;preview.hidden=true;}
    picker.value='';
  });
  send.addEventListener('click',async()=>{
@@ -133,7 +131,7 @@
    send.disabled=true;choose.disabled=true;
    state.textContent='正在上传并发送照片…';
    try{
-     const data=await htmlText(await fetch('/api/photo',{method:'POST',headers:{'Content-Type':'image/jpeg','X-Photo-Token':current.photoToken},body:photo,cache:'no-store'}));
+     const data=await htmlText(await fetch('/api/photo',{method:'POST',headers:{'Content-Type':photo.type,'X-Photo-Token':current.photoToken},body:photo.file,cache:'no-store'}));
      if(!data.success)throw Error('照片未能送达，请稍后重试');
      state.textContent='✅ 已发送照片给车主';
      current.photoToken=null;send.hidden=true;choose.hidden=true;

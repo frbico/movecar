@@ -41,7 +41,8 @@ const photoGrantGet = db.prepare('SELECT expiry FROM photo_grants WHERE digest=?
 const photoGrantPut = db.prepare('INSERT INTO photo_grants(digest,expiry) VALUES(?,?)');
 const photoGrantUse = db.prepare('DELETE FROM photo_grants WHERE digest=? AND expiry>?');
 const photoPut = db.prepare('INSERT INTO photo_records(id,data,expiry) VALUES(?,?,?)');
-const photoGet = db.prepare('SELECT data FROM photo_records WHERE id=? AND expiry>?');
+if (!db.prepare('PRAGMA table_info(photo_records)').all().some(c=>c.name==='mime')) db.exec("ALTER TABLE photo_records ADD COLUMN mime TEXT NOT NULL DEFAULT 'image/jpeg'");
+const photoGet = db.prepare('SELECT data,mime FROM photo_records WHERE id=? AND expiry>?');
 const setting = (name, fallback = '') => getSettingStmt.get(name)?.value ?? fallback;
 const save = (name, value) => putSettingStmt.run(name, String(value));
 const random = () => crypto.randomBytes(32).toString('base64url');
@@ -157,7 +158,7 @@ function isOwner(req) {
   const token=sessions(req).movecar_owner;
   return token && ownerSessionGet.get(hash(token),Date.now());
 }
-async function inputPhoto(req,limit=1572864) {
+async function inputPhoto(req,limit=8*1024*1024) {
   let total=0;const chunks=[];
   for await(const chunk of req) {
     total+=chunk.length;
@@ -165,9 +166,18 @@ async function inputPhoto(req,limit=1572864) {
     chunks.push(chunk);
   }
   const b=Buffer.concat(chunks);
-  if(b.length<32||b[0]!==255||b[1]!==216||b[b.length-2]!==255||b[b.length-1]!==217)
-    throw Object.assign(Error('照片格式无效，只接受 JPEG'),{status:415});
-  return b;
+  if(b.length<32)throw Object.assign(Error('照片内容为空或不完整'),{status:415});
+  const four=(from,to)=>b.toString('ascii',from,to);
+  let mime='';
+  if(b[0]===255&&b[1]===216&&b[2]===255&&b[b.length-2]===255&&b[b.length-1]===217)mime='image/jpeg';
+  else if(b.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))mime='image/png';
+  else if(four(0,4)==='RIFF'&&four(8,12)==='WEBP')mime='image/webp';
+  else if(four(4,8)==='ftyp'&&['heic','heix','hevc','hevx','mif1','msf1','heis','heim'].includes(four(8,12)))mime='image/heic';
+  if(!mime)throw Object.assign(Error('仅支持 JPEG、PNG、WebP、HEIC/HEIF 原图'),{status:415});
+  const claimed=String(req.headers['content-type']||'').split(';')[0].trim().toLowerCase();
+  if(claimed!==mime && !(mime==='image/heic'&&claimed==='image/heif'))
+    throw Object.assign(Error('图片类型与文件内容不匹配'),{status:415});
+  return {bytes:b,mime};
 }
 async function outbound(url,options) {
   const r=await fetch(url,{...options,redirect:'error',signal:AbortSignal.timeout(12000)});
@@ -310,7 +320,7 @@ const server=http.createServer(async(req,res)=>{
       const auth=session(req);
       if(!auth)return json(res,401,{error:'请先登录'});
       if(route==='/api/admin/session'&&req.method==='GET')return json(res,200,{csrf:auth.csrf});
-      if(route==='/api/admin/config'&&req.method==='GET')return json(res,200,{publicUrl:setting('public_url'),phoneNumber:setting('phone_number'),rateLimitSeconds:Number(setting('rate_limit_seconds','60')),barkConfigured:!!setting('bark_url'),serverchanConfigured:!!setting('serverchan_sendkey'),sc3Configured:!!setting('sc3_sendkey')});
+      if(route==='/api/admin/config'&&req.method==='GET')return json(res,200,{publicUrl:setting('public_url'),phoneNumber:setting('phone_number'),rateLimitSeconds:Number(setting('rate_limit_seconds','60')),requestRetentionLimit:requestFlow.retentionLimit(),requestCount:requestFlow.count(),barkConfigured:!!setting('bark_url'),serverchanConfigured:!!setting('serverchan_sendkey'),sc3Configured:!!setting('sc3_sendkey')});
       if(!['POST','PUT'].includes(req.method)||!checkCsrf(req,auth.csrf))return json(res,403,{error:'请求未通过验证'});
       if(route==='/api/admin/logout'){
         const tok=sessions(req).movecar_admin;db.prepare('DELETE FROM admin_sessions WHERE digest=?').run(hash(tok));
@@ -321,6 +331,7 @@ const server=http.createServer(async(req,res)=>{
         if(typeof data.publicUrl!=='string'||data.publicUrl.length>300)throw Object.assign(Error('访问地址无效'),{status:400});
         if(typeof data.phoneNumber!=='string'||data.phoneNumber.length>35)throw Object.assign(Error('电话号码无效'),{status:400});
         if(!Number.isInteger(data.rateLimitSeconds)||data.rateLimitSeconds<0||data.rateLimitSeconds>3600)throw Object.assign(Error('限流范围须在 0-3600 秒'),{status:400});
+        if(data.requestRetentionLimit!==undefined && (!Number.isInteger(data.requestRetentionLimit)||data.requestRetentionLimit<1||data.requestRetentionLimit>500))throw Object.assign(Error('挪车记录保留条数须在 1-500 之间'),{status:400});
         let publicUrl;
         try { publicUrl=validateOrigin(data.publicUrl.trim()); } catch { throw Object.assign(Error('公网地址格式不正确'),{status:400}); }
         let bark=null,key=null;
@@ -332,6 +343,7 @@ const server=http.createServer(async(req,res)=>{
           catch { throw Object.assign(Error('请填写 sctp 开头的 Server酱³ SendKey'),{status:400}); }
         }
         save('public_url',publicUrl);save('phone_number',data.phoneNumber.trim());save('rate_limit_seconds',data.rateLimitSeconds);
+        if(data.requestRetentionLimit!==undefined){save('request_retention_limit',data.requestRetentionLimit);requestFlow.trimRetention();}
         if(bark)save('bark_url',bark);else if(data.clearBark===true)delSettingStmt.run('bark_url');
         if(key)save('serverchan_sendkey',key);else if(data.clearServerchan===true)delSettingStmt.run('serverchan_sendkey');
         if(sc3Key)save('sc3_sendkey',sc3Key);else if(data.clearSc3===true)delSettingStmt.run('sc3_sendkey');
@@ -370,7 +382,7 @@ const server=http.createServer(async(req,res)=>{
       if(!/^[a-zA-Z0-9_-]{43}$/.test(id))return reply(res,404,'照片不存在');
       const record=photoGet.get(id,Date.now());
       if(!record)return reply(res,404,'照片已过期或不存在');
-      return reply(res,200,record.data,{'Content-Type':'image/jpeg','Cache-Control':'private, no-store','Content-Disposition':'inline; filename="car-photo.jpg"','Content-Security-Policy':"default-src 'none'; sandbox"});
+      return reply(res,200,record.data,{'Content-Type':record.mime,'Cache-Control':'private, no-store','Content-Disposition':'inline; filename="car-photo.jpg"','Content-Security-Policy':"default-src 'none'; sandbox"});
     }
     if(route==='/api/photo'&&req.method==='POST'){
       if(trustedAdminOrigin(req)===null)return json(res,403,{error:'来源不可信'});
