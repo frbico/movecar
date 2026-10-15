@@ -90,6 +90,20 @@ test('one-click bootstrap, admin login, two channels, secure owner action and pe
     const confirm=await call('/api/owner-confirm',{method:'POST',headers:{Cookie:ownerCookie,'Content-Type':'application/json'},body:'{}'});assert.equal(confirm.status,200);
     assert.deepEqual(await (await call('/api/check-status')).json(),{status:'confirmed'});
     assert.equal((await call('/api/get-location',{headers:{Cookie:ownerCookie}})).status,200);
+    // The photo endpoint only accepts a one-use capability created by a successful notification.
+    const photoToken=(await request.clone().json()).photoToken;
+    assert.match(photoToken,/^[a-zA-Z0-9_-]{43}$/);
+    const jpg=Buffer.concat([Buffer.from([255,216,255]),Buffer.alloc(64,32),Buffer.from([255,217])]);
+    const photo=await call('/api/photo',{method:'POST',headers:{Origin:origin,'Content-Type':'image/jpeg','X-Photo-Token':photoToken},body:jpg});
+    assert.equal(photo.status,200,await photo.text());
+    assert.equal((await call('/api/photo',{method:'POST',headers:{Origin:origin,'Content-Type':'image/jpeg','X-Photo-Token':photoToken},body:jpg})).status,403);
+    const photoMsg=wechatCalls.at(-1).get('desp');
+    assert.match(photoMsg,/!\[现场照片\]\(http:\/\/127\.0\.0\.1:\d+\/api\/photo\/[a-zA-Z0-9_-]{43}\)/);
+    const linkFromMessage=photoMsg.match(/https?:\/\/127\.0\.0\.1:\d+\/api\/photo\/[a-zA-Z0-9_-]{43}/)[0];
+    const got=await fetch(linkFromMessage);
+    assert.equal(got.status,200);
+    assert.equal(got.headers.get('content-type'),'image/jpeg');
+    assert.deepEqual(Buffer.from(await got.arrayBuffer()),jpg);
     await stop();await start();
     assert.equal((await call('/api/notify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:'重启成功',location:{lat:30,lng:120}})})).status,200);
     assert.equal((await call('/api/admin/config',{headers:{Cookie:adminCookie}})).status,200);
