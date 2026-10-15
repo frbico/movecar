@@ -71,6 +71,13 @@ function validateSendKey(key) {
   if (!/^SCT[A-Za-z0-9_-]{8,160}$/.test(key)) throw Error('请填写 Server酱 Turbo SendKey（SCT 开头）');
   return key;
 }
+function validateSc3Key(key) {
+  if (!key) return '';
+  if (typeof key !== 'string' || key.length > 240 || !/^sctp(\d{1,30})t[A-Za-z0-9_-]{6,200}$/.test(key)) {
+    throw Error('请填写 Server酱³ SendKey（sctp 开头）');
+  }
+  return key;
+}
 function cookie(name, token, origin, maxAge = 3600) {
   return `${name}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${origin.startsWith('https:') ? '; Secure' : ''}`;
 }
@@ -162,18 +169,34 @@ async function sendWeChat(key,title,message,ownerUrl) {
   const result=await r.json().catch(()=>({}));
   if(result.code!==0) throw Error('微信推送服务返回失败，请检查 SendKey 和剩余额度');
 }
-async function notifyChannels({title,message,ownerUrl,query=''}) {
+async function sendSc3(key,title,message,ownerUrl) {
+  const uid = validateSc3Key(key).match(/^sctp(\d+)t/)[1];
+  const endpoint = `https://${uid}.push.ft07.com/send/${key}.send`;
+  const url = (isTest && process.env.MOVECAR_TEST_SC3_ENDPOINT) || endpoint;
+  const short = String(message).replace(/\s+/g,' ').slice(0,100);
+  const safeMessage = String(message).replace(/([\\`*_\[\]<>])/g,'\\$1');
+  const body = JSON.stringify({title,short,desp:`${safeMessage}\n\n[车主点击确认挪车](${ownerUrl})`,tags:'挪车'});
+  const r = await outbound(url,{method:'POST',headers:{'Content-Type':'application/json'},body});
+  const result = await r.json().catch(()=>({}));
+  if(result.code!==0) throw Error('Server酱³ 返回失败，请检查 SendKey 和手机注册状态');
+}
+async function notifyChannels({title,message,ownerUrl,query='',channel='all'}) {
   const tasks=[];
-  const bark=setting('bark_url'), key=setting('serverchan_sendkey');
-  if(bark) tasks.push(sendBark(bark,title,message,ownerUrl,query));
-  if(key) tasks.push(sendWeChat(key,title,message,ownerUrl));
-  if(!tasks.length) throw Object.assign(Error('尚未配置 Bark 或微信推送，请先进入 /admin 设置'),{status:503});
-  const outcomes=await Promise.allSettled(tasks);
-  if(!outcomes.some(r=>r.status==='fulfilled')) {
-    console.error('All configured push channels failed (credentials hidden).');
-    throw Object.assign(Error('推送失败，请管理员在后台测试推送渠道'),{status:502});
+  const names=[];
+  const wanted = name => channel==='all' || channel===name;
+  const bark=setting('bark_url'), turbo=setting('serverchan_sendkey'), sc3=setting('sc3_sendkey');
+  if(bark && wanted('bark')) { names.push('bark'); tasks.push(sendBark(bark,title,message,ownerUrl,query)); }
+  if(turbo && wanted('serverchan')) { names.push('serverchan'); tasks.push(sendWeChat(turbo,title,message,ownerUrl)); }
+  if(sc3 && wanted('sc3')) { names.push('sc3'); tasks.push(sendSc3(sc3,title,message,ownerUrl)); }
+  if(!tasks.length) throw Object.assign(Error(channel==='all'?'尚未配置推送渠道，请先进入 /admin 设置':'所选渠道尚未配置，请先保存密钥'),{status:503});
+  const results=await Promise.allSettled(tasks);
+  const statuses=Object.fromEntries(results.map((item,index)=>[names[index],item.status==='fulfilled'?'ok':'failed']));
+  if(!results.some(item=>item.status==='fulfilled')) {
+    console.error('All selected push channels failed (credentials hidden).');
+    throw Object.assign(Error('所选推送渠道均发送失败，请检查密钥、额度与设备注册状态'),{status:502});
   }
-  if(outcomes.some(r=>r.status==='rejected')) console.warn('One push channel failed; another succeeded.');
+  if(results.some(item=>item.status==='rejected')) console.warn('Some push channels failed; others succeeded (credentials hidden).');
+  return statuses;
 }
 const MOVE_CAR_STATUS = {
   async get(key) { return kvGet.get(String(key),Date.now())?.value ?? null; },
@@ -250,7 +273,7 @@ const server=http.createServer(async(req,res)=>{
       const auth=session(req);
       if(!auth)return json(res,401,{error:'请先登录'});
       if(route==='/api/admin/session'&&req.method==='GET')return json(res,200,{csrf:auth.csrf});
-      if(route==='/api/admin/config'&&req.method==='GET')return json(res,200,{publicUrl:setting('public_url'),phoneNumber:setting('phone_number'),rateLimitSeconds:Number(setting('rate_limit_seconds','60')),barkConfigured:!!setting('bark_url'),serverchanConfigured:!!setting('serverchan_sendkey')});
+      if(route==='/api/admin/config'&&req.method==='GET')return json(res,200,{publicUrl:setting('public_url'),phoneNumber:setting('phone_number'),rateLimitSeconds:Number(setting('rate_limit_seconds','60')),barkConfigured:!!setting('bark_url'),serverchanConfigured:!!setting('serverchan_sendkey'),sc3Configured:!!setting('sc3_sendkey')});
       if(!['POST','PUT'].includes(req.method)||!checkCsrf(req,auth.csrf))return json(res,403,{error:'请求未通过验证'});
       if(route==='/api/admin/logout'){
         const tok=sessions(req).movecar_admin;db.prepare('DELETE FROM admin_sessions WHERE digest=?').run(hash(tok));
@@ -266,15 +289,23 @@ const server=http.createServer(async(req,res)=>{
         let bark=null,key=null;
         if(data.barkUrl){if(typeof data.barkUrl!=='string'||data.barkUrl.length>500)throw Object.assign(Error('Bark URL 不合法'),{status:400});try { bark=validateBark(data.barkUrl.trim()); } catch { throw Object.assign(Error('Bark 地址不正确（须使用 HTTPS）'),{status:400}); }}
         if(data.serverchanSendKey){if(typeof data.serverchanSendKey!=='string'||data.serverchanSendKey.length>200)throw Object.assign(Error('SendKey 不合法'),{status:400});try { key=validateSendKey(data.serverchanSendKey.trim()); } catch { throw Object.assign(Error('请填写 SCT 开头的 Server酱 Turbo SendKey'),{status:400}); }}
+        let sc3Key=null;
+        if(data.sc3SendKey){
+          try { sc3Key=validateSc3Key(data.sc3SendKey.trim()); }
+          catch { throw Object.assign(Error('请填写 sctp 开头的 Server酱³ SendKey'),{status:400}); }
+        }
         save('public_url',publicUrl);save('phone_number',data.phoneNumber.trim());save('rate_limit_seconds',data.rateLimitSeconds);
         if(bark)save('bark_url',bark);else if(data.clearBark===true)delSettingStmt.run('bark_url');
         if(key)save('serverchan_sendkey',key);else if(data.clearServerchan===true)delSettingStmt.run('serverchan_sendkey');
+        if(sc3Key)save('sc3_sendkey',sc3Key);else if(data.clearSc3===true)delSettingStmt.run('sc3_sendkey');
         return json(res,200,{ok:true});
       }
       if(route==='/api/admin/test-push'&&req.method==='POST'){
-        await inputJson(req);
-        await notifyChannels({title:'MoveCar 测试通知',message:'后台推送渠道测试成功 ✅',ownerUrl:signedOwnerLink(origin)});
-        return json(res,200,{ok:true,message:'测试推送已提交'});
+        const data=await inputJson(req);
+        const channel=data.channel??'all';
+        if(!['all','bark','serverchan','sc3'].includes(channel))return json(res,400,{error:'测试渠道无效'});
+        const channels=await notifyChannels({title:'MoveCar 测试通知',message:'后台推送渠道测试成功 ✅',ownerUrl:signedOwnerLink(origin),channel});
+        return json(res,200,{ok:true,message:'测试推送已提交',channels});
       }
       if(route==='/api/admin/password'&&req.method==='POST'){
         const data=await inputJson(req);
@@ -298,7 +329,7 @@ const server=http.createServer(async(req,res)=>{
     const methods={'/api/notify':'POST','/api/get-location':'GET','/api/owner-confirm':'POST','/api/check-status':'GET','/owner-confirm':'GET'};
     if(methods[route] && req.method!==methods[route])return reply(res,405,'Method not allowed');
     if(route==='/api/notify'){
-      if(!setting('bark_url')&&!setting('serverchan_sendkey'))return json(res,503,{error:'车主尚未配置消息推送，请联系车主'});
+      if(!setting('bark_url')&&!setting('serverchan_sendkey')&&!setting('sc3_sendkey'))return json(res,503,{error:'车主尚未配置消息推送，请联系车主'});
       const key=req.socket.remoteAddress||'unknown',now=Date.now(),window=Number(setting('rate_limit_seconds','60'));
       if(window>0&&(rateGet.get(key)?.until??0)>now)return reply(res,429,'通知太频繁，请稍后再试',{'Retry-After':String(window)});
       const data=await inputJson(req);
@@ -313,7 +344,7 @@ const server=http.createServer(async(req,res)=>{
     return sendWorker(await invokeWorker(reqWorker),res,req.method==='HEAD');
   } catch(err) {
     const status=err.status||500;
-    if(status>=500)console.error('Request failed:',err.message?.replace(/SCT[A-Za-z0-9_-]+/g,'[redacted]'));
+    if(status>=500)console.error('Request failed:',err.message?.replace(/(?:SCT[A-Za-z0-9_-]+|sctp[0-9]+t[A-Za-z0-9_-]+)/g,'[redacted]'));
     if(!res.headersSent) return (req.url||'').startsWith('/api/admin/')|| (req.url||'')==='/api/admin/config' ? json(res,status,{error:status===500?'内部错误':err.message}) : reply(res,status,status===500?'服务暂时不可用':err.message);
     res.end();
   }
