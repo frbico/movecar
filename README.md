@@ -139,3 +139,24 @@ docker compose up -d --build
 - **重要**：手机拍照与接收照片都建议通过有效 HTTPS 域名访问服务，HTTP 下可能受摄像头和图片加载限制。无推送配置或所有渠道失败不会签发照片上传凭据。
 
 更新：`git pull --ff-only origin main && docker compose -f compose.yaml up -d --build`。请保留现有数据卷，不要执行 `docker compose down -v`。
+
+## 2026-10-15：定位、拍照、确认和 SC3 排版修复
+
+- 每次挪车请求都有 **独立确认 Token**，有效期 60 分钟；车主无须登录。打开链接只显示确认页，点「我已收到，正在前往」才真正确认。
+- 发起人页面对每条请求单独查询状态，约每 1.2 秒检查一次；两条请求不会互相影响，手机锁屏暂停浏览器时更新可能延迟。
+- 如果发起人分享 GPS 位置，SC3 完整正文和车主确认页有可点击的高德、Google、Apple 地图 HTTPS 链接。
+- SC3 使用 Markdown 完整正文 desp 和实际换行；short 只作通知摘要，所以系统通知栏折叠时通常仍是一行，打开消息详情才看到完整排版。
+- 发送成功页面加入拍照按钮，照片通过浏览器 Canvas 压缩成 JPEG 后补发；照片凭证 20 分钟有效、每次请求最多补发一张，图片链接 60 分钟过期。
+- 安全提示：拥有确认链接的人即有本次确认权限，不要转发该链接；照片使用随机限时 URL，请勿拍摄他人的敏感信息。
+- 更新后请使用**新发起的挪车通知**测试，旧版失效链接不会自动恢复。后台「基本设置」应填写 HTTPS 公网地址。
+
+### 升级服务器
+
+```bash
+cd ~/movecar
+git pull --ff-only origin main
+docker compose -f compose.yaml up -d --build
+docker compose -f compose.yaml ps
+```
+
+出现 git pull 本地修改冲突时，请先备份对应文件或使用 git stash；不要执行 docker compose down -v。
