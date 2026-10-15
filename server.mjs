@@ -135,11 +135,12 @@ function session(req) {
 function signedOwnerLink(origin) {
   const exp=Math.floor(Date.now()/1000)+3600;
   const sig=crypto.createHmac('sha256',setting('owner_signing_key')).update(`owner:${exp}`).digest('hex');
-  return `${origin}/owner-confirm?expires=${exp}&sig=${sig}`;
+  return `${origin}/owner-confirm/${exp}/${sig}`;
 }
 function verifyOwnerLink(url) {
-  const exp=Number(url.searchParams.get('expires'));
-  const sig=url.searchParams.get('sig')||'';
+  const match=url.pathname.match(/^\/owner-confirm\/(\d{10,12})\/([a-f0-9]{64})$/);
+  const exp=Number(match?.[1] || url.searchParams.get('expires'));
+  const sig=match?.[2] || url.searchParams.get('sig') || '';
   if(!Number.isSafeInteger(exp) || exp<Math.floor(Date.now()/1000) || exp>Math.floor(Date.now()/1000)+3700) return false;
   const expected=crypto.createHmac('sha256',setting('owner_signing_key')).update(`owner:${exp}`).digest('hex');
   return constantEq(sig,expected);
@@ -173,8 +174,9 @@ async function sendSc3(key,title,message,ownerUrl) {
   const uid = validateSc3Key(key).match(/^sctp(\d+)t/)[1];
   const endpoint = `https://${uid}.push.ft07.com/send/${key}.send`;
   const url = (isTest && process.env.MOVECAR_TEST_SC3_ENDPOINT) || endpoint;
-  const short = String(message).replace(/\s+/g,' ').slice(0,100);
-  const safeMessage = String(message).replace(/([\\`*_\[\]<>])/g,'\\$1');
+  const normalizedMessage=String(message).split('\\n').join('\n');
+  const short = normalizedMessage.replace(/\s+/g,' ').slice(0,100);
+  const safeMessage = normalizedMessage.replace(/([\\`*_\[\]<>])/g,'\\$1');
   const body = JSON.stringify({title,short,desp:`${safeMessage}\n\n[车主点击确认挪车](${ownerUrl})`,tags:'挪车'});
   const r = await outbound(url,{method:'POST',headers:{'Content-Type':'application/json'},body});
   const result = await r.json().catch(()=>({}));
@@ -212,7 +214,7 @@ const globals={
     const base=new URL(WORKER_BARK);
     if(u.origin!==base.origin || !u.pathname.startsWith(base.pathname+'/')) throw Error('Unexpected upstream external request');
     const parts=u.pathname.slice(base.pathname.length+1).split('/').map(decodeURIComponent);
-    const title=parts[0]||'挪车提醒';const message=parts.slice(1).join('/')||'请及时挪车';
+    const title=parts[0]||'挪车提醒';const message=(parts.slice(1).join('/')||'请及时挪车').split('\\n').join('\n');
     const linked=u.searchParams.get('url');
     if(!linked) throw Error('Missing confirmation URL');
     const target=new URL(linked);
@@ -320,7 +322,7 @@ const server=http.createServer(async(req,res)=>{
       return json(res,404,{error:'接口不存在'});
     }
     const hasOwner=!!isOwner(req);
-    if(route==='/owner-confirm'&&!hasOwner){
+    if((route==='/owner-confirm'||route.startsWith('/owner-confirm/'))&&!hasOwner){
       if(!verifyOwnerLink(u))return reply(res,403,'车主确认链接无效或已过期，请重新发起挪车通知。');
       const tok=random();ownerSessionPut.run(hash(tok),Date.now()+3600000);
       res.writeHead(303,{'Location':'/owner-confirm','Set-Cookie':cookie('movecar_owner',tok,origin),'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});return res.end();
@@ -335,12 +337,14 @@ const server=http.createServer(async(req,res)=>{
       const data=await inputJson(req);
       if(typeof data.message!=='string'||data.message.length>200) return reply(res,400,'留言长度须在 200 字以内');
       if(data.location!=null && (typeof data.location!=='object'||!Number.isFinite(data.location.lat)||!Number.isFinite(data.location.lng)||Math.abs(data.location.lat)>90||Math.abs(data.location.lng)>180))return reply(res,400,'位置数据无效');
-      if(window>0)ratePut.run(key,now+window*1000);
-      const request=new Request(new URL(route+u.search,origin),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:data.message,location:data.location||null,delayed:!data.location})});
-      return sendWorker(await invokeWorker(request),res);
+      // Failed notifications should not prevent a retry: set rate limit after success.
+      const request=new Request(new URL(route+u.search,origin),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:data.message,location:data.location||null,delayed:false})});
+      const response=await invokeWorker(request);
+      if(response.ok && window>0)ratePut.run(key,Date.now()+window*1000);
+      return sendWorker(response,res);
     }
     const bytes=req.method==='POST'?Buffer.from(JSON.stringify(await inputJson(req))):undefined;
-    const reqWorker=new Request(new URL(route+u.search,origin),{method:req.method==='HEAD'?'GET':req.method,...(bytes?{body:bytes,headers:{'Content-Type':'application/json'}}:{})});
+    const reqWorker=new Request(new URL((route.startsWith('/owner-confirm/')?'/owner-confirm':route)+u.search,origin),{method:req.method==='HEAD'?'GET':req.method,...(bytes?{body:bytes,headers:{'Content-Type':'application/json'}}:{})});
     return sendWorker(await invokeWorker(reqWorker),res,req.method==='HEAD');
   } catch(err) {
     const status=err.status||500;
