@@ -80,6 +80,7 @@ test('one-click bootstrap, admin login, two channels, secure owner action and pe
     assert.equal((await call('/owner-confirm')).status,403);
     assert.equal((await call('/api/get-location')).status,403);
     const request=await call('/api/notify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:'请挪车',location:{lat:30.2,lng:120.1}})});
+    const requestData=await request.clone().json();
     assert.equal(request.status,200,await request.text());
     assert.equal(wechatCalls.length,2);assert.equal(barkCalls.length,2);
     const link=new URL(barkCalls[1]).searchParams.get('url');
@@ -91,7 +92,7 @@ test('one-click bootstrap, admin login, two channels, secure owner action and pe
     assert.deepEqual(await (await call('/api/check-status')).json(),{status:'confirmed'});
     assert.equal((await call('/api/get-location',{headers:{Cookie:ownerCookie}})).status,200);
     // The photo endpoint only accepts a one-use capability created by a successful notification.
-    const photoToken=(await request.clone().json()).photoToken;
+    const photoToken=requestData.photoToken;
     assert.match(photoToken,/^[a-zA-Z0-9_-]{43}$/);
     const jpg=Buffer.concat([Buffer.from([255,216,255]),Buffer.alloc(64,32),Buffer.from([255,217])]);
     const photo=await call('/api/photo',{method:'POST',headers:{Origin:origin,'Content-Type':'image/jpeg','X-Photo-Token':photoToken},body:jpg});
