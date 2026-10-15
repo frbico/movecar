@@ -22,6 +22,22 @@ jobs:
           node --check owner-view.js
           bash scripts/fetch-upstream.sh
           node --test tests/*.test.mjs
-      - name: Verify Docker build
+      - name: Verify Docker build and runtime startup
         run: |
           docker build -t movecar:ci .
+          docker run --rm -d --name movecar-ci -p 127.0.0.1:18888:8888 movecar:ci
+          trap 'docker rm -f movecar-ci >/dev/null 2>&1 || true' EXIT
+          ready=0
+          for i in $(seq 1 30); do
+            if curl --silent --fail http://127.0.0.1:18888/healthz >/dev/null; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" != 1 ]; then
+            docker ps -a --filter name=movecar-ci
+            docker logs movecar-ci || true
+            echo 'Container failed to start and serve /healthz'
+            exit 1
+          fi
+          curl --fail --silent http://127.0.0.1:18888/request-ui.js | grep -q photoChooseBtn
+          curl --fail --silent http://127.0.0.1:18888/owner-view.js | grep -q confirm-move
+          curl --fail --silent http://127.0.0.1:18888/admin | grep -q MoveCar
