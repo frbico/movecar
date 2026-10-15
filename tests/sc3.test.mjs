@@ -38,7 +38,7 @@ test('Server酱³ 保存、单独测试、密钥脱敏与清除',async()=>{
    assert.deepEqual((await response.json()).channels,{sc3:'ok'});
    assert.equal(received.length,1);
    assert.equal(received[0].tags,'挪车');
-   assert.match(received[0].desp,/owner-confirm\?expires=/);
+   assert.match(received[0].desp,/owner-confirm\/\d{10,12}\/[a-f0-9]{64}/);
    assert.equal((await admin('/api/admin/settings',{...base,clearSc3:true})).status,200);
    assert.equal((await admin('/api/admin/test-push',{channel:'sc3'})).status,503);
  }finally{
