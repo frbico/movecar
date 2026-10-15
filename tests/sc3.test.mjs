@@ -34,7 +34,7 @@ test('Server酱³ 保存、单独测试、密钥脱敏与清除',async()=>{
    const config=await(await send('/api/admin/config',{headers:{Cookie:cookie}})).json();
    assert.equal(config.sc3Configured,true);assert.ok(!JSON.stringify(config).includes(key));
    const response=await admin('/api/admin/test-push',{channel:'sc3'});
-   assert.equal(response.status,200,await response.text());
+   assert.equal(response.status,200);
    assert.deepEqual((await response.json()).channels,{sc3:'ok'});
    assert.equal(received.length,1);
    assert.equal(received[0].tags,'挪车');
