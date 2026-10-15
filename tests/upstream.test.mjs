@@ -26,7 +26,8 @@ test('real downloaded upstream Worker serves homepage and admin without initial 
       await new Promise(r=>setTimeout(r,50));
     }
     assert.ok(ready,'Real Worker did not start: '+errors);
-    const home=await fetch(origin);assert.equal(home.status,200);assert.match(await home.text(),/html/i);
+    const home=await fetch(origin);assert.equal(home.status,200);const homeHTML=await home.text();assert.match(homeHTML,/html/i);assert.match(homeHTML,/id="photoCard"/);assert.match(homeHTML,/photo-ui\.js/);assert.match(homeHTML,/const delayed = false/);assert.match(homeHTML,/window\.moveCarPhotoGrant/);
+    const photoscript=await fetch(`${origin}/photo-ui.js`);assert.equal(photoscript.status,200);assert.match(await photoscript.text(),/photoSendBtn/);
     const admin=await fetch(`${origin}/admin`);assert.equal(admin.status,200);
   } finally{
     const exit=proc.exitCode===null?new Promise(r=>proc.once('exit',r)):Promise.resolve();
