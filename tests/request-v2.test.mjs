@@ -60,9 +60,9 @@ test('two independent requests, clickable maps, owner tokens, SC3 formatting and
     const firstToken=calls[0].desp.match(/\/owner-confirm\/([A-Za-z0-9_-]{43})/)[1];
     assert.equal((await fetch(origin+'/owner-confirm/'+firstToken)).status,200);
     const invalid=await api('/api/confirm-move',{token:'X'.repeat(43)});
-    assert.equal(invalid.status,404);
+    assert.equal(invalid.status,410);
     const withoutPoll=await api('/api/request-status',{requestId:first.requestId,pollToken:second.pollToken});
-    assert.equal(withoutPoll.status,404);
+    assert.equal(withoutPoll.status,410);
     const firstInfo=await (await fetch(origin+'/api/owner-request/'+firstToken)).json();
     assert.equal(firstInfo.message,'请尽快挪车');
     assert.match(firstInfo.location.amap,/120.16,30.21/);
