@@ -84,13 +84,20 @@ test('one-click bootstrap, admin login, two channels, secure owner action and pe
     assert.equal(request.status,200,await request.text());
     assert.equal(wechatCalls.length,2);assert.equal(barkCalls.length,2);
     const link=new URL(barkCalls[1]).searchParams.get('url');
-    assert.match(link,/\/owner-confirm\/\d{10,12}\/[a-f0-9]{64}$/);
-    assert.equal(link.includes('token='),false);
-    const auth=await fetch(link,{redirect:'manual'});assert.equal(auth.status,303);
-    const ownerCookie=auth.headers.get('set-cookie').split(';')[0];
-    const confirm=await call('/api/owner-confirm',{method:'POST',headers:{Cookie:ownerCookie,'Content-Type':'application/json'},body:'{}'});assert.equal(confirm.status,200);
-    assert.deepEqual(await (await call('/api/check-status')).json(),{status:'confirmed'});
-    assert.equal((await call('/api/get-location',{headers:{Cookie:ownerCookie}})).status,200);
+    assert.match(link,/\/owner-confirm\/[A-Za-z0-9_-]{43}$/);
+    const token=link.split('/').pop();
+    const ownerPage=await fetch(link);assert.equal(ownerPage.status,200);
+    assert.match(await ownerPage.text(),/确认挪车请求/);
+    const ownerInfo=await (await call('/api/owner-request/'+token)).json();
+    assert.match(ownerInfo.location.amap,/uri.amap.com/);
+    assert.match(ownerInfo.location.google,/google.com\/maps/);
+    assert.equal((await call('/api/request-status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({requestId:requestData.requestId,pollToken:'bad'})})).status,404);
+    const post=async (url,body)=>call(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const beforeConfirm=await (await post('/api/request-status',{requestId:requestData.requestId,pollToken:requestData.pollToken})).json();
+    assert.equal(beforeConfirm.status,'waiting');
+    const confirm=await post('/api/confirm-move',{token});assert.equal(confirm.status,200);
+    const confirmed=await (await post('/api/request-status',{requestId:requestData.requestId,pollToken:requestData.pollToken})).json();
+    assert.equal(confirmed.status,'confirmed');
     // The photo endpoint only accepts a one-use capability created by a successful notification.
     const photoToken=requestData.photoToken;
     assert.match(photoToken,/^[a-zA-Z0-9_-]{43}$/);

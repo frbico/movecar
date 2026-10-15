@@ -17,6 +17,9 @@ jobs:
           bash -n install.sh run-linux.sh show-admin-password.sh scripts/fetch-upstream.sh
           node --check server.mjs
           node --check admin.js
+          node --check request-flow.mjs
+          node --check request-ui.js
+          node --check owner-view.js
           bash scripts/fetch-upstream.sh
           node --test tests/*.test.mjs
       - name: Verify Docker build
