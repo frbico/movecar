@@ -3,7 +3,7 @@ set -Eeuo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 command -v docker >/dev/null || { echo '未发现 Docker。先安装 Docker Engine + Compose 插件。'; exit 1; }
 docker compose version >/dev/null || { echo '未发现 docker compose 插件。'; exit 1; }
-./scripts/fetch-upstream.sh
+bash ./scripts/fetch-upstream.sh
 if [[ ! -f .env ]]; then
   echo '首次部署：需要输入对外访问地址、Bark 推送链接。'
   if [[ -z "${PUBLIC_URL:-}" ]]; then

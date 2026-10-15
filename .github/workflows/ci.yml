@@ -14,9 +14,10 @@ jobs:
       - name: Syntax checks and integration test
         run: |
           bash -n install.sh run-linux.sh scripts/fetch-upstream.sh
+          test -x install.sh && test -x run-linux.sh && test -x scripts/fetch-upstream.sh
           node --check server.mjs
           node --test tests/*.test.mjs
       - name: Fetch upstream and verify Docker build
         run: |
-          ./scripts/fetch-upstream.sh
+          bash ./scripts/fetch-upstream.sh
           docker build -t movecar:ci .
