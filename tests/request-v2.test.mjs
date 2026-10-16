@@ -116,7 +116,7 @@ test('two independent requests, clickable maps, owner tokens, SC3 formatting and
     const records=await history.json();
     assert.equal(records.total,1);
     assert.equal(records.items[0].id,second.requestId);
-    assert.equal(records.items[0].hasPhoto,true);
+    assert.match(records.items[0].photoUrl,/^\/api\/photo\/[A-Za-z0-9_-]{43}$/);
     const branded=await fetch(origin+'/api/admin/settings',{method:'POST',
       headers:{Origin:origin,Cookie:cookie,'X-CSRF-Token':csrf,'Content-Type':'application/json'},
       body:JSON.stringify({publicUrl:'',phoneNumber:'',rateLimitSeconds:0,requestRetentionLimit:1,siteName:'一键联系车主',wechatId:'wx_demo123'})});
