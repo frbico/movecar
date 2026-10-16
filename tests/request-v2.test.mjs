@@ -47,13 +47,11 @@ test('two independent requests, clickable maps, owner tokens, SC3 formatting and
     assert.notEqual(first.pollToken,second.pollToken);
     assert.notEqual(first.photoToken,second.photoToken);
     assert.equal(calls.length,2);
-    for(const [index,coords] of [[0,'120.16,30.21'],[1,'121.45,31.25']]){
-      const body=calls[index].desp;
+    for(const body of calls.slice(0,2).map(x=>x.desp)){
       assert.ok(body.includes('\n\n'),'Markdown must include blank lines');
-      assert.ok(body.includes('[📍 高德地图导航](https://uri.amap.com/marker?position='+coords),'Amap must have a clickable link');
-      assert.ok(body.includes('[🗺️ Google 地图](https://www.google.com/maps?q='),'Google Maps must have a clickable link');
       assert.ok(body.includes('[车主点击确认挪车]('),'Owner confirmation must be an independent link');
       assert.ok(!body.includes('\\n'),'SC3 must not display literal escaped newlines');
+      assert.ok(!/高德地图|Google 地图|Apple 地图|未分享位置|定位|经纬度|120\.16|121\.45/.test(body),'Messages must not contain location or map links');
     }
     assert.notEqual(calls[0].desp.match(/\/owner-confirm\/([A-Za-z0-9_-]{43})/)[1],
       calls[1].desp.match(/\/owner-confirm\/([A-Za-z0-9_-]{43})/)[1]);
@@ -65,7 +63,7 @@ test('two independent requests, clickable maps, owner tokens, SC3 formatting and
     assert.equal(withoutPoll.status,410);
     const firstInfo=await (await fetch(origin+'/api/owner-request/'+firstToken)).json();
     assert.equal(firstInfo.message,'请尽快挪车');
-    assert.match(firstInfo.location.amap,/120.16,30.21/);
+    assert.equal(Object.hasOwn(firstInfo,'location'),false);
     assert.equal((await api('/api/confirm-move',{token:firstToken})).status,200);
     const status=async a=>(await (await api('/api/request-status',a)).json()).status;
     assert.equal(await status(first),'confirmed');
@@ -73,8 +71,11 @@ test('two independent requests, clickable maps, owner tokens, SC3 formatting and
     assert.equal((await api('/api/confirm-move',{token:firstToken})).status,200);
     assert.equal(await status(second),'waiting');
     // Accept original PNG data without a browser Canvas decode or re-encoding step.
-    const png=Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),Buffer.alloc(64,55)]);
+    const png=Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),Buffer.alloc(9*1024*1024+77,55)]); // 9+ MiB is valid
     const upload=(token,type,bytes)=>fetch(origin+'/api/photo',{method:'POST',headers:{'Content-Type':type,'X-Photo-Token':token},body:bytes});
+    const tooLarge=Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),Buffer.alloc(10*1024*1024,55)]);
+    const tooLargeResponse=await upload(first.photoToken,'image/png',tooLarge);
+    assert.equal(tooLargeResponse.status,413,'File exceeding 10 MiB must be rejected without consuming the grant');
     const firstImage=await upload(first.photoToken,'image/png',png);
     assert.equal(firstImage.status,200,await firstImage.clone().text());
     const pngUrl=calls.at(-1).desp.match(/https?:\/\/127\.0\.0\.1:\d+\/api\/photo\/[A-Za-z0-9_-]{43}/)[0];
