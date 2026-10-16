@@ -44,6 +44,7 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
   const associatePhoto=db.prepare('INSERT INTO move_request_photos(request_id,photo_id) VALUES(?,?)');
   const deletePhoto=db.prepare('DELETE FROM photo_records WHERE id=?');
   const photoAssociations=db.prepare('SELECT photo_id FROM move_request_photos WHERE request_id=?');
+  const availablePhoto=db.prepare('SELECT p.id FROM move_request_photos a JOIN photo_records p ON p.id=a.photo_id WHERE a.request_id=? AND p.expiry>?');
   const deleteAssociations=db.prepare('DELETE FROM move_request_photos WHERE request_id=?');
   const deleteGrantsByRequest=db.prepare('DELETE FROM move_photo_grants WHERE request_id=?');
   const countRequests=db.prepare('SELECT COUNT(*) AS total FROM move_requests');
@@ -81,7 +82,7 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
     cleanup,trimRetention,retentionLimit,count:()=>countRequests.get().total,
     listHistory(page=1,size=20){
       const total=countRequests.get().total;
-      return {total,page,size,items:listRequests.all(size,(page-1)*size).map(item=>({id:item.id,message:item.message,status:item.status==='waiting' && item.expires_at<=Date.now()?'expired':item.status,createdAt:item.created_at,expiresAt:item.expires_at,confirmedAt:item.confirmed_at,photoSent:!!item.photo_sent,hasPhoto:!!photoAssociations.get(item.id)}))};
+      return {total,page,size,items:listRequests.all(size,(page-1)*size).map(item=>({id:item.id,message:item.message,status:item.status==='waiting' && item.expires_at<=Date.now()?'expired':item.status,createdAt:item.created_at,expiresAt:item.expires_at,confirmedAt:item.confirmed_at,photoSent:!!item.photo_sent,photoUrl:(availablePhoto.get(item.id,Date.now())?.id ? '/api/photo/'+availablePhoto.get(item.id,Date.now()).id : null)}))};
     },
     deleteHistory(id){if(!knownRequest.get(id))return false;removeRequest(id);return true;},
     clearHistory(){for(const item of db.prepare('SELECT id FROM move_requests').all())removeRequest(item.id);},
