@@ -53,14 +53,6 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
   const isToken=t=>typeof t==='string'&&/^[A-Za-z0-9_-]{43}$/.test(t);
   const ownerTokenFor=id=>crypto.createHmac('sha256',setting('owner_signing_key')).update('movecar-owner-v2:'+id).digest('base64url');
   const escaped=s=>String(s).replace(/([\\`*_[\]<>])/g,'\\$1');
-  const locLinks=(loc)=>{
-    const lat=Number(loc.lat),lng=Number(loc.lng);
-    return {
-      amap:`https://uri.amap.com/marker?position=${lng},${lat}&name=${encodeURIComponent('挪车现场')}`,
-      google:`https://www.google.com/maps?q=${lat},${lng}`,
-      apple:`https://maps.apple.com/?ll=${lat},${lng}`
-    };
-  };
   const page=fs.readFileSync(new URL('./owner-view.html',import.meta.url));
   const deny=(res,code=404)=>json(res,code,{error:'请求不存在或链接已过期，请重新发起挪车请求'});
   function removeRequest(id){
@@ -83,6 +75,7 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
     cleanup();
     for(const item of oldestRequests.all(retentionLimit()))removeRequest(item.id);
   }
+  db.prepare('UPDATE move_requests SET location_json=NULL WHERE location_json IS NOT NULL').run();
   trimRetention(); // Apply default 50 to existing databases on startup.
   return {
     cleanup,trimRetention,retentionLimit,count:()=>countRequests.get().total,
@@ -110,8 +103,7 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
         if(method!=='GET')return reply(res,405,'Method not allowed'),true;
         const record=byOwner.get(hash(infoMatch[1]),Date.now());
         if(!record){deny(res,410);return true;}
-        const location=record.location_json?JSON.parse(record.location_json):null;
-        json(res,200,{status:record.status,message:record.message,location:location?locLinks(location):null});return true;
+        json(res,200,{status:record.status,message:record.message});return true;
       }
       if(route==='/api/confirm-move') {
         if(method!=='POST')return reply(res,405,'Method not allowed'),true;
@@ -139,26 +131,12 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
           return json(res,429,{error:'发送过于频繁，请稍后再试'}),true;
         const body=await inputJson(req);
         if(typeof body.message!=='string'||body.message.length>200)return json(res,400,{error:'留言最长为 200 字'}),true;
-        let location=null;
-        if(body.location!=null){
-          const {lat,lng}=body.location;
-          if(!Number.isFinite(lat)||!Number.isFinite(lng)||Math.abs(lat)>90||Math.abs(lng)>180)
-            return json(res,400,{error:'位置坐标无效'}),true;
-          location={lat,lng};
-        }
         const id=random(),pollToken=random(),photoToken=random(),ownerToken=ownerTokenFor(id);
         const ownerUrl=`${origin}/owner-confirm/${ownerToken}`;
         const text=body.message.trim()||'请尽快挪车';
         const lines=['## 🚗 有新的挪车请求','',`**💬 留言：** ${escaped(text)}`,''];
-        if(location) {
-          const links=locLinks(location);
-          lines.push('**📍 现场位置**','',
-            `[📍 高德地图导航](${links.amap})`,'',
-            `[🗺️ Google 地图](${links.google})`,'',
-            `[🍎 Apple 地图](${links.apple})`,'');
-        }else{lines.push('⚠️ 发起人未分享位置','');}
         lines.push('**请点击下方确认链接，告知对方你已收到通知。**');
-        insert.run(id,hash(ownerToken),hash(pollToken),text,location?JSON.stringify(location):null,now,now+3600000);
+        insert.run(id,hash(ownerToken),hash(pollToken),text,null,now,now+3600000);
         try{
           const channels=await notifyChannels({title:'🚗 MoveCar · 有人请求挪车',message:lines.join('\n'),ownerUrl,richMarkdown:true});
           grantInsert.run(hash(photoToken),id,Date.now()+20*60000);
