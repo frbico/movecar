@@ -109,6 +109,42 @@ test('two independent requests, clickable maps, owner tokens, SC3 formatting and
       headers:{Origin:origin,Cookie:cookie,'X-CSRF-Token':csrf,'Content-Type':'application/json'},
       body:JSON.stringify({publicUrl:'',phoneNumber:'',rateLimitSeconds:0,requestRetentionLimit:0})});
     assert.equal(invalidLimit.status,400);
+    // History is admin-only, stays after link expiry and supports scoped deletion.
+    assert.equal((await fetch(origin+'/api/admin/requests')).status,401);
+    const history=await fetch(origin+'/api/admin/requests?page=1&size=20',{headers:{Cookie:cookie}});
+    assert.equal(history.status,200);
+    const records=await history.json();
+    assert.equal(records.total,1);
+    assert.equal(records.items[0].id,second.requestId);
+    assert.equal(records.items[0].hasPhoto,true);
+    const branded=await fetch(origin+'/api/admin/settings',{method:'POST',
+      headers:{Origin:origin,Cookie:cookie,'X-CSRF-Token':csrf,'Content-Type':'application/json'},
+      body:JSON.stringify({publicUrl:'',phoneNumber:'',rateLimitSeconds:0,requestRetentionLimit:1,siteName:'一键联系车主',wechatId:'wx_demo123'})});
+    assert.equal(branded.status,200,await branded.clone().text());
+    const publicBrand=await(await fetch(origin+'/api/site-config')).json();
+    assert.equal(publicBrand.siteName,'一键联系车主');
+    assert.equal(publicBrand.wechatId,'wx_demo123');
+    const pngIcon=Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),Buffer.alloc(64,19)]);
+    const iconUpload=await fetch(origin+'/api/admin/site-icon',{method:'PUT',
+      headers:{Origin:origin,Cookie:cookie,'X-CSRF-Token':csrf,'Content-Type':'image/png'},body:pngIcon});
+    assert.equal(iconUpload.status,200,await iconUpload.clone().text());
+    const iconResponse=await fetch(origin+'/site-icon');
+    assert.equal(iconResponse.status,200);
+    assert.equal(iconResponse.headers.get('content-type'),'image/png');
+    assert.deepEqual(Buffer.from(await iconResponse.arrayBuffer()),pngIcon);
+    const failedIcon=await fetch(origin+'/api/admin/site-icon',{method:'PUT',
+      headers:{Origin:origin,Cookie:cookie,'X-CSRF-Token':csrf,'Content-Type':'image/png'},body:Buffer.from('<svg><script>alert(1)</script></svg>')});
+    assert.equal(failedIcon.status,415);
+    const removeRow=await fetch(origin+'/api/admin/requests/delete',{method:'POST',
+      headers:{Origin:origin,Cookie:cookie,'X-CSRF-Token':csrf,'Content-Type':'application/json'},
+      body:JSON.stringify({id:second.requestId})});
+    assert.equal(removeRow.status,200,await removeRow.clone().text());
+    assert.equal((await(await fetch(origin+'/api/admin/requests',{headers:{Cookie:cookie}})).json()).total,0);
+    assert.equal((await fetch(heicUrl)).status,404,'Deleting a history entry must delete its photo');
+    const clearIcon=await fetch(origin+'/api/admin/site-icon/clear',{method:'POST',
+      headers:{Origin:origin,Cookie:cookie,'X-CSRF-Token':csrf,'Content-Type':'application/json'},body:'{}'});
+    assert.equal(clearIcon.status,200);
+    assert.equal((await fetch(origin+'/site-icon')).status,404);
   }finally{
     const done=processServer.exitCode===null?new Promise(r=>processServer.once('exit',r)):Promise.resolve();
     if(processServer.exitCode===null)processServer.kill('SIGTERM');await done;
