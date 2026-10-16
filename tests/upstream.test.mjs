@@ -26,8 +26,15 @@ test('real downloaded upstream Worker serves homepage and admin without initial 
       await new Promise(r=>setTimeout(r,50));
     }
     assert.ok(ready,'Real Worker did not start: '+errors);
-    const home=await fetch(origin);assert.equal(home.status,200);const homeHTML=await home.text();assert.match(homeHTML,/html/i);assert.match(homeHTML,/request-ui\.js/);
-    const photoscript=await fetch(`${origin}/request-ui.js`);assert.equal(photoscript.status,200);assert.match(await photoscript.text(),/photoChooseBtn/);
+    const home=await fetch(origin);assert.equal(home.status,200);const homeHTML=await home.text();assert.match(homeHTML,/html/i);assert.match(homeHTML,/request-ui\.js/);assert.doesNotMatch(homeHTML,/id="locationTipModal"|id="locIcon"|id="locStatus"|getCurrentPosition|navigator\.geolocation|位置获取失败|分享位置/);
+    const photoscript=await fetch(`${origin}/request-ui.js`);
+    assert.equal(photoscript.status,200);
+    const script=await photoscript.text();
+    assert.match(script,/photoChooseBtn/);
+    assert.match(script,/10\*1024\*1024/);
+    assert.doesNotMatch(script,/userLocation|locationData|geolocation/);
+    const oldOwner=await fetch(`${origin}/owner-confirm`,{redirect:'manual'});
+    assert.ok([403,303,200].includes(oldOwner.status));
     const admin=await fetch(`${origin}/admin`);assert.equal(admin.status,200);
   } finally{
     const exit=proc.exitCode===null?new Promise(r=>proc.once('exit',r)):Promise.resolve();
