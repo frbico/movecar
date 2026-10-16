@@ -12,7 +12,7 @@
  const originalPhoneHref=phone?.getAttribute('href')||'';
  if(phone){phone.innerHTML=phone.innerHTML.replace('直接打电话','电话联系');phone.removeAttribute('href');phone.setAttribute('aria-disabled','true');phone.style.pointerEvents='none';phone.style.opacity='.5';}
  const callHint=document.createElement('p');callHint.id='phoneCountdown';callHint.style.cssText='text-align:center;font-size:14px;color:#64748b;margin:8px 0';
- if(phone)phone.insertAdjacentElement('beforebegin',callHint);
+ if(phone)phone.insertAdjacentElement('afterend',callHint);
  const wechatButton=document.createElement('button');
  wechatButton.id='wechatContactBtn';wechatButton.type='button';wechatButton.textContent='💬 微信联系（未配置）';wechatButton.disabled=true;
  wechatButton.style.cssText='display:block;width:100%;margin-top:12px;padding:16px 12px;border-radius:16px;border:none;background:linear-gradient(135deg,#17b97e,#0da56e);color:white;font-size:17px;font-weight:700';
