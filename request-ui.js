@@ -16,7 +16,7 @@
  const wechatButton=document.createElement('button');
  wechatButton.id='wechatContactBtn';wechatButton.type='button';wechatButton.textContent='💬 微信联系（未配置）';wechatButton.disabled=true;
  wechatButton.style.cssText='display:block;width:100%;margin-top:12px;padding:16px 12px;border-radius:16px;border:none;background:linear-gradient(135deg,#17b97e,#0da56e);color:white;font-size:17px;font-weight:700';
- if(phone)phone.insertAdjacentElement('afterend',wechatButton);
+ if(phone)phone.insertAdjacentElement('beforebegin',wechatButton);
  const wechatMessage=document.createElement('p');wechatMessage.id='wechatCopyHint';wechatMessage.setAttribute('role','status');wechatMessage.style.cssText='text-align:center;color:#288269;font-size:13px;margin:8px 0';
  wechatButton.insertAdjacentElement('afterend',wechatMessage);
  function refreshContact(){
