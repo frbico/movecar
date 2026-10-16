@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import vm from 'node:vm';
 import { DatabaseSync } from 'node:sqlite';
 import { createRequestFlow } from './request-flow.mjs';
+import { createVoiceService } from './voice-service.mjs';
 
 const port = Number(process.env.PORT || 8888);
 const dbPath = path.resolve(process.env.DB_PATH || './data/state.sqlite');
@@ -303,7 +304,7 @@ async function sendWorker(response,res,head=false){
         html=html.replace('<div class="icon-wrap"><span>🚗</span></div>','<div class="icon-wrap"><img src="/site-icon" alt="网站图标" style="width:70px;height:70px;object-fit:contain"></div>');
         html=html.replace('</head>','<link rel="icon" href="/site-icon"></head>');
       }
-      html=html.replace('</body>','<script src="/request-ui.js" defer></script></body>');
+      html=html.replace('</body>','<script src="/request-ui.js" defer></script><script src="/voice-entry.js" defer></script></body>');
       headers['content-security-policy']="frame-ancestors 'none'; img-src 'self' data: https:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'";
     }else if(html.includes('id="confirmBtn"')){
       // Existing/legacy owner links must not ask the owner for location either.
@@ -322,6 +323,7 @@ function staticFile(res,name,type) {
   reply(res,200,txt,{'Content-Type':type,'Content-Security-Policy':"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"});
 }
 const requestFlow=createRequestFlow({db,setting,random,hash,notifyChannels,inputJson,inputPhoto,json,reply,rateGet,ratePut});
+const voice=createVoiceService({db,json,reply,inputJson});
 const failStats=new Map();
 setInterval(()=>{
  const now=Date.now();db.prepare('DELETE FROM kv WHERE expiry IS NOT NULL AND expiry<=?').run(now);
@@ -353,6 +355,7 @@ const server=http.createServer(async(req,res)=>{
     if(route==='/admin.js')return req.method==='GET'?staticFile(res,'admin.js','text/javascript; charset=utf-8'):reply(res,405,'Method not allowed');
     if(route==='/admin.css')return req.method==='GET'?staticFile(res,'admin.css','text/css; charset=utf-8'):reply(res,405,'Method not allowed');
     if(route==='/photo-ui.js')return req.method==='GET'?staticFile(res,'photo-ui.js','text/javascript; charset=utf-8'):reply(res,405,'Method not allowed');
+    if(await voice.handle(req,res,u))return;
     if(await requestFlow.handle(req,res,origin,u))return;
     if(route.startsWith('/api/admin/')){
       if(route==='/api/admin/login'&&req.method==='POST'){
@@ -513,7 +516,7 @@ const server=http.createServer(async(req,res)=>{
   } catch(err) {
     const status=err.status||500;
     if(status>=500)console.error('Request failed:',err.message?.replace(/(?:SCT[A-Za-z0-9_-]+|sctp[0-9]+t[A-Za-z0-9_-]+)/g,'[redacted]'));
-    if(!res.headersSent) return (req.url||'').startsWith('/api/admin/')|| (req.url||'')==='/api/admin/config' ? json(res,status,{error:status===500?'内部错误':err.message}) : reply(res,status,status===500?'服务暂时不可用':err.message);
+    if(!res.headersSent) return (req.url||'').startsWith('/api/voice/') ? json(res,status,{error:status===500?'内部错误':err.message}) : (req.url||'').startsWith('/api/admin/')|| (req.url||'')==='/api/admin/config' ? json(res,status,{error:status===500?'内部错误':err.message}) : reply(res,status,status===500?'服务暂时不可用':err.message);
     res.end();
   }
 });
