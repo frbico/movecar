@@ -15,6 +15,8 @@ jobs:
   android-debug:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      FIREBASE_CONFIG_B64: ${{ secrets.MOVECAR_GOOGLE_SERVICES_JSON_B64 }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -28,9 +30,21 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Create build-only Firebase placeholder
+      - name: Configure Firebase (real if repository secret is supplied)
         run: |
-          cat > android-owner/app/google-services.json <<'JSON'
+          if [ -n "$FIREBASE_CONFIG_B64" ]; then
+            printf '%s' "$FIREBASE_CONFIG_B64" | base64 -d > android-owner/app/google-services.json
+            echo "CONFIGURED_FIREBASE=true" >> "$GITHUB_ENV"
+            python3 - <<'PY'
+          import json
+          with open('android-owner/app/google-services.json', encoding='utf-8') as f:
+              config = json.load(f)
+          assert any(c.get('client_info',{}).get('android_client_info',{}).get('package_name')=='com.example.movecarvoice' for c in config.get('client',[])), 'Incorrect Android package'
+          print('Configured Firebase values validated without logging secrets')
+          PY
+          else
+            echo "CONFIGURED_FIREBASE=false" >> "$GITHUB_ENV"
+            cat > android-owner/app/google-services.json <<'JSON'
           {
             "project_info":{"project_number":"123456789012","project_id":"movecar-build-placeholder"},
             "client":[{
@@ -40,13 +54,14 @@ jobs:
             "configuration_version":"1"
           }
           JSON
+          fi
       - name: Compile Android owner app
         working-directory: android-owner
         run: gradle --no-daemon --stacktrace :app:assembleDebug
       - name: Upload CI-only debug APK (Firebase is a placeholder)
         uses: actions/upload-artifact@v4
         with:
-          name: movecar-owner-ci-debug-UNCONFIGURED
+          name: movecar-owner-${{ env.CONFIGURED_FIREBASE == 'true' && 'configured-debug' || 'CI-only-unconfigured' }}
           path: android-owner/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 3
