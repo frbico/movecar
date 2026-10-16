@@ -2,7 +2,7 @@
 
 适用上游：`https://github.com/frbico/movecar` 的 2026-10-16 版 `main` 目录结构。
 
-这不是已编译 APK，也不是已部署的服务：当前运行环境无法从 GitHub 克隆完整仓库、无法访问 Firebase 凭据，也没有 Android SDK。已生成可应用于原仓库的代码、Android Studio 工程和 Node 自动化测试。**本版本已将车主端换成 Android 原生 WebRTC + microphone 前台服务，扫码者仍使用网页 WebRTC。通话中可以主动熄屏、返回桌面，但仍需三星真机与 Firebase 环境测试。** 后续如要求锁屏继续通话、蓝牙/听筒切换和系统电话级体验，应迁移为原生 WebRTC + Telecom / 通话前台服务。
+这不是已编译 APK，也不是已部署的服务：当前运行环境无法从 GitHub 克隆完整仓库、无法访问 Firebase 凭据，也没有 Android SDK。已生成可应用于原仓库的代码、Android Studio 工程和 Node 自动化测试。**本版本已将车主端换成 Android 原生 WebRTC + microphone 前台服务，扫码者仍使用网页 WebRTC。通话中可以主动熄屏、返回桌面，但仍需三星真机与 Firebase 环境测试。** 锁屏后的音频已迁移到原生 WebRTC + microphone 前台服务；蓝牙耳机与 Android Telecom 的系统级通话整合仍待开发或实机验证。
 
 ## 1. 补丁内容
 
@@ -100,7 +100,7 @@ curl https://car.example.com/api/voice/config
 - 页面会在检测到已启用语音服务且有车主设备时，显示「网络语音呼叫车主」。
 - 点击后进入语音页，允许浏览器使用麦克风。
 - 服务器会通过 FCM 高优先级数据消息尝试唤起三星手机的来电通知。
-- 三星上点击「接听」，APP 的 WebView 打开专用语音页面；网页与 APP 交换 WebRTC SDP/ICE 后开始双向通话。
+- 三星上点击「接听」，APP 启动原生 WebRTC microphone 前台服务，并与网页交换 WebRTC SDP/ICE 后开始双向通话。
 - 任意一方点击「挂断」可结束通话。
 
 建议依次测试：APP 前台、APP 后台、三星锁屏、从最近任务划掉 APP、不同网络（Wi-Fi 对蜂窝）。手动在系统设置点击「强行停止」后不能保证收到 FCM。FCM 不能保证每次实时送达。
@@ -159,3 +159,20 @@ VOICE_TURN_SHARED_SECRET=与coturn的static-auth-secret完全相同
 - 本阶段没有集成自管理 Telecom 电话账户、通话等待、音频焦点抢占后的重建、网络切换后的 ICE 重启、进程被强杀后的通话续接；这些应作为后续增强。
 - 注意：Android 版本的 `FOREGROUND_SERVICE_MICROPHONE` 和 `RECORD_AUDIO` 必须具备，前台服务在用户接听后从可见 Activity 启动。
 - Android 工程依赖 `io.github.webrtc-sdk:android:150.7871.01`（Maven Central）。构建需 Android Studio 联网同步依赖；本环境没有 SDK，源码未实机编译验证。
+
+## 10. 仅使用 GitHub Actions 构建真正可安装的调试 APK
+
+此分支额外包含两个 Actions 工作流：
+
+- `Android debug APK`：每次修改 Android 工程自动编译。它使用假的 Firebase 占位配置，仅用于检查**能否编译**，生成的 APK **无法实际收到来电**。
+- `Build configured MoveCar owner APK`：手动运行，从 GitHub Actions Secret 读取你真实的 `google-services.json`，编译并在 Action Artifacts 里提供可安装的调试 APK。**该流程不需要本地 Android Studio**。
+
+手动构建准备步骤：
+
+1. 用 Firebase 控制台添加包名 `com.example.movecarvoice` 的 Android APP，下载 `google-services.json`。
+2. 在本地终端将文件转换为单行 Base64：`base64 -w 0 google-services.json`（macOS 使用 `base64 < google-services.json | tr -d '\\n'`）。不想用命令行也可用本机离线 Base64 工具处理；不要把配置贴到公开聊天或 issue。
+3. GitHub 仓库 → Settings → Secrets and variables → Actions → New repository secret，名称填 `MOVECAR_GOOGLE_SERVICES_JSON_B64`，值为上一步整行 Base64。**不要**把 Firebase 的服务器端私钥上传到 Actions Secret 作为 Android 配置。
+4. GitHub Actions → `Build configured MoveCar owner APK` → Run workflow，在 `feature/native-screen-off-voip` 分支运行。完成后从运行结果的 Artifacts 下载 `movecar-owner-configured-debug-apk`。
+5. 该构建产生的 debug APK 由 GitHub 临时签名，重新构建可能因签名变化需要卸载旧版本。要稳定升级应使用私有、持久化的 release 签名。
+
+`main` 分支未合并前，请在开发分支上运行手动构建。以上过程仍不等于真机验证，需按第 6 节亲自测试锁屏、移动数据及通话超时。
