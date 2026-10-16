@@ -7,8 +7,8 @@
  const waiting=document.getElementById('waitingText');
  let current=null,photo=null,objectUrl=null,pollTimer=null,contactTimer=null,startedAt=0,confirmed=false,wechatId='';
  const successCard=success.querySelector('.success-card');
- const actionCard=success.querySelector('.action-card');
- const phone=actionCard?.querySelector('.btn-phone');
+ const contactCard=success.querySelector('.action-card');
+ const phone=contactCard?.querySelector('.btn-phone');
  const originalPhoneHref=phone?.getAttribute('href')||'';
  if(phone){phone.removeAttribute('href');phone.setAttribute('aria-disabled','true');phone.style.pointerEvents='none';phone.style.opacity='.5';}
  const callHint=document.createElement('p');callHint.id='phoneCountdown';callHint.style.cssText='text-align:center;font-size:14px;color:#64748b;margin:8px 0';
