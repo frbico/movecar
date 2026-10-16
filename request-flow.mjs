@@ -82,7 +82,7 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
     cleanup,trimRetention,retentionLimit,count:()=>countRequests.get().total,
     listHistory(page=1,size=20){
       const total=countRequests.get().total;
-      return {total,page,size,items:listRequests.all(size,(page-1)*size).map(item=>({id:item.id,message:item.message,status:item.status==='waiting' && item.expires_at<=Date.now()?'expired':item.status,createdAt:item.created_at,expiresAt:item.expires_at,confirmedAt:item.confirmed_at,photoSent:!!item.photo_sent,photoUrl:(availablePhoto.get(item.id,Date.now())?.id ? '/api/photo/'+availablePhoto.get(item.id,Date.now()).id : null)}))};
+      return {total,page,size,items:listRequests.all(size,(page-1)*size).map(item=>({id:item.id,message:item.message,status:item.status==='waiting' && item.expires_at<=Date.now()?'expired':item.status,createdAt:item.created_at,expiresAt:item.expires_at,confirmedAt:item.confirmed_at,photoSent:!!item.photo_sent,photoUrl:(()=>{const pic=availablePhoto.get(item.id,Date.now());return pic?'/api/photo/'+pic.id:null;})()}))};
     },
     deleteHistory(id){if(!knownRequest.get(id))return false;removeRequest(id);return true;},
     clearHistory(){for(const item of db.prepare('SELECT id FROM move_requests').all())removeRequest(item.id);},
