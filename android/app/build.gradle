@@ -12,12 +12,15 @@ android {
         applicationId 'de.ssxi.movecar'
         minSdk 26
         targetSdk 35
-        versionCode 2
-        versionName '1.0.1'
+        versionCode 3
+        versionName '1.0.2'
         buildConfigField 'String','BASE_URL',quoted('https://movecar.ssxi.de')
     }
     signingConfigs {
         release {
+            enableV1Signing true
+            enableV2Signing true
+            enableV3Signing true
             if (signingFile.exists()) {
                 storeFile rootProject.file('../secrets/' + signingProps.getProperty('storeFile','movecar-release.jks'))
                 storePassword signingProps.getProperty('storePassword')

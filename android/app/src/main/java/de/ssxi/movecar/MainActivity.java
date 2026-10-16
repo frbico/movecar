@@ -2,6 +2,7 @@ package de.ssxi.movecar;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
@@ -51,7 +52,7 @@ public final class MainActivity extends Activity {
     private Button button(String label,Runnable action){Button b=new Button(this);b.setText(label);b.setAllCaps(false);b.setOnClickListener(v->action.run());return b;}
     private void clear(){content.removeAllViews();}
 
-    @Override public void onCreate(Bundle saved){super.onCreate(saved);store=new SecureStore(this);Notices.channels(this);
+    @Override public void onCreate(Bundle saved){super.onCreate(saved);CrashReporter.install(this);store=new SecureStore(this);Notices.channels(this);
         if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},12);
         root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(18),dp(18),dp(18),dp(10));root.setBackgroundColor(0xfff5f7fb);
@@ -70,7 +71,9 @@ public final class MainActivity extends Activity {
         if(store.token().isEmpty())state.setText("尚未绑定车主设备");
         else state.setText("WebSocket 接收连接："+store.connection());
     }
-    private void showHome(){updateStatus();clear();if(store.token().isEmpty()){
+    private void showHome(){updateStatus();clear();if(!CrashReporter.lastCrash(this).isEmpty())
+        content.addView(button("查看上次闪退诊断",this::showCrash));
+        if(store.token().isEmpty()){
         content.addView(text("在网页后台打开「安卓设备」，生成一次性二维码，然后用此 App 扫描。",18));
         content.addView(button("扫描后台配对二维码",this::scan));
         EditText pairingLink=new EditText(this);pairingLink.setHint("或粘贴后台显示的配对链接");pairingLink.setSingleLine(false);content.addView(pairingLink);
@@ -82,6 +85,14 @@ public final class MainActivity extends Activity {
         actions.addView(button("刷新",this::refresh));actions.addView(button("设备设置",this::settings));content.addView(actions);
         content.addView(text("请在系统设置中允许通知、自启动，并将此 App 的电池策略设为无限制。两台手机均需要常驻通知和“已连接”状态；系统仍可能结束后台进程。",14));
         content.addView(text("正在读取挪车记录…",16));
+    }
+    private void showCrash(){
+        TextView details=text(CrashReporter.lastCrash(this),13);details.setTextIsSelectable(true);
+        ScrollView scroll=new ScrollView(this);scroll.setPadding(dp(16),dp(8),dp(16),dp(8));scroll.addView(details);
+        new AlertDialog.Builder(this).setTitle("上次闪退诊断")
+                .setView(scroll).setPositiveButton("关闭",null)
+                .setNeutralButton("清除",(dialog,which)->{CrashReporter.clear(this);showHome();})
+                .show();
     }
     private void settings(){Intent intent=new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+getPackageName()));startActivity(intent);}
     private void scan(){
@@ -121,6 +132,7 @@ public final class MainActivity extends Activity {
     private void refresh(){updateStatus();if(store.token().isEmpty()){showHome();return;}if(currentId.isEmpty())loadList();else loadDetail(currentId);}
     private void loadList(){final int requested=page;work(()->new ApiClient(this).json("GET","/api/app/requests?page="+requested+"&size=20",null),this::renderList);}
     private void renderList(JSONObject data){if(!currentId.isEmpty())return;showHome();clear();
+        if(!CrashReporter.lastCrash(this).isEmpty())content.addView(button("查看上次闪退诊断",this::showCrash));
         content.addView(button("刷新记录",this::refresh));
         JSONArray items=data.optJSONArray("items");if(items==null||items.length()==0){content.addView(text("暂无挪车记录",18));return;}
         for(int i=0;i<items.length();i++){
