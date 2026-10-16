@@ -40,7 +40,7 @@
    }catch {wechatMessage.textContent='复制失败，请手动复制：'+wechatId;}
  }
  wechatButton.addEventListener('click',copyWechat);
- fetch('/api/site-config',{cache:'no-store'}).then(r=>r.ok?r.json():{}).then(c=>{wechatId=c.wechatId||'';wechatButton.disabled=!wechatId;wechatButton.textContent=wechatId?'💬 微信联系 · 复制车主微信号':'💬 微信联系（车主未配置）';}).catch(()=>{});
+ fetch('/api/site-config',{cache:'no-store'}).then(r=>r.ok?r.json():{}).then(c=>{wechatId=c.wechatId||'';wechatButton.disabled=!wechatId;wechatButton.textContent=wechatId?'💬 微信联系':'💬 微信联系（车主未配置）';}).catch(()=>{});
  refreshContact();
  const notifyText=(text)=>{
    if(typeof showToast==='function')showToast(text);
