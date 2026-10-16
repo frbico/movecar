@@ -31,7 +31,7 @@ async function loadHistory(){
      const created=document.createElement('td');created.textContent=new Date(item.createdAt).toLocaleString('zh-CN');
      const msg=document.createElement('td');msg.className='history-message';msg.textContent=item.message;
      const status=document.createElement('td');status.textContent=({waiting:'等待确认',confirmed:'车主已确认',expired:'已过期'})[item.status]||item.status;
-     const photo=document.createElement('td');photo.textContent=item.hasPhoto?'已附照片':'无照片';
+     const photo=document.createElement('td');if(item.photoUrl){const link=document.createElement('a');link.href=item.photoUrl;link.target='_blank';link.rel='noopener noreferrer';link.textContent='查看照片 ↗';photo.appendChild(link);}else photo.textContent=item.photoSent?'已过期':'无照片';
      const action=document.createElement('td'),remove=document.createElement('button');remove.type='button';remove.className='outline';remove.textContent='删除';remove.addEventListener('click',async()=>{if(!confirm('确定删除这条记录及其关联照片？'))return;remove.disabled=true;try{await api('/api/admin/requests/delete',{id:item.id});toast('记录已删除');await loadHistory();}catch(e){toast(e.message,true)}finally{remove.disabled=false}});action.appendChild(remove);
      tr.append(created,msg,status,photo,action);body.appendChild(tr);
    }
