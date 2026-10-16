@@ -30,7 +30,7 @@
    else if(canCall){callHint.textContent='📞 等待已超过 60 秒，现在可以联系车主';}
    else{callHint.textContent='请先发送通知';}
  }
- function beginWait(){if(!startedAt)startedAt=Date.now();confirmed=false;refreshContact();if(!contactTimer)contactTimer=setInterval(refreshContact,1000);}
+ function beginWait(){if(!startedAt||confirmed)startedAt=Date.now();confirmed=false;refreshContact();if(!contactTimer)contactTimer=setInterval(refreshContact,1000);}
  async function copyWechat(){
    if(!wechatId)return;
    try{
