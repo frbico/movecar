@@ -165,14 +165,14 @@ VOICE_TURN_SHARED_SECRET=与coturn的static-auth-secret完全相同
 此分支额外包含两个 Actions 工作流：
 
 - `Android debug APK`：每次修改 Android 工程自动编译。它使用假的 Firebase 占位配置，仅用于检查**能否编译**，生成的 APK **无法实际收到来电**。
-- `Build configured MoveCar owner APK`：手动运行，从 GitHub Actions Secret 读取你真实的 `google-services.json`，编译并在 Action Artifacts 里提供可安装的调试 APK。**该流程不需要本地 Android Studio**。
+- `Android debug APK`：如果 Actions Secret `MOVECAR_GOOGLE_SERVICES_JSON_B64` 已配置且由本仓库分支 push 触发，则自动使用真实 Firebase 配置构建；否则使用假的占位配置，仅检查编译。\n- `Build configured MoveCar owner APK`：补充的手动构建工作流；**仅在该工作流文件进入默认分支后**，GitHub UI 才会显示手动运行按钮。当前 PR 未合并时请使用上一项 push 构建。
 
 手动构建准备步骤：
 
 1. 用 Firebase 控制台添加包名 `com.example.movecarvoice` 的 Android APP，下载 `google-services.json`。
 2. 在本地终端将文件转换为单行 Base64：`base64 -w 0 google-services.json`（macOS 使用 `base64 < google-services.json | tr -d '\\n'`）。不想用命令行也可用本机离线 Base64 工具处理；不要把配置贴到公开聊天或 issue。
 3. GitHub 仓库 → Settings → Secrets and variables → Actions → New repository secret，名称填 `MOVECAR_GOOGLE_SERVICES_JSON_B64`，值为上一步整行 Base64。**不要**把 Firebase 的服务器端私钥上传到 Actions Secret 作为 Android 配置。
-4. GitHub Actions → `Build configured MoveCar owner APK` → Run workflow，在 `feature/native-screen-off-voip` 分支运行。完成后从运行结果的 Artifacts 下载 `movecar-owner-configured-debug-apk`。
+4. 当前 PR 在独立开发分支上。添加 Secret 后，向 `feature/native-screen-off-voip` 推送一次非机密源码/文档修改，触发 `Android debug APK` 工作流。配置有效时，从该工作流的 Artifacts 下载 `movecar-owner-configured-debug`。如未来合并了手动工作流文件到默认分支，也可从 Actions → `Build configured MoveCar owner APK` → Run workflow 手动运行。
 5. 该构建产生的 debug APK 由 GitHub 临时签名，重新构建可能因签名变化需要卸载旧版本。要稳定升级应使用私有、持久化的 release 签名。
 
-`main` 分支未合并前，请在开发分支上运行手动构建。以上过程仍不等于真机验证，需按第 6 节亲自测试锁屏、移动数据及通话超时。
+`main` 分支未合并前，请在开发分支上触发 push 构建；手动构建按钮此时可能不会显示。以上过程仍不等于真机验证，需按第 6 节亲自测试锁屏、移动数据及通话超时。
