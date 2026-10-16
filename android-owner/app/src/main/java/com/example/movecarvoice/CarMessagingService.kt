@@ -47,7 +47,9 @@ class CarMessagingService : FirebaseMessagingService() {
             .setCategory(Notification.CATEGORY_CALL)
             .setPriority(Notification.PRIORITY_HIGH)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
-            .setOngoing(true)
+            // Clear a missed-call notification automatically; the server stops ringing at 35s.
+            .setTimeoutAfter(35_000L)
+            .setOngoing(false)
             .setContentIntent(view)
             .setFullScreenIntent(view, true)
         if (Build.VERSION.SDK_INT >= 31) {
