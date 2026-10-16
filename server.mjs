@@ -158,11 +158,11 @@ function isOwner(req) {
   const token=sessions(req).movecar_owner;
   return token && ownerSessionGet.get(hash(token),Date.now());
 }
-async function inputPhoto(req,limit=8*1024*1024) {
+async function inputPhoto(req,limit=10*1024*1024) {
   let total=0;const chunks=[];
   for await(const chunk of req) {
     total+=chunk.length;
-    if(total>limit)throw Object.assign(Error('照片太大，请压缩到 1.5MB 以下'),{status:413});
+    if(total>limit)throw Object.assign(Error('照片太大，请选择不超过 10 MB 的图片'),{status:413});
     chunks.push(chunk);
   }
   const b=Buffer.concat(chunks);
@@ -263,12 +263,29 @@ async function sendWorker(response,res,head=false){
   const isHtml=headers['content-type']?.includes('text/html');
   if(isHtml) headers['content-security-policy']="frame-ancestors 'none'";
   let payload=head?null:Buffer.from(await response.arrayBuffer());
-  if(isHtml&&payload&&payload.includes('id="successView"')){
+  if(isHtml&&payload){
     let html=payload.toString('utf8');
-    if(!html.includes('</body>'))throw Error('上游页面缺少 body 结束标签');
-    html=html.replace('</body>','<script src="/request-ui.js" defer></script></body>');
+    if(html.includes('id="successView"')){
+      // Remove the original Worker GPS consent modal and location-status panel.
+      html=html.replace(/<!-- 页面加载时的位置提示弹窗 -->[\s\S]*?(?=\s*<div class="container" id="mainView">)/,'');
+      html=html.replace(/<div class="card loc-card">[\s\S]*?(?=<button id="notifyBtn")/,'');
+      const geoStart=html.indexOf('      // 页面加载时显示提示弹窗');
+      const geoEnd=html.indexOf('      function addTag(text)',geoStart);
+      if(geoStart!==-1&&geoEnd>geoStart)html=html.slice(0,geoStart)+html.slice(geoEnd);
+      html=html.replace('正在赶来，点击查看车主位置','正在赶来，请稍候');
+      html=html.replace(/<div id="ownerMapLinks" class="map-links"[\s\S]*?<\/div>/,'');
+      if(!html.includes('</body>'))throw Error('上游页面缺少 body 结束标签');
+      html=html.replace('</body>','<script src="/request-ui.js" defer></script></body>');
+      headers['content-security-policy']="frame-ancestors 'none'; img-src 'self' data: https:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'";
+    }else if(html.includes('id="confirmBtn"')){
+      // Existing/legacy owner links must not ask the owner for location either.
+      const geoStart=html.indexOf('      // 点击确认按钮时，触发浏览器授权');
+      const geoEnd=html.indexOf('      // 发送确认',geoStart);
+      if(geoStart!==-1&&geoEnd>geoStart){
+        html=html.slice(0,geoStart)+"      async function confirmMove() { ownerLocation=null; await doConfirm(); }\n\n"+html.slice(geoEnd);
+      }
+    }
     payload=Buffer.from(html,'utf8');
-    headers['content-security-policy']="frame-ancestors 'none'; img-src 'self' data: https:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'";
   }
   res.writeHead(response.status,headers);res.end(payload);
 }
@@ -374,7 +391,8 @@ const server=http.createServer(async(req,res)=>{
       const tok=random();ownerSessionPut.run(hash(tok),Date.now()+3600000);
       res.writeHead(303,{'Location':'/owner-confirm','Set-Cookie':cookie('movecar_owner',tok,origin),'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});return res.end();
     }
-    if((route==='/api/get-location'||route==='/api/owner-confirm')&&!hasOwner)return reply(res,403,'车主认证失败');
+    if(route==='/api/get-location')return reply(res,410,'定位功能已停用');
+    if(route==='/api/owner-confirm'&&!hasOwner)return reply(res,403,'车主认证失败');
     const methods={'/api/notify':'POST','/api/get-location':'GET','/api/owner-confirm':'POST','/api/check-status':'GET','/owner-confirm':'GET','/api/photo':'POST'};
     if(methods[route] && req.method!==methods[route])return reply(res,405,'Method not allowed');
     if(route.startsWith('/api/photo/') && req.method==='GET'){
@@ -410,9 +428,9 @@ const server=http.createServer(async(req,res)=>{
       if(window>0&&(rateGet.get(key)?.until??0)>now)return reply(res,429,'通知太频繁，请稍后再试',{'Retry-After':String(window)});
       const data=await inputJson(req);
       if(typeof data.message!=='string'||data.message.length>200) return reply(res,400,'留言长度须在 200 字以内');
-      if(data.location!=null && (typeof data.location!=='object'||!Number.isFinite(data.location.lat)||!Number.isFinite(data.location.lng)||Math.abs(data.location.lat)>90||Math.abs(data.location.lng)>180))return reply(res,400,'位置数据无效');
+      // Legacy adapter ignores location data; location collection is disabled.
       // Failed notifications should not prevent a retry: set rate limit after success.
-      const request=new Request(new URL(route+u.search,origin),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:data.message,location:data.location||null,delayed:false})});
+      const request=new Request(new URL(route+u.search,origin),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:data.message,delayed:false})});
       const response=await invokeWorker(request);
       if(response.ok) {
         const delivered=await response.clone().json().catch(()=>({}));
