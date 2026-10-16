@@ -16,6 +16,7 @@ android/app/google-services.json
 firebase-service-account.json
 secrets/
 .local-tools/
+dist/
 
 # Downloaded upstream code and license (retrieved by fetch-upstream.sh)
 upstream/movecar.js
