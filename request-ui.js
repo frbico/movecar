@@ -17,7 +17,7 @@
  wechatButton.id='wechatContactBtn';wechatButton.type='button';wechatButton.textContent='💬 微信联系（未配置）';wechatButton.disabled=true;
  wechatButton.style.cssText='display:block;width:100%;margin:0;padding:16px 12px;border-radius:16px;border:none;background:linear-gradient(135deg,#17b97e,#0da56e);color:white;font-size:17px;font-weight:700';
  if(phone)phone.insertAdjacentElement('beforebegin',wechatButton);
- const wechatMessage=document.createElement('p');wechatMessage.id='wechatCopyHint';wechatMessage.setAttribute('role','status');wechatMessage.style.cssText='display:none;text-align:center;color:#288269;font-size:13px;margin:8px 0';
+ const wechatMessage=document.createElement('p');wechatMessage.id='wechatCopyHint';wechatMessage.setAttribute('role','status');wechatMessage.style.cssText='position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap';
  wechatButton.insertAdjacentElement('afterend',wechatMessage);
  function refreshContact(){
    if(!phone)return;
@@ -36,8 +36,8 @@
    try{
      if(navigator.clipboard?.writeText)await navigator.clipboard.writeText(wechatId);
      else {const t=document.createElement('textarea');t.value=wechatId;t.style.position='fixed';t.style.left='-9999px';document.body.appendChild(t);t.select();if(!document.execCommand('copy'))throw Error('复制失败');t.remove();}
-     wechatMessage.textContent='已复制微信号，请添加车主微信';wechatMessage.style.display='block';notifyText('已复制微信号，请添加车主微信');
-   }catch {wechatMessage.textContent='复制失败，请手动复制：'+wechatId;wechatMessage.style.display='block';}
+     wechatMessage.textContent='已复制微信号，请添加车主微信';notifyText('已复制微信号，请添加车主微信');
+   }catch {wechatMessage.textContent='复制失败，请手动复制：'+wechatId;notifyText('复制失败，请手动复制：'+wechatId);}
  }
  wechatButton.addEventListener('click',copyWechat);
  fetch('/api/site-config',{cache:'no-store'}).then(r=>r.ok?r.json():{}).then(c=>{wechatId=c.wechatId||'';wechatButton.disabled=!wechatId;wechatButton.textContent=wechatId?'💬 微信联系':'💬 微信联系（车主未配置）';}).catch(()=>{});
