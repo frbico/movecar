@@ -24,7 +24,8 @@ async function loadDevices(){
   }catch(e){box.textContent=e.message}
 }
 $('devicesRefresh').onclick=()=>void loadDevices();
-$('createPairing').onclick=async()=>{const button=$('createPairing');button.disabled=true;try{const data=await api('/api/admin/app-pairing',{});$('pairingQr').src=data.qrDataUrl;$('pairingExpiry').textContent='请在 '+new Date(data.expiresAt).toLocaleTimeString()+' 前用 MoveCar App 扫描';$('pairingBox').hidden=false;toast('二维码已生成')}catch(e){toast(e.message,true)}finally{button.disabled=false}};
+$('createPairing').onclick=async()=>{const button=$('createPairing');button.disabled=true;try{const data=await api('/api/admin/app-pairing',{});$('pairingQr').src=data.qrDataUrl;$('pairingUri').textContent=data.pairingUri;$('pairingExpiry').textContent='请在 '+new Date(data.expiresAt).toLocaleTimeString()+' 前绑定';$('pairingBox').hidden=false;toast('二维码已生成')}catch(e){toast(e.message,true)}finally{button.disabled=false}};
+$('copyPairing').onclick=async()=>{try{await navigator.clipboard.writeText($('pairingUri').textContent);toast('配对链接已复制')}catch{toast('复制失败，请手动选择链接',true)}};
 
 // Historical records are limited to configured retention (default latest 50), never exposed publicly.
 async function loadHistory(){

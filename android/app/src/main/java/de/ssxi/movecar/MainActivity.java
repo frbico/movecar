@@ -13,6 +13,7 @@ import android.os.Bundle;
 import android.provider.Settings;
 import android.view.View;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -72,6 +73,8 @@ public final class MainActivity extends Activity {
     private void showHome(){updateStatus();clear();if(store.token().isEmpty()){
         content.addView(text("在网页后台打开「安卓设备」，生成一次性二维码，然后用此 App 扫描。",18));
         content.addView(button("扫描后台配对二维码",this::scan));
+        EditText pairingLink=new EditText(this);pairingLink.setHint("或粘贴后台显示的配对链接");pairingLink.setSingleLine(false);content.addView(pairingLink);
+        content.addView(button("使用配对链接绑定",()->pairFromUri(pairingLink.getText().toString().trim())));
         content.addView(text("绑定后无需输入管理员密码。手机丢失时可在网页后台逐台解绑。",14));
         return;
     }
@@ -81,10 +84,24 @@ public final class MainActivity extends Activity {
         content.addView(text("正在读取挪车记录…",16));
     }
     private void settings(){Intent intent=new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+getPackageName()));startActivity(intent);}
-    private void scan(){new IntentIntegrator(this).setDesiredBarcodeFormats(IntentIntegrator.QR_CODE).setPrompt("扫描 MoveCar 后台的配对二维码").setBeepEnabled(false).initiateScan();}
+    private void scan(){
+        if(checkSelfPermission(Manifest.permission.CAMERA)!=PackageManager.PERMISSION_GRANTED){
+            requestPermissions(new String[]{Manifest.permission.CAMERA},13);return;
+        }
+        try{new IntentIntegrator(this).setDesiredBarcodeFormats(IntentIntegrator.QR_CODE).setPrompt("扫描 MoveCar 后台的配对二维码").setBeepEnabled(false).initiateScan();}
+        catch(RuntimeException e){android.util.Log.e("MoveCar","Scanner launch failed",e);message("无法打开扫码页面，请粘贴后台的配对链接");}
+    }
+    @Override public void onRequestPermissionsResult(int requestCode,String[] permissions,int[] grantResults){
+        super.onRequestPermissionsResult(requestCode,permissions,grantResults);
+        if(requestCode==13){if(grantResults.length>0&&grantResults[0]==PackageManager.PERMISSION_GRANTED)scan();
+            else message("请允许相机权限，或使用配对链接绑定");}
+    }
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){super.onActivityResult(requestCode,resultCode,data);
         IntentResult result=IntentIntegrator.parseActivityResult(requestCode,resultCode,data);if(result==null||result.getContents()==null)return;
-        try {Uri uri=Uri.parse(result.getContents());if(!"movecar".equals(uri.getScheme())||!"pair".equals(uri.getHost())||!BuildConfig.BASE_URL.equals(uri.getQueryParameter("server")))throw new Exception("二维码不是当前 MoveCar 服务器的配对码");
+        pairFromUri(result.getContents());
+    }
+    private void pairFromUri(String raw){
+        try {Uri uri=Uri.parse(raw);if(!"movecar".equals(uri.getScheme())||!"pair".equals(uri.getHost())||!BuildConfig.BASE_URL.equals(uri.getQueryParameter("server")))throw new Exception("配对链接不是当前 MoveCar 服务器的配对码");
             String code=uri.getQueryParameter("code");if(code==null||!code.matches("[A-Za-z0-9_-]{43}"))throw new Exception("配对码无效");
             String platform=Build.MANUFACTURER.toLowerCase(java.util.Locale.ROOT).contains("samsung")?"samsung":"xiaomi";
             work(()->new ApiClient(this).json("POST","/api/app/pair",new JSONObject().put("code",code).put("platform",platform).put("name",Build.MANUFACTURER+" "+Build.MODEL)),reply->{
