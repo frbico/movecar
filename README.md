@@ -190,3 +190,10 @@ docker compose -f compose.yaml ps
 - **隐私与安全**：历史记录接口仅管理员可读；修改、删除、上传图标受管理员登录和 CSRF 校验保护。公开网站只返回显示所需的站点名称和微信号，不公开管理员密码及通知密钥。
 
 升级 Docker 后如果出现页面缓存问题可强制刷新。首次启用微信联系请先在后台设置微信号并保存。
+
+
+## 实验性匿名网络语音（开发分支）
+
+本开发分支增加网页扫码匿名呼叫、FCM 来电、Android 原生 WebRTC 双向语音，以及允许接听后熄屏继续运行的麦克风前台服务。当前仍是 **MVP / 未部署 / 未完成真机验证**，不会在未配置 Firebase 的情况下自动启用。完整配置与安全说明参见 [VOICE-CALLS.md](VOICE-CALLS.md)。
+
+Android CI 产出的占位 Firebase APK **不能用于实际来电**；需为仓库 Actions 配置 `MOVECAR_GOOGLE_SERVICES_JSON_B64` 后，在本分支触发一次 Android 构建。需要配置服务端 Firebase 服务账号（不得提交仓库）和必要的 TURN 服务。
