@@ -190,3 +190,42 @@ docker compose -f compose.yaml ps
 - **隐私与安全**：历史记录接口仅管理员可读；修改、删除、上传图标受管理员登录和 CSRF 校验保护。公开网站只返回显示所需的站点名称和微信号，不公开管理员密码及通知密钥。
 
 升级 Docker 后如果出现页面缓存问题可强制刷新。首次启用微信联系请先在后台设置微信号并保存。
+
+## MoveCar 安卓接收端
+
+`android/` 是原生 Android 工程，包名为 `de.ssxi.movecar`，固定连接 `https://movecar.ssxi.de`。Redmi K70 和 Galaxy S24 Ultra 均通过自建 WebSocket 与常驻前台服务接收消息，无需 Firebase、Google 服务或 MQTT Broker。同一后台可绑定多台手机；App 显示近期请求、确认状态和未过期的照片，车主可在任一台确认。原有网页确认链接与其他通知渠道保留。
+
+### 发布签名
+
+发布签名在 `secrets/movecar-release.p12` 和 `secrets/signing.properties`。首次可用 `python scripts/generate-android-signing.py` 生成；**这两个文件必须私下备份**，否则以后无法覆盖升级已安装的 APK。已有文件时脚本拒绝覆盖。不要将签名文件提交到 Git。
+
+### 构建与部署
+
+在 JDK 17、Android SDK 35 可用的环境运行：
+
+```sh
+cd android
+./gradlew :app:assembleRelease
+```
+
+有签名配置时，输出为 `android/app/build/outputs/apk/release/app-release.apk`。Windows 使用 `gradlew.bat`。CI 还会构建不含私密配置的调试 APK，以检查工程可编译。
+
+服务端先按原方式升级，保留现有 SQLite 数据卷：
+
+```sh
+docker compose up -d --build
+```
+
+不要删除 `movecar_data` 数据卷。服务端的 WebSocket 入口与网页使用同一个域名和 443 端口。
+
+在 1Panel/OpenResty 的 `movecar.ssxi.de` 反向代理中为 `/api/app/events` 允许 WebSocket Upgrade，并转发到 `127.0.0.1:8888`。配置要点：`proxy_http_version 1.1; proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade"; proxy_read_timeout 90s;`，保留原 Host 头。服务端每 20 秒 Ping；若 1Panel 提供“WebSocket 支持”开关，需开启。照片最大 10 MiB，反向代理请求体上限建议至少 12 MiB。
+
+### 绑定与切换
+
+1. 安装同一签名 APK，在网页后台「安卓设备」生成一次性二维码，分别用两台手机在 App 内扫码。二维码 5 分钟有效，使用一次即失效。
+2. 两台手机均允许通知、自启动和后台运行，并将电池策略设为无限制。两台都应显示常驻通知和“已连接”状态。
+3. 在后台「通知渠道」单独测试 App，然后从网页发起新请求，锁屏检查双机提醒、照片与确认同步。
+4. 验证通过后，关闭 Bark/Server酱等旧渠道的「启用发送」开关并保存。旧密钥会保留，可随时重新启用。升级代码本身不会提前关闭旧渠道，以免设备绑定前中断通知。
+5. 手机丢失或换机时在后台「安卓设备」逐台解绑；旧设备凭证会立即失效。
+
+两台手机都依赖常驻连接。系统结束进程后即时送达无法保证；App 重连时从保留记录补取遗漏请求。WebSocket 的“发送成功”仅表示写入当前连接，实际锁屏显示仍需真机验证。

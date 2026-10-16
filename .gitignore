@@ -7,6 +7,15 @@
 data/
 node_modules/
 *.sqlite*
+*.jks
+*.keystore
+android/local.properties
+android/**/build/
+android/.gradle/
+android/app/google-services.json
+firebase-service-account.json
+secrets/
+.local-tools/
 
 # Downloaded upstream code and license (retrieved by fetch-upstream.sh)
 upstream/movecar.js

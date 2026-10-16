@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import vm from 'node:vm';
 import { DatabaseSync } from 'node:sqlite';
 import { createRequestFlow } from './request-flow.mjs';
+import { createAppChannel } from './app-channel.mjs';
 
 const port = Number(process.env.PORT || 8888);
 const dbPath = path.resolve(process.env.DB_PATH || './data/state.sqlite');
@@ -233,14 +234,21 @@ async function sendSc3(key,title,message,ownerUrl,richMarkdown=false) {
   const result = await r.json().catch(()=>({}));
   if(result.code!==0) throw Error('Server酱³ 返回失败，请检查 SendKey 和手机注册状态');
 }
-async function notifyChannels({title,message,ownerUrl,query='',channel='all',richMarkdown=false}) {
+let appChannel;
+const enabled = name => setting(name+'_enabled','1')==='1';
+const hasChannel = () => (setting('bark_url')&&enabled('bark')) || (setting('serverchan_sendkey')&&enabled('serverchan')) ||
+  (setting('sc3_sendkey')&&enabled('sc3')) || (appChannel&&enabled('app')&&appChannel.listDevices().length>0);
+async function notifyChannels({title,message,ownerUrl,query='',channel='all',richMarkdown=false,appEvent=null}) {
   const tasks=[];
   const names=[];
   const wanted = name => channel==='all' || channel===name;
   const bark=setting('bark_url'), turbo=setting('serverchan_sendkey'), sc3=setting('sc3_sendkey');
-  if(bark && wanted('bark')) { names.push('bark'); tasks.push(sendBark(bark,title,message,ownerUrl,query)); }
-  if(turbo && wanted('serverchan')) { names.push('serverchan'); tasks.push(sendWeChat(turbo,title,message,ownerUrl)); }
-  if(sc3 && wanted('sc3')) { names.push('sc3'); tasks.push(sendSc3(sc3,title,message,ownerUrl,richMarkdown)); }
+  if(bark && enabled('bark') && wanted('bark')) { names.push('bark'); tasks.push(sendBark(bark,title,message,ownerUrl,query)); }
+  if(turbo && enabled('serverchan') && wanted('serverchan')) { names.push('serverchan'); tasks.push(sendWeChat(turbo,title,message,ownerUrl)); }
+  if(sc3 && enabled('sc3') && wanted('sc3')) { names.push('sc3'); tasks.push(sendSc3(sc3,title,message,ownerUrl,richMarkdown)); }
+  if(appChannel && enabled('app') && wanted('app') && appChannel.listDevices().length) {
+    names.push('app');tasks.push(appChannel.notify(appEvent||{type:'test',id:'',title,summary:String(message).slice(0,100)}));
+  }
   if(!tasks.length) throw Object.assign(Error(channel==='all'?'尚未配置推送渠道，请先进入 /admin 设置':'所选渠道尚未配置，请先保存密钥'),{status:503});
   const results=await Promise.allSettled(tasks);
   const statuses=Object.fromEntries(results.map((item,index)=>[names[index],item.status==='fulfilled'?'ok':'failed']));
@@ -319,9 +327,11 @@ async function sendWorker(response,res,head=false){
 }
 function staticFile(res,name,type) {
   const txt=fs.readFileSync(path.join(import.meta.dirname,name));
-  reply(res,200,txt,{'Content-Type':type,'Content-Security-Policy':"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"});
+  reply(res,200,txt,{'Content-Type':type,'Content-Security-Policy':"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"});
 }
-const requestFlow=createRequestFlow({db,setting,random,hash,notifyChannels,inputJson,inputPhoto,json,reply,rateGet,ratePut});
+const requestFlow=createRequestFlow({db,setting,random,hash,notifyChannels,inputJson,inputPhoto,json,reply,rateGet,ratePut,hasChannel,
+  onConfirmed:id=>appChannel?.broadcast({type:'confirmed',id,title:'MoveCar',summary:'车主已确认挪车请求'})});
+appChannel=createAppChannel({db,random,hash,json,reply,inputJson,getFlow:()=>requestFlow});
 const failStats=new Map();
 setInterval(()=>{
  const now=Date.now();db.prepare('DELETE FROM kv WHERE expiry IS NOT NULL AND expiry<=?').run(now);
@@ -331,6 +341,7 @@ setInterval(()=>{
  db.prepare('DELETE FROM photo_grants WHERE expiry<=?').run(now);
  db.prepare('DELETE FROM photo_records WHERE expiry<=?').run(now);
  requestFlow.cleanup();
+ appChannel.cleanup();
  for (const [ip,item] of failStats) if(item.until<now)failStats.delete(ip);
 },3600000).unref();
 const server=http.createServer(async(req,res)=>{
@@ -354,6 +365,7 @@ const server=http.createServer(async(req,res)=>{
     if(route==='/admin.css')return req.method==='GET'?staticFile(res,'admin.css','text/css; charset=utf-8'):reply(res,405,'Method not allowed');
     if(route==='/photo-ui.js')return req.method==='GET'?staticFile(res,'photo-ui.js','text/javascript; charset=utf-8'):reply(res,405,'Method not allowed');
     if(await requestFlow.handle(req,res,origin,u))return;
+    if(await appChannel.handle(req,res,u))return;
     if(route.startsWith('/api/admin/')){
       if(route==='/api/admin/login'&&req.method==='POST'){
         const loginOrigin=trustedAdminOrigin(req);
@@ -374,13 +386,24 @@ const server=http.createServer(async(req,res)=>{
       const auth=session(req);
       if(!auth)return json(res,401,{error:'请先登录'});
       if(route==='/api/admin/session'&&req.method==='GET')return json(res,200,{csrf:auth.csrf});
-      if(route==='/api/admin/config'&&req.method==='GET')return json(res,200,{publicUrl:setting('public_url'),phoneNumber:setting('phone_number'),rateLimitSeconds:Number(setting('rate_limit_seconds','60')),requestRetentionLimit:requestFlow.retentionLimit(),requestCount:requestFlow.count(),siteName:setting('site_name','呼叫车主挪车'),wechatId:setting('wechat_id'),siteIconConfigured:!!iconGet.get(),siteIconUpdatedAt:iconGet.get()?.updated_at||null,barkConfigured:!!setting('bark_url'),serverchanConfigured:!!setting('serverchan_sendkey'),sc3Configured:!!setting('sc3_sendkey')});
+      if(route==='/api/admin/config'&&req.method==='GET')return json(res,200,{publicUrl:setting('public_url'),phoneNumber:setting('phone_number'),rateLimitSeconds:Number(setting('rate_limit_seconds','60')),requestRetentionLimit:requestFlow.retentionLimit(),requestCount:requestFlow.count(),siteName:setting('site_name','呼叫车主挪车'),wechatId:setting('wechat_id'),siteIconConfigured:!!iconGet.get(),siteIconUpdatedAt:iconGet.get()?.updated_at||null,barkConfigured:!!setting('bark_url'),serverchanConfigured:!!setting('serverchan_sendkey'),sc3Configured:!!setting('sc3_sendkey'),barkEnabled:enabled('bark'),serverchanEnabled:enabled('serverchan'),sc3Enabled:enabled('sc3'),appEnabled:enabled('app'),appDeviceCount:appChannel.listDevices().length});
+      if(route==='/api/admin/app-devices'&&req.method==='GET')return json(res,200,{items:appChannel.listDevices()});
       if(route==='/api/admin/requests'&&req.method==='GET'){
         const page=Number(u.searchParams.get('page')||'1'),size=Number(u.searchParams.get('size')||'20');
         if(!Number.isInteger(page)||page<1||page>9999||!Number.isInteger(size)||size<1||size>100)return json(res,400,{error:'分页参数无效'});
         return json(res,200,requestFlow.listHistory(page,size));
       }
       if(!['POST','PUT'].includes(req.method)||!checkCsrf(req,auth.csrf))return json(res,403,{error:'请求未通过验证'});
+      if(route==='/api/admin/app-pairing'&&req.method==='POST'){
+        const pairingOrigin=validateOrigin(setting('public_url')||trustedAdminOrigin(req));
+        if(!pairingOrigin?.startsWith('https://')&&!isTest)return json(res,400,{error:'请先设置 HTTPS 公网访问地址'});
+        return json(res,200,await appChannel.createPairing(pairingOrigin||origin));
+      }
+      if(route==='/api/admin/app-devices/revoke'&&req.method==='POST'){
+        const data=await inputJson(req);
+        if(typeof data.id!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(data.id))return json(res,400,{error:'设备编号无效'});
+        return json(res,200,{ok:true,revoked:appChannel.revoke(data.id)});
+      }
       if(route==='/api/admin/requests/delete'&&req.method==='POST'){
         const data=await inputJson(req);
         if(typeof data.id!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(data.id))return json(res,400,{error:'请求编号无效'});
@@ -428,12 +451,15 @@ const server=http.createServer(async(req,res)=>{
         if(bark)save('bark_url',bark);else if(data.clearBark===true)delSettingStmt.run('bark_url');
         if(key)save('serverchan_sendkey',key);else if(data.clearServerchan===true)delSettingStmt.run('serverchan_sendkey');
         if(sc3Key)save('sc3_sendkey',sc3Key);else if(data.clearSc3===true)delSettingStmt.run('sc3_sendkey');
+        for(const [field,name] of [['barkEnabled','bark'],['serverchanEnabled','serverchan'],['sc3Enabled','sc3'],['appEnabled','app']]) {
+          if(data[field]!==undefined){if(typeof data[field]!=='boolean')return json(res,400,{error:'通知开关无效'});save(name+'_enabled',data[field]?'1':'0');}
+        }
         return json(res,200,{ok:true});
       }
       if(route==='/api/admin/test-push'&&req.method==='POST'){
         const data=await inputJson(req);
         const channel=data.channel??'all';
-        if(!['all','bark','serverchan','sc3'].includes(channel))return json(res,400,{error:'测试渠道无效'});
+        if(!['all','bark','serverchan','sc3','app'].includes(channel))return json(res,400,{error:'测试渠道无效'});
         const channels=await notifyChannels({title:'MoveCar 测试通知',message:'后台推送渠道测试成功 ✅',ownerUrl:signedOwnerLink(origin),channel});
         return json(res,200,{ok:true,message:'测试推送已提交',channels});
       }
@@ -518,5 +544,6 @@ const server=http.createServer(async(req,res)=>{
   }
 });
 server.requestTimeout=75000;
+server.on('upgrade',(req,socket,head)=>appChannel.upgrade(req,socket,head));
 server.listen(port,'0.0.0.0',()=>console.log(`MoveCar listening on 0.0.0.0:${port} (admin /admin)`));
-process.on('SIGTERM',()=>server.close(()=>{db.close();process.exit(0);}));
+process.on('SIGTERM',()=>{appChannel.close();server.close(()=>{db.close();process.exit(0);});});

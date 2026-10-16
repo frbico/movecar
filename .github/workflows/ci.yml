@@ -13,11 +13,13 @@ jobs:
           node-version: '24'
       - name: Verify executable scripts, syntax and integration
         run: |
+          npm ci
           test -x install.sh && test -x run-linux.sh && test -x scripts/fetch-upstream.sh && test -x show-admin-password.sh
           bash -n install.sh run-linux.sh show-admin-password.sh scripts/fetch-upstream.sh
           node --check server.mjs
           node --check admin.js
           node --check request-flow.mjs
+          node --check app-channel.mjs
           node --check request-ui.js
           node --check owner-view.js
           bash scripts/fetch-upstream.sh
@@ -41,3 +43,17 @@ jobs:
           curl --fail --silent http://127.0.0.1:18888/request-ui.js | grep -q photoChooseBtn
           curl --fail --silent http://127.0.0.1:18888/owner-view.js | grep -q confirm-move
           curl --fail --silent http://127.0.0.1:18888/admin | grep -q MoveCar
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK platform
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Build unsigned test APK
+        working-directory: android
+        run: ./gradlew :app:assembleDebug --no-daemon
