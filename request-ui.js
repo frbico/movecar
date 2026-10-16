@@ -55,9 +55,8 @@
    if(notify.disabled)return;
    notify.disabled=true;notify.innerHTML='<span>⏳</span><span>发送中…</span>';
    try{
-     const locationData=typeof userLocation==='undefined'?null:userLocation;
      const message=document.getElementById('msgInput')?.value||'';
-     const data=await htmlText(await fetch('/api/notify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message,location:locationData}),cache:'no-store'}));
+     const data=await htmlText(await fetch('/api/notify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message}),cache:'no-store'}));
      current=data;
      resetPhoto();
      showSuccess();
@@ -74,8 +73,7 @@
    if(button?.disabled)return;
    if(button){button.disabled=true;button.innerHTML='⏳ 再次通知中…';}
    try{
-     const locationData=typeof userLocation==='undefined'?null:userLocation;
-     const data=await htmlText(await fetch('/api/notify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:'再次通知：请尽快挪车',location:locationData}),cache:'no-store'}));
+     const data=await htmlText(await fetch('/api/notify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:'再次通知：请尽快挪车'}),cache:'no-store'}));
      current=data;
      resetPhoto();
      if(waiting)waiting.textContent='再次通知已发送，等待车主回应…';
@@ -86,7 +84,7 @@
  };
  const card=document.createElement('section');
  card.id='photoCard';card.className='card photo-card';
- card.innerHTML='<h3 style="margin-bottom:10px">📸 补充现场照片</h3><p style="margin-bottom:14px;color:#657a8b">首次通知成功后可直接发送原图，不会强制压缩（最大 8 MB）。</p><input id="photoPicker" type="file" accept="image/*" capture="environment" style="position:absolute;left:-9999px;width:1px;height:1px" aria-label="拍摄现场照片"><button id="photoChooseBtn" type="button" style="width:100%;padding:16px;background:#d6f5fa;border:1px solid #93cdda;color:#006978;border-radius:14px;font-weight:bold;font-size:17px">📷 拍照 / 选择照片</button><img id="photoPreview" alt="已选择的现场照片" hidden style="width:100%;max-height:300px;object-fit:contain;margin-top:12px;border-radius:12px"><p id="photoStatus" role="status" style="margin:12px 0;color:#355e6b;font-size:14px"></p><button id="photoSendBtn" type="button" hidden style="width:100%;background:#159f79;color:#fff;padding:15px;border:0;border-radius:14px;font-weight:bold">发送照片给车主</button>';
+ card.innerHTML='<h3 style="margin-bottom:10px">📸 补充现场照片</h3><p style="margin-bottom:14px;color:#657a8b">首次通知成功后可直接发送原图，不会强制压缩（最大 10 MB）。</p><input id="photoPicker" type="file" accept="image/*" capture="environment" style="position:absolute;left:-9999px;width:1px;height:1px" aria-label="拍摄现场照片"><button id="photoChooseBtn" type="button" style="width:100%;padding:16px;background:#d6f5fa;border:1px solid #93cdda;color:#006978;border-radius:14px;font-weight:bold;font-size:17px">📷 拍照 / 选择照片</button><img id="photoPreview" alt="已选择的现场照片" hidden style="width:100%;max-height:300px;object-fit:contain;margin-top:12px;border-radius:12px"><p id="photoStatus" role="status" style="margin:12px 0;color:#355e6b;font-size:14px"></p><button id="photoSendBtn" type="button" hidden style="width:100%;background:#159f79;color:#fff;padding:15px;border:0;border-radius:14px;font-weight:bold">发送照片给车主</button>';
  const actionCard=success.querySelector('.action-card');
  success.insertBefore(card,actionCard||null);
  const choose=document.getElementById('photoChooseBtn');
@@ -111,7 +109,7 @@
      else if(ascii(0,4)==='RIFF'&&ascii(8,12)==='WEBP')type='image/webp';
      else if(ascii(4,8)==='ftyp'&&['heic','heix','hevc','hevx','mif1','msf1','heis','heim'].includes(ascii(8,12)))type='image/heic';
      if(!type)throw Error('仅支持 JPEG、PNG、WebP 或 HEIC/HEIF 原图');
-     if(file.size<32||file.size>8*1024*1024)throw Error('请选取不超过 8 MB 的原图');
+     if(file.size<32||file.size>10*1024*1024)throw Error('请选取不超过 10 MB 的原图');
      photo={file,type};
      if(objectUrl)URL.revokeObjectURL(objectUrl);
      objectUrl=URL.createObjectURL(file);
