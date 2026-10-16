@@ -44,11 +44,13 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
   const associatePhoto=db.prepare('INSERT INTO move_request_photos(request_id,photo_id) VALUES(?,?)');
   const deletePhoto=db.prepare('DELETE FROM photo_records WHERE id=?');
   const photoAssociations=db.prepare('SELECT photo_id FROM move_request_photos WHERE request_id=?');
+  const availablePhoto=db.prepare('SELECT p.id FROM move_request_photos a JOIN photo_records p ON p.id=a.photo_id WHERE a.request_id=? AND p.expiry>?');
   const deleteAssociations=db.prepare('DELETE FROM move_request_photos WHERE request_id=?');
   const deleteGrantsByRequest=db.prepare('DELETE FROM move_photo_grants WHERE request_id=?');
   const countRequests=db.prepare('SELECT COUNT(*) AS total FROM move_requests');
   const oldestRequests=db.prepare('SELECT id FROM move_requests ORDER BY created_at DESC,rowid DESC LIMIT -1 OFFSET ?');
-  const expiredRequests=db.prepare('SELECT id FROM move_requests WHERE expires_at<=?');
+  const listRequests=db.prepare(`SELECT id,message,status,created_at,expires_at,confirmed_at,photo_sent FROM move_requests ORDER BY created_at DESC,rowid DESC LIMIT ? OFFSET ?`);
+  const knownRequest=db.prepare('SELECT id FROM move_requests WHERE id=?');
   const dropGrant=db.prepare('DELETE FROM move_photo_grants WHERE digest=?');
   const isToken=t=>typeof t==='string'&&/^[A-Za-z0-9_-]{43}$/.test(t);
   const ownerTokenFor=id=>crypto.createHmac('sha256',setting('owner_signing_key')).update('movecar-owner-v2:'+id).digest('base64url');
@@ -68,7 +70,6 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
   }
   function cleanup(){
     const now=Date.now();
-    for(const item of expiredRequests.all(now))removeRequest(item.id);
     db.prepare('DELETE FROM move_photo_grants WHERE expires_at<=?').run(now);
   }
   function trimRetention(){
@@ -79,6 +80,12 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
   trimRetention(); // Apply default 50 to existing databases on startup.
   return {
     cleanup,trimRetention,retentionLimit,count:()=>countRequests.get().total,
+    listHistory(page=1,size=20){
+      const total=countRequests.get().total;
+      return {total,page,size,items:listRequests.all(size,(page-1)*size).map(item=>({id:item.id,message:item.message,status:item.status==='waiting' && item.expires_at<=Date.now()?'expired':item.status,createdAt:item.created_at,expiresAt:item.expires_at,confirmedAt:item.confirmed_at,photoSent:!!item.photo_sent,photoUrl:(()=>{const pic=availablePhoto.get(item.id,Date.now());return pic?'/api/photo/'+pic.id:null;})()}))};
+    },
+    deleteHistory(id){if(!knownRequest.get(id))return false;removeRequest(id);return true;},
+    clearHistory(){for(const item of db.prepare('SELECT id FROM move_requests').all())removeRequest(item.id);},
     async handle(req,res,origin,u){
       const route=u.pathname,method=req.method;
       if(route==='/owner-view.js') {

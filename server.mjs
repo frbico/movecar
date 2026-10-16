@@ -25,7 +25,8 @@ db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
  CREATE INDEX IF NOT EXISTS admin_sessions_exp ON admin_sessions(expiry);
  CREATE TABLE IF NOT EXISTS owner_sessions (digest TEXT PRIMARY KEY, expiry INTEGER NOT NULL);
  CREATE TABLE IF NOT EXISTS photo_grants (digest TEXT PRIMARY KEY, expiry INTEGER NOT NULL);
- CREATE TABLE IF NOT EXISTS photo_records (id TEXT PRIMARY KEY, data BLOB NOT NULL, expiry INTEGER NOT NULL);`);
+ CREATE TABLE IF NOT EXISTS photo_records (id TEXT PRIMARY KEY, data BLOB NOT NULL, expiry INTEGER NOT NULL);
+ CREATE TABLE IF NOT EXISTS site_icons (id INTEGER PRIMARY KEY CHECK(id=1), data BLOB NOT NULL, mime TEXT NOT NULL, updated_at INTEGER NOT NULL);`);
 const getSettingStmt = db.prepare('SELECT value FROM settings WHERE key=?');
 const putSettingStmt = db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value');
 const delSettingStmt = db.prepare('DELETE FROM settings WHERE key=?');
@@ -43,6 +44,9 @@ const photoGrantUse = db.prepare('DELETE FROM photo_grants WHERE digest=? AND ex
 const photoPut = db.prepare('INSERT INTO photo_records(id,data,expiry) VALUES(?,?,?)');
 if (!db.prepare('PRAGMA table_info(photo_records)').all().some(c=>c.name==='mime')) db.exec("ALTER TABLE photo_records ADD COLUMN mime TEXT NOT NULL DEFAULT 'image/jpeg'");
 const photoGet = db.prepare('SELECT data,mime FROM photo_records WHERE id=? AND expiry>?');
+const iconGet=db.prepare('SELECT data,mime,updated_at FROM site_icons WHERE id=1');
+const iconSave=db.prepare('INSERT INTO site_icons(id,data,mime,updated_at) VALUES(1,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data,mime=excluded.mime,updated_at=excluded.updated_at');
+const iconClear=db.prepare('DELETE FROM site_icons WHERE id=1');
 const setting = (name, fallback = '') => getSettingStmt.get(name)?.value ?? fallback;
 const save = (name, value) => putSettingStmt.run(name, String(value));
 const random = () => crypto.randomBytes(32).toString('base64url');
@@ -107,6 +111,23 @@ async function inputJson(req) {
   for await(const chunk of req) { total+=chunk.length; if(total>16384) throw Object.assign(Error('请求过大'),{status:413}); arr.push(chunk); }
   try { const obj=JSON.parse(Buffer.concat(arr).toString('utf8')); if(!obj || typeof obj!=='object'||Array.isArray(obj)) throw Error(); return obj; }
   catch { throw Object.assign(Error('JSON 数据无效'),{status:400}); }
+}
+function escapeHTML(value) {
+  return String(value).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+}
+async function iconUpload(req,limit=262144){
+  if(Number(req.headers['content-length'])>limit)throw Object.assign(Error('网站图标最大 256 KB'),{status:413});
+  const parts=[];let bytes=0;
+  for await(const part of req){bytes+=part.length;if(bytes>limit)throw Object.assign(Error('网站图标最大 256 KB'),{status:413});parts.push(part);}
+  const data=Buffer.concat(parts);
+  const head=(a,b)=>data.toString('ascii',a,b);
+  let mime='';
+  if(data.length>=8 && data.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))mime='image/png';
+  else if(data.length>=4&&data[0]===255&&data[1]===216&&data[2]===255&&data[data.length-2]===255&&data[data.length-1]===217)mime='image/jpeg';
+  else if(data.length>=12&&head(0,4)==='RIFF'&&head(8,12)==='WEBP')mime='image/webp';
+  else if(data.length>=6&&data[0]===0&&data[1]===0&&data[2]===1&&data[3]===0&&data.readUInt16LE(4)>=1)mime='image/x-icon';
+  if(!mime)throw Object.assign(Error('图标仅支持 PNG、JPEG、WebP 或 ICO'),{status:415});
+  return {data,mime};
 }
 function requestHostOrigin(req) {
   const host=req.headers.host;
@@ -205,7 +226,7 @@ async function sendSc3(key,title,message,ownerUrl,richMarkdown=false) {
   const endpoint = `https://${uid}.push.ft07.com/send/${key}.send`;
   const url = (isTest && process.env.MOVECAR_TEST_SC3_ENDPOINT) || endpoint;
   const normalizedMessage=String(message).split('\\n').join('\n');
-  const short = richMarkdown ? '查看留言、现场位置和确认按钮' : normalizedMessage.replace(/\s+/g,' ').slice(0,80);
+  const short = richMarkdown ? '查看留言和确认按钮' : normalizedMessage.replace(/\s+/g,' ').slice(0,80);
   const safeMessage = normalizedMessage.replace(/([\\`*_\[\]<>])/g,'\\$1');
   const body = JSON.stringify({title,short,desp:`${richMarkdown?normalizedMessage:safeMessage}\n\n[车主点击确认挪车](${ownerUrl})`,tags:'挪车'});
   const r = await outbound(url,{method:'POST',headers:{'Content-Type':'application/json'},body});
@@ -275,6 +296,13 @@ async function sendWorker(response,res,head=false){
       html=html.replace('正在赶来，点击查看车主位置','正在赶来，请稍候');
       html=html.replace(/<div id="ownerMapLinks" class="map-links"[\s\S]*?<\/div>/,'');
       if(!html.includes('</body>'))throw Error('上游页面缺少 body 结束标签');
+      const siteName=escapeHTML(setting('site_name','呼叫车主挪车'));
+      html=html.replace('<h1>呼叫车主挪车</h1>',`<h1>${siteName}</h1>`);
+      html=html.replace(/<title>[^<]*<\/title>/,`<title>${siteName}</title>`);
+      if(iconGet.get()) {
+        html=html.replace('<div class="icon-wrap"><span>🚗</span></div>','<div class="icon-wrap"><img src="/site-icon" alt="网站图标" style="width:70px;height:70px;object-fit:contain"></div>');
+        html=html.replace('</head>','<link rel="icon" href="/site-icon"></head>');
+      }
       html=html.replace('</body>','<script src="/request-ui.js" defer></script></body>');
       headers['content-security-policy']="frame-ancestors 'none'; img-src 'self' data: https:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'";
     }else if(html.includes('id="confirmBtn"')){
@@ -312,6 +340,15 @@ const server=http.createServer(async(req,res)=>{
     const route=u.pathname;
     if(!['GET','HEAD','POST','PUT'].includes(req.method))return reply(res,405,'Method not allowed');
     if(route==='/healthz')return reply(res,200,'ok');
+    if(route==='/site-icon'){
+      if(req.method!=='GET')return reply(res,405,'Method not allowed');
+      const icon=iconGet.get();
+      return icon?reply(res,200,icon.data,{'Content-Type':icon.mime,'Cache-Control':'no-store','Content-Security-Policy':"default-src 'none'; sandbox"}):reply(res,404,'网站图标尚未设置');
+    }
+    if(route==='/api/site-config'){
+      if(req.method!=='GET')return reply(res,405,'Method not allowed');
+      return json(res,200,{wechatId:setting('wechat_id'),siteName:setting('site_name','呼叫车主挪车')});
+    }
     if(route==='/admin'||route==='/admin/')return req.method==='GET'?staticFile(res,'admin.html','text/html; charset=utf-8'):reply(res,405,'Method not allowed');
     if(route==='/admin.js')return req.method==='GET'?staticFile(res,'admin.js','text/javascript; charset=utf-8'):reply(res,405,'Method not allowed');
     if(route==='/admin.css')return req.method==='GET'?staticFile(res,'admin.css','text/css; charset=utf-8'):reply(res,405,'Method not allowed');
@@ -337,8 +374,31 @@ const server=http.createServer(async(req,res)=>{
       const auth=session(req);
       if(!auth)return json(res,401,{error:'请先登录'});
       if(route==='/api/admin/session'&&req.method==='GET')return json(res,200,{csrf:auth.csrf});
-      if(route==='/api/admin/config'&&req.method==='GET')return json(res,200,{publicUrl:setting('public_url'),phoneNumber:setting('phone_number'),rateLimitSeconds:Number(setting('rate_limit_seconds','60')),requestRetentionLimit:requestFlow.retentionLimit(),requestCount:requestFlow.count(),barkConfigured:!!setting('bark_url'),serverchanConfigured:!!setting('serverchan_sendkey'),sc3Configured:!!setting('sc3_sendkey')});
+      if(route==='/api/admin/config'&&req.method==='GET')return json(res,200,{publicUrl:setting('public_url'),phoneNumber:setting('phone_number'),rateLimitSeconds:Number(setting('rate_limit_seconds','60')),requestRetentionLimit:requestFlow.retentionLimit(),requestCount:requestFlow.count(),siteName:setting('site_name','呼叫车主挪车'),wechatId:setting('wechat_id'),siteIconConfigured:!!iconGet.get(),siteIconUpdatedAt:iconGet.get()?.updated_at||null,barkConfigured:!!setting('bark_url'),serverchanConfigured:!!setting('serverchan_sendkey'),sc3Configured:!!setting('sc3_sendkey')});
+      if(route==='/api/admin/requests'&&req.method==='GET'){
+        const page=Number(u.searchParams.get('page')||'1'),size=Number(u.searchParams.get('size')||'20');
+        if(!Number.isInteger(page)||page<1||page>9999||!Number.isInteger(size)||size<1||size>100)return json(res,400,{error:'分页参数无效'});
+        return json(res,200,requestFlow.listHistory(page,size));
+      }
       if(!['POST','PUT'].includes(req.method)||!checkCsrf(req,auth.csrf))return json(res,403,{error:'请求未通过验证'});
+      if(route==='/api/admin/requests/delete'&&req.method==='POST'){
+        const data=await inputJson(req);
+        if(typeof data.id!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(data.id))return json(res,400,{error:'请求编号无效'});
+        return json(res,200,{ok:true,deleted:requestFlow.deleteHistory(data.id)});
+      }
+      if(route==='/api/admin/requests/clear'&&req.method==='POST'){
+        const data=await inputJson(req);
+        if(data.confirm!==true)return json(res,400,{error:'请确认清空全部已保留记录'});
+        requestFlow.clearHistory();return json(res,200,{ok:true});
+      }
+      if(route==='/api/admin/site-icon'&&req.method==='PUT'){
+        if(trustedAdminOrigin(req)===null)return json(res,403,{error:'来源不可信'});
+        const {data,mime}=await iconUpload(req);
+        iconSave.run(data,mime,Date.now());return json(res,200,{ok:true});
+      }
+      if(route==='/api/admin/site-icon/clear'&&req.method==='POST'){
+        iconClear.run();return json(res,200,{ok:true});
+      }
       if(route==='/api/admin/logout'){
         const tok=sessions(req).movecar_admin;db.prepare('DELETE FROM admin_sessions WHERE digest=?').run(hash(tok));
         return json(res,200,{ok:true},{'Set-Cookie':cookie('movecar_admin','',trustedAdminOrigin(req)||origin,0)});
@@ -349,6 +409,8 @@ const server=http.createServer(async(req,res)=>{
         if(typeof data.phoneNumber!=='string'||data.phoneNumber.length>35)throw Object.assign(Error('电话号码无效'),{status:400});
         if(!Number.isInteger(data.rateLimitSeconds)||data.rateLimitSeconds<0||data.rateLimitSeconds>3600)throw Object.assign(Error('限流范围须在 0-3600 秒'),{status:400});
         if(data.requestRetentionLimit!==undefined && (!Number.isInteger(data.requestRetentionLimit)||data.requestRetentionLimit<1||data.requestRetentionLimit>500))throw Object.assign(Error('挪车记录保留条数须在 1-500 之间'),{status:400});
+        if(data.siteName!==undefined && (typeof data.siteName!=='string'||data.siteName.trim().length<1||data.siteName.trim().length>40))throw Object.assign(Error('站点名称须在 1-40 字以内'),{status:400});
+        if(data.wechatId!==undefined && (typeof data.wechatId!=='string'||data.wechatId.trim().length>60||(!/^[\x20-\x7E]*$/.test(data.wechatId.trim()))))throw Object.assign(Error('微信号长度最多 60，且须为普通英文/数字字符'),{status:400});
         let publicUrl;
         try { publicUrl=validateOrigin(data.publicUrl.trim()); } catch { throw Object.assign(Error('公网地址格式不正确'),{status:400}); }
         let bark=null,key=null;
@@ -361,6 +423,8 @@ const server=http.createServer(async(req,res)=>{
         }
         save('public_url',publicUrl);save('phone_number',data.phoneNumber.trim());save('rate_limit_seconds',data.rateLimitSeconds);
         if(data.requestRetentionLimit!==undefined){save('request_retention_limit',data.requestRetentionLimit);requestFlow.trimRetention();}
+        if(data.siteName!==undefined)save('site_name',data.siteName.trim());
+        if(data.wechatId!==undefined)save('wechat_id',data.wechatId.trim());
         if(bark)save('bark_url',bark);else if(data.clearBark===true)delSettingStmt.run('bark_url');
         if(key)save('serverchan_sendkey',key);else if(data.clearServerchan===true)delSettingStmt.run('serverchan_sendkey');
         if(sc3Key)save('sc3_sendkey',sc3Key);else if(data.clearSc3===true)delSettingStmt.run('sc3_sendkey');
