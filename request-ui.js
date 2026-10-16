@@ -5,7 +5,43 @@
  const success=document.getElementById('successView');
  if(!notify||!success)return;
  const waiting=document.getElementById('waitingText');
- let current=null,photo=null,objectUrl=null,pollTimer=null;
+ let current=null,photo=null,objectUrl=null,pollTimer=null,contactTimer=null,startedAt=0,confirmed=false,wechatId='';
+ const successCard=success.querySelector('.success-card');
+ const actionCard=success.querySelector('.action-card');
+ const phone=actionCard?.querySelector('.btn-phone');
+ const originalPhoneHref=phone?.getAttribute('href')||'';
+ if(phone){phone.removeAttribute('href');phone.setAttribute('aria-disabled','true');phone.style.pointerEvents='none';phone.style.opacity='.5';}
+ const callHint=document.createElement('p');callHint.id='phoneCountdown';callHint.style.cssText='text-align:center;font-size:14px;color:#64748b;margin:8px 0';
+ if(phone)phone.insertAdjacentElement('beforebegin',callHint);
+ const wechatButton=document.createElement('button');
+ wechatButton.id='wechatContactBtn';wechatButton.type='button';wechatButton.textContent='💬 微信联系（未配置）';wechatButton.disabled=true;
+ wechatButton.style.cssText='display:block;width:100%;margin-top:12px;padding:16px 12px;border-radius:16px;border:none;background:linear-gradient(135deg,#17b97e,#0da56e);color:white;font-size:17px;font-weight:700';
+ if(phone)phone.insertAdjacentElement('afterend',wechatButton);
+ const wechatMessage=document.createElement('p');wechatMessage.id='wechatCopyHint';wechatMessage.setAttribute('role','status');wechatMessage.style.cssText='text-align:center;color:#288269;font-size:13px;margin:8px 0';
+ wechatButton.insertAdjacentElement('afterend',wechatMessage);
+ function refreshContact(){
+   if(!phone)return;
+   const remaining=startedAt?Math.max(0,60-Math.floor((Date.now()-startedAt)/1000)):60;
+   const canCall=!!startedAt&&!confirmed&&remaining===0&&!!originalPhoneHref&&originalPhoneHref!=='tel:';
+   if(canCall){phone.setAttribute('href',originalPhoneHref);phone.removeAttribute('aria-disabled');phone.style.pointerEvents='';phone.style.opacity='';}
+   else{phone.removeAttribute('href');phone.setAttribute('aria-disabled','true');phone.style.pointerEvents='none';phone.style.opacity='.5';}
+   if(startedAt&&!confirmed&&remaining>0){callHint.textContent='⏳ 车主尚未回应，'+remaining+' 秒后可直接打电话';}
+   else if(confirmed){callHint.textContent='✅ 车主已回应，无需等待';}
+   else if(canCall){callHint.textContent='📞 等待已超过 60 秒，现在可以联系车主';}
+   else{callHint.textContent='请先发送通知';}
+ }
+ function beginWait(){if(!startedAt)startedAt=Date.now();confirmed=false;refreshContact();if(!contactTimer)contactTimer=setInterval(refreshContact,1000);}
+ async function copyWechat(){
+   if(!wechatId)return;
+   try{
+     if(navigator.clipboard?.writeText)await navigator.clipboard.writeText(wechatId);
+     else {const t=document.createElement('textarea');t.value=wechatId;t.style.position='fixed';t.style.left='-9999px';document.body.appendChild(t);t.select();if(!document.execCommand('copy'))throw Error('复制失败');t.remove();}
+     wechatMessage.textContent='已复制微信号，请添加车主微信';notifyText('已复制微信号，请添加车主微信');
+   }catch {wechatMessage.textContent='复制失败，请手动复制：'+wechatId;}
+ }
+ wechatButton.addEventListener('click',copyWechat);
+ fetch('/api/site-config',{cache:'no-store'}).then(r=>r.ok?r.json():{}).then(c=>{wechatId=c.wechatId||'';wechatButton.disabled=!wechatId;wechatButton.textContent=wechatId?'💬 微信联系 · 复制车主微信号':'💬 微信联系（车主未配置）';}).catch(()=>{});
+ refreshContact();
  const notifyText=(text)=>{
    if(typeof showToast==='function')showToast(text);
    else{let status=document.getElementById('photoStatus');if(status)status.textContent=text;}
@@ -19,6 +55,8 @@
    document.getElementById('mainView').style.display='none';
    success.style.display='flex';
    if(waiting)waiting.textContent='正在等待车主回应…';
+   if(successCard)successCard.style.display='block';
+   const feedback=success.querySelector('#ownerFeedback');if(feedback){feedback.classList.add('hidden');feedback.style.display='none';}
  }
  function startPoll(){
    if(pollTimer)clearInterval(pollTimer);
@@ -29,7 +67,8 @@
        if(data.status==='confirmed'){
          clearInterval(pollTimer);pollTimer=null;
          const feedback=document.getElementById('ownerFeedback');
-         if(feedback){feedback.classList.remove('hidden');const p=feedback.querySelector('p');if(p)p.textContent='车主已确认收到请求，正在赶来';}
+         confirmed=true;refreshContact();if(successCard)successCard.style.display='none';
+         if(feedback){feedback.classList.remove('hidden');feedback.style.display='block';const p=feedback.querySelector('p');if(p)p.textContent='车主已确认收到请求，正在赶来';}
          if(waiting)waiting.textContent='✅ 车主已经确认，正在赶来';
          if(navigator.vibrate)navigator.vibrate([150,80,150]);
        }
@@ -60,6 +99,7 @@
      current=data;
      resetPhoto();
      showSuccess();
+     beginWait();
      notifyText('✅ 已发送，请等待车主确认');
      startPoll();
    }catch(e){
@@ -76,6 +116,7 @@
      const data=await htmlText(await fetch('/api/notify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:'再次通知：请尽快挪车'}),cache:'no-store'}));
      current=data;
      resetPhoto();
+     showSuccess();beginWait();
      if(waiting)waiting.textContent='再次通知已发送，等待车主回应…';
      notifyText('✅ 再次通知已发送');
      startPoll();
@@ -84,7 +125,7 @@
  };
  const card=document.createElement('section');
  card.id='photoCard';card.className='card photo-card';
- card.innerHTML='<h3 style="margin-bottom:10px">📸 补充现场照片</h3><p style="margin-bottom:14px;color:#657a8b">首次通知成功后可直接发送原图，不会强制压缩（最大 10 MB）。</p><input id="photoPicker" type="file" accept="image/*" capture="environment" style="position:absolute;left:-9999px;width:1px;height:1px" aria-label="拍摄现场照片"><button id="photoChooseBtn" type="button" style="width:100%;padding:16px;background:#d6f5fa;border:1px solid #93cdda;color:#006978;border-radius:14px;font-weight:bold;font-size:17px">📷 拍照 / 选择照片</button><img id="photoPreview" alt="已选择的现场照片" hidden style="width:100%;max-height:300px;object-fit:contain;margin-top:12px;border-radius:12px"><p id="photoStatus" role="status" style="margin:12px 0;color:#355e6b;font-size:14px"></p><button id="photoSendBtn" type="button" hidden style="width:100%;background:#159f79;color:#fff;padding:15px;border:0;border-radius:14px;font-weight:bold">发送照片给车主</button>';
+ card.innerHTML='<h3 style="margin-bottom:10px">📸 补充现场照片</h3><input id="photoPicker" type="file" accept="image/*" capture="environment" style="position:absolute;left:-9999px;width:1px;height:1px" aria-label="拍摄现场照片"><button id="photoChooseBtn" type="button" style="width:100%;padding:16px;background:#d6f5fa;border:1px solid #93cdda;color:#006978;border-radius:14px;font-weight:bold;font-size:17px">📷 拍照 / 选择照片</button><img id="photoPreview" alt="已选择的现场照片" hidden style="width:100%;max-height:300px;object-fit:contain;margin-top:12px;border-radius:12px"><p id="photoStatus" role="status" style="margin:12px 0;color:#355e6b;font-size:14px"></p><button id="photoSendBtn" type="button" hidden style="width:100%;background:#159f79;color:#fff;padding:15px;border:0;border-radius:14px;font-weight:bold">发送照片给车主</button>';
  const actionCard=success.querySelector('.action-card');
  success.insertBefore(card,actionCard||null);
  const choose=document.getElementById('photoChooseBtn');
