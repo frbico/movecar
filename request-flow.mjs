@@ -6,7 +6,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 
-export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJson,inputPhoto,json,reply,rateGet,ratePut}) {
+export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJson,inputPhoto,json,reply,rateGet,ratePut,hasChannel=()=>true,onConfirmed=()=>{}}) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS move_requests (
       id TEXT PRIMARY KEY,
@@ -36,7 +36,9 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
   const byOwner=db.prepare('SELECT * FROM move_requests WHERE owner_digest=? AND expires_at>?');
   const byPoll=db.prepare('SELECT status,confirmed_at FROM move_requests WHERE id=? AND poll_digest=? AND expires_at>?');
   const byId=db.prepare('SELECT * FROM move_requests WHERE id=? AND expires_at>?');
+  const byIdAny=db.prepare('SELECT * FROM move_requests WHERE id=?');
   const confirm=db.prepare("UPDATE move_requests SET status='confirmed', confirmed_at=COALESCE(confirmed_at,?) WHERE owner_digest=? AND expires_at>?");
+  const confirmById=db.prepare("UPDATE move_requests SET status='confirmed', confirmed_at=COALESCE(confirmed_at,?) WHERE id=? AND expires_at>?");
   const grantInsert=db.prepare('INSERT INTO move_photo_grants(digest,request_id,expires_at) VALUES(?,?,?)');
   const grantSelect=db.prepare('SELECT request_id FROM move_photo_grants WHERE digest=? AND expires_at>?');
   const photoUsed=db.prepare('UPDATE move_requests SET photo_sent=1 WHERE id=? AND photo_sent=0 AND expires_at>?');
@@ -80,6 +82,17 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
   trimRetention(); // Apply default 50 to existing databases on startup.
   return {
     cleanup,trimRetention,retentionLimit,count:()=>countRequests.get().total,
+    appGet(id){
+      const item=byIdAny.get(id);
+      if(!item)return null;
+      const photo=availablePhoto.get(id,Date.now());
+      return {id:item.id,message:item.message,status:item.status==='waiting'&&item.expires_at<=Date.now()?'expired':item.status,createdAt:item.created_at,expiresAt:item.expires_at,confirmedAt:item.confirmed_at,photoAvailable:!!photo};
+    },
+    appConfirm(id){
+      if(!byId.get(id,Date.now()))return false;
+      confirmById.run(Date.now(),id,Date.now());
+      return true;
+    },
     listHistory(page=1,size=20){
       const total=countRequests.get().total;
       return {total,page,size,items:listRequests.all(size,(page-1)*size).map(item=>({id:item.id,message:item.message,status:item.status==='waiting' && item.expires_at<=Date.now()?'expired':item.status,createdAt:item.created_at,expiresAt:item.expires_at,confirmedAt:item.confirmed_at,photoSent:!!item.photo_sent,photoUrl:(()=>{const pic=availablePhoto.get(item.id,Date.now());return pic?'/api/photo/'+pic.id:null;})()}))};
@@ -119,6 +132,7 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
         const record=byOwner.get(hash(token),Date.now());
         if(!record){deny(res,410);return true;}
         confirm.run(Date.now(),hash(token),Date.now());
+        onConfirmed(record.id);
         json(res,200,{success:true,status:'confirmed'});return true;
       }
       if(route==='/api/request-status') {
@@ -131,7 +145,7 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
       }
       if(route==='/api/notify') {
         if(method!=='POST')return reply(res,405,'Method not allowed'),true;
-        if(!setting('bark_url')&&!setting('serverchan_sendkey')&&!setting('sc3_sendkey'))
+        if(!hasChannel())
           return json(res,503,{error:'车主尚未配置推送渠道'}),true;
         const addr=req.socket.remoteAddress||'unknown',now=Date.now(),seconds=Number(setting('rate_limit_seconds','60'));
         if(seconds>0&&(rateGet.get(addr)?.until??0)>now)
@@ -145,7 +159,7 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
         lines.push('**请点击下方确认链接，告知对方你已收到通知。**');
         insert.run(id,hash(ownerToken),hash(pollToken),text,null,now,now+3600000);
         try{
-          const channels=await notifyChannels({title:'🚗 MoveCar · 有人请求挪车',message:lines.join('\n'),ownerUrl,richMarkdown:true});
+          const channels=await notifyChannels({title:'🚗 MoveCar · 有人请求挪车',message:lines.join('\n'),ownerUrl,richMarkdown:true,appEvent:{type:'request',id,title:'🚗 有新的挪车请求',summary:text.slice(0,100)}});
           grantInsert.run(hash(photoToken),id,Date.now()+20*60000);
           if(seconds>0)ratePut.run(addr,Date.now()+seconds*1000);
           trimRetention();
@@ -167,13 +181,17 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
         const {bytes,mime}=await inputPhoto(req);
         const photoId=random(),imageUrl=`${origin}/api/photo/${photoId}`;
         insertPhoto.run(photoId,bytes,Date.now()+3600000,mime);
+        if(photoUsed.run(record.id,Date.now()).changes!==1){deletePhoto.run(photoId);return json(res,409,{error:'照片已发送或请求已过期'}),true;}
+        associatePhoto.run(record.id,photoId);
         const message=`## 📷 挪车现场照片\n\n![现场照片](${imageUrl})\n\n[点击查看原图](${imageUrl})`;
         const ownerUrl=`${origin}/owner-confirm/${ownerTokenFor(record.id)}`;
         try{
-          await notifyChannels({title:'📷 MoveCar · 现场照片',message,ownerUrl,richMarkdown:true});
-          if(photoUsed.run(record.id,Date.now()).changes===1){associatePhoto.run(record.id,photoId);dropGrant.run(hash(token));}
+          await notifyChannels({title:'📷 MoveCar · 现场照片',message,ownerUrl,richMarkdown:true,appEvent:{type:'photo',id:record.id,title:'📷 收到挪车现场照片',summary:'点击查看现场照片'}});
+          dropGrant.run(hash(token));
           json(res,200,{success:true,photoUrl:imageUrl});return true;
         }catch(e){
+          deleteAssociations.run(record.id);
+          db.prepare('UPDATE move_requests SET photo_sent=0 WHERE id=?').run(record.id);
           deletePhoto.run(photoId);
           json(res,502,{error:'图片推送失败，可重试上传同一张照片'});return true;
         }

@@ -16,3 +16,8 @@
 .branding-card{max-width:850px}
 .branding-card input[type=file]{margin:10px 0 18px;max-width:100%;font-size:12px}
 @media(max-width:760px){.history-table{min-width:580px}.history-heading{align-items:flex-start}.history-actions{width:100%}.history-page{justify-content:center}}
+.device-row{display:flex;justify-content:space-between;align-items:center;gap:1rem;padding:1rem 0;border-bottom:1px solid #e5e7eb}
+.device-row:last-child{border-bottom:0}
+#pairingBox{margin-top:1rem}
+#pairingQr{display:block;max-width:100%;height:auto;background:#fff;padding:8px;border:1px solid #e5e7eb;border-radius:8px}
+.pairing-uri{display:block;overflow-wrap:anywhere;margin:12px 0;padding:12px;background:#f3f6fb;border-radius:8px;user-select:all}

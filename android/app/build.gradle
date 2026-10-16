@@ -1,0 +1,49 @@
+plugins { id 'com.android.application' }
+
+def signingProps = new Properties()
+def signingFile = rootProject.file('../secrets/signing.properties')
+if (signingFile.exists()) signingFile.withInputStream { signingProps.load(it) }
+def quoted = { String value -> '"' + value.replace('\\','\\\\').replace('"','\\"') + '"' }
+
+android {
+    namespace 'de.ssxi.movecar'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'de.ssxi.movecar'
+        minSdk 26
+        targetSdk 35
+        versionCode 3
+        versionName '1.0.2'
+        buildConfigField 'String','BASE_URL',quoted('https://movecar.ssxi.de')
+    }
+    signingConfigs {
+        release {
+            enableV1Signing true
+            enableV2Signing true
+            enableV3Signing true
+            if (signingFile.exists()) {
+                storeFile rootProject.file('../secrets/' + signingProps.getProperty('storeFile','movecar-release.jks'))
+                storePassword signingProps.getProperty('storePassword')
+                storeType 'pkcs12'
+                keyAlias signingProps.getProperty('keyAlias')
+                keyPassword signingProps.getProperty('keyPassword')
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (signingFile.exists()) signingConfig signingConfigs.release
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    buildFeatures { buildConfig true }
+}
+
+dependencies {
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    implementation 'com.journeyapps:zxing-android-embedded:4.3.0'
+}
