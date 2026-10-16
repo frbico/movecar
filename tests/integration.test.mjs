@@ -78,7 +78,7 @@ test('one-click bootstrap, admin login, two channels, secure owner action and pe
     assert.equal(wechatCalls.length,1);assert.equal(barkCalls.length,1);
     assert.match(wechatCalls[0].get('desp'),/车主点击确认/);
     assert.equal((await call('/owner-confirm')).status,403);
-    assert.equal((await call('/api/get-location')).status,403);
+    assert.equal((await call('/api/get-location')).status,410);
     const request=await call('/api/notify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:'请挪车',location:{lat:30.2,lng:120.1}})});
     const requestData=await request.clone().json();
     assert.equal(request.status,200,await request.text());
@@ -89,8 +89,8 @@ test('one-click bootstrap, admin login, two channels, secure owner action and pe
     const ownerPage=await fetch(link);assert.equal(ownerPage.status,200);
     assert.match(await ownerPage.text(),/确认挪车请求/);
     const ownerInfo=await (await call('/api/owner-request/'+token)).json();
-    assert.match(ownerInfo.location.amap,/uri.amap.com/);
-    assert.match(ownerInfo.location.google,/google.com\/maps/);
+    assert.equal(Object.hasOwn(ownerInfo,'location'),false);
+    assert.equal(wechatCalls[1].get('desp').includes('高德地图'),false);
     assert.equal((await call('/api/request-status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({requestId:requestData.requestId,pollToken:'bad'})})).status,404);
     const post=async (url,body)=>call(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const beforeConfirm=await (await post('/api/request-status',{requestId:requestData.requestId,pollToken:requestData.pollToken})).json();
