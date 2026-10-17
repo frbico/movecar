@@ -324,7 +324,7 @@ function staticFile(res,name,type) {
   const txt=fs.readFileSync(path.join(import.meta.dirname,name));
   reply(res,200,txt,{'Content-Type':type,'Content-Security-Policy':"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"});
 }
-const requestFlow=createRequestFlow({db,setting,random,hash,notifyChannels,inputJson,inputPhoto,json,reply,rateGet,ratePut});
+const requestFlow=createRequestFlow({db,setting,random,hash,notifyChannels,inputJson,inputPhoto,json,reply,rateGet,ratePut,notificationAvailable:()=>voice.isDeviceReady()&&setting('notify_app_enabled','1')==='1'});
 const voice=createVoiceService({db,json,reply,inputJson});
 const mobile=createMobileOwner({db,setting,save,deleteSetting:name=>delSettingStmt.run(name),inputJson,json,requestFlow,voice,notifyChannels,validateOrigin,validateBark,validateSendKey,validateSc3Key});
 const failStats=new Map();
