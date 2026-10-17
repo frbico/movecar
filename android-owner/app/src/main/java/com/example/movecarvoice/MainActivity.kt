@@ -665,7 +665,10 @@ class MainActivity : Activity() {
         inCard{
             action("管理员账号与安全"){navigate("account")}
             action("打开网页管理后台 ↗"){browse(base()+"/admin")}
-            note("MoveCar Owner v0.4 · Android 原生车主端")
+            action("更换服务器或域名"){confirm("切换后将返回登录界面，请输入新服务器 HTTPS 域名，使用管理员账号重新登录。原服务器数据不会删除。"){
+                clearLogin()
+            }}
+            note("MoveCar Owner v0.4.2 · 更换服务器不需要重新安装 APK")
         }
     }
     private fun account(config:JSONObject){
