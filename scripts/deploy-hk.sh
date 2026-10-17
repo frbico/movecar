@@ -8,7 +8,7 @@ Usage (root, on your HK Linux VPS):
   sudo bash scripts/deploy-hk.sh --site movecar.ssxi.de --turn turn.ssxi.de \
        --firebase-key /home/ubuntu/firebase-service-account.json
 
-Optional: --public-ip X.X.X.X (if IP detection fails)
+Optional: --import-db /path/movecar-transfer.sqlite (preserve old accounts/requests)\n          --public-ip X.X.X.X (if IP detection fails)
           --no-firewall (don't add UFW rules)
           --help
 Requirements: Debian/Ubuntu x86_64/arm64, Docker Engine + Compose V2,
@@ -16,12 +16,13 @@ Requirements: Debian/Ubuntu x86_64/arm64, Docker Engine + Compose V2,
 Does not overwrite MoveCar's existing SQLite data or Firebase secrets.
 HELP
 }
-SITE='' TURN='' FIREBASE='' IP_OVERRIDE='' FIREWALL=1
+SITE='' TURN='' FIREBASE='' IMPORT_DB='' IP_OVERRIDE='' FIREWALL=1
 while (($#)); do
   case "$1" in
     --site) SITE="${2:?Missing --site value}";shift 2;;
     --turn) TURN="${2:?Missing --turn value}";shift 2;;
     --firebase-key) FIREBASE="${2:?Missing --firebase-key path}";shift 2;;
+    --import-db) IMPORT_DB="${2:?Missing --import-db file}";shift 2;;
     --public-ip) IP_OVERRIDE="${2:?Missing --public-ip value}";shift 2;;
     --no-firewall) FIREWALL=0;shift;;
     -h|--help) usage;exit 0;;
@@ -61,6 +62,19 @@ with open(sys.argv[1],encoding='utf-8') as f: a=json.load(f)
 assert a.get('type')=='service_account' and a.get('private_key','').startswith('-----BEGIN PRIVATE KEY-----')
 assert a.get('project_id') and a.get('client_email')
 print('PASS Firebase account syntax; project:',a['project_id'])
+PY
+fi
+if [[ -n "$IMPORT_DB" ]];then
+  [[ -f "$IMPORT_DB" ]] || error "SQLite transfer file not found: $IMPORT_DB"
+  IMPORT_DB="$(realpath "$IMPORT_DB")"
+  python3 - "$IMPORT_DB" <<'PY'
+import sqlite3,sys
+con=sqlite3.connect(f'file:{sys.argv[1]}?mode=ro',uri=True)
+try:
+    assert con.execute('PRAGMA quick_check').fetchone()[0]=='ok'
+    assert con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='settings'").fetchone()
+finally:con.close()
+print('PASS MoveCar imported database integrity')
 PY
 fi
 if [[ -n "$IP_OVERRIDE" ]];then PUBLIC_IP="$IP_OVERRIDE"
@@ -180,6 +194,22 @@ chmod 0750 data/hk/turn-tls
 bash scripts/fetch-upstream.sh
 COMPOSE=(docker compose -f compose.yaml -f compose.hk.yaml)
 "${COMPOSE[@]}" config --quiet
+if [[ -n "$IMPORT_DB" ]];then
+  # Import only into an EMPTY volume, before Node.js can create a new DB.
+  # This is an explicit opt-in: existing production DBs are never overwritten.
+  "${COMPOSE[@]}" build movecar
+  "${COMPOSE[@]}" create --no-recreate movecar
+  if ! docker run --rm --user 0:0 --volumes-from movecar node:24-alpine \
+     sh -ec 'test ! -e /app/data/state.sqlite';then
+    error "This MoveCar data volume already contains state.sqlite; aborting database import to prevent data loss."
+  fi
+  docker run --rm --user 0:0 --volumes-from movecar \
+    -v "$(dirname "$IMPORT_DB"):/migration:ro" node:24-alpine \
+    sh -ec 'cp "/migration/$1" /app/data/state.sqlite; chown node:node /app/data/state.sqlite; chmod 600 /app/data/state.sqlite' \
+    sh "$(basename "$IMPORT_DB")"
+  echo "PASS Existing administrator account, requests and device registration imported."
+fi
+
 
 if (( FIREWALL )) && command -v ufw >/dev/null 2>&1 && ufw status | grep -q 'Status: active';then
   ufw allow 80/tcp >/dev/null
