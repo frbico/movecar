@@ -1,6 +1,7 @@
 package com.example.movecarvoice
 
 import android.Manifest
+import java.io.ByteArrayOutputStream
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
@@ -22,6 +23,7 @@ class MainActivity : Activity() {
     private var page = "home"
     private var historyPage = 1
     private val homeUrl = "https://movecar.ssxi.de"
+    private val iconPicker = 120
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -36,7 +38,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(28, 30, 28, 36)
         }
-        val scroll = ScrollView(this).apply { isFillViewport = true; addView(root) }
+        val scroll = ScrollView(this).apply { fillViewport = true; addView(root) }
         setContentView(scroll)
         title(heading, 23f)
     }
@@ -112,6 +114,31 @@ class MainActivity : Activity() {
         action("在浏览器打开管理后台") { browse(base()+"/admin") }
     }
     private fun browse(url:String){startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(url)))}
+    @Deprecated("Uses platform result callback to avoid extra AndroidX dependency")
+    override fun onActivityResult(requestCode:Int, resultCode:Int, data:Intent?) {
+        super.onActivityResult(requestCode,resultCode,data)
+        if(requestCode!=iconPicker||resultCode!=RESULT_OK)return
+        val uri=data?.data ?: return
+        val bytes=try {
+            contentResolver.openInputStream(uri)?.use { input ->
+                val output=ByteArrayOutputStream()
+                val chunk=ByteArray(8192)
+                while(true){
+                    val n=input.read(chunk);if(n<0)break
+                    if(output.size()+n>262144)throw IllegalArgumentException("图标不能大于 256 KB")
+                    output.write(chunk,0,n)
+                }
+                output.toByteArray()
+            } ?: throw IllegalStateException("无法读取文件")
+        } catch(e:Exception){notify(e.message ?: "文件读取失败");return}
+        val mime=contentResolver.getType(uri) ?: "application/octet-stream"
+        val host=base();val bearer=token()
+        Thread {
+            val result=runCatching{VoiceApi.putBytes(host,"/api/mobile/site-icon",bytes,mime,bearer)}
+            runOnUiThread{result.onSuccess{notify("站点图标已更新");navigate("settings")}.onFailure{notify("图标上传失败："+it.message)}}
+        }.start()
+    }
+
     private fun shell(title:String) {
         screen(title)
         val row=LinearLayout(this).apply {orientation=LinearLayout.HORIZONTAL}
@@ -249,6 +276,15 @@ class MainActivity : Activity() {
                 .put("requestRetentionLimit",l)
             api("/api/mobile/settings",payload){notify("保存成功");navigate("settings")}
         }
+        note("网站图标："+(if(config.optBoolean("siteIconConfigured"))"已上传" else "默认图标"))
+        action("上传网站图标（PNG/JPEG/WebP/ICO，最大 256 KB）") {
+            val intent=Intent(Intent.ACTION_GET_CONTENT).apply { type="*/*";addCategory(Intent.CATEGORY_OPENABLE) }
+            @Suppress("DEPRECATION")
+            startActivityForResult(Intent.createChooser(intent,"选择网站图标"),iconPicker)
+        }
+        action("恢复默认网站图标") { confirm("恢复默认图标？") {
+            api("/api/mobile/site-icon/clear",JSONObject()){notify("已恢复默认图标");navigate("settings")}
+        }}
         action("🌐 高级设置：打开网页版后台") {browse(base()+"/admin")}
     }
     private fun account(config:JSONObject){
@@ -260,7 +296,6 @@ class MainActivity : Activity() {
         action("保存管理员账号 / 密码"){
             val payload=JSONObject().put("newUsername",name.text.toString().trim())
                 .put("currentPassword",old.text.toString()).put("newPassword",newer.text.toString())
-                .put("deviceAuth",VoiceApi.auth(this))
             api("/api/mobile/account",payload) { notify("账号已更新，请重新登录");clearLogin() }
         }
         action("退出登录（停止本机后续通知绑定）") {
