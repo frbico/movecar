@@ -13,7 +13,7 @@ const keyPattern=/^[A-Za-z0-9_-]{43}$/;
 const channelKeys=['bark','serverchan','sc3','app'];
 
 export function createMobileOwner({db,setting,save,deleteSetting,inputJson,json,requestFlow,voice,notifyChannels,
-  validateOrigin,validateBark,validateSendKey,validateSc3Key}){
+  validateOrigin,validateBark,validateSendKey,validateSc3Key,iconUpload,iconSave,iconClear,iconGet}){
   db.exec('CREATE TABLE IF NOT EXISTS mobile_sessions(digest TEXT PRIMARY KEY, expiry INTEGER NOT NULL); CREATE INDEX IF NOT EXISTS mobile_sessions_exp ON mobile_sessions(expiry);');
   const put=db.prepare('INSERT INTO mobile_sessions(digest,expiry) VALUES(?,?)');
   const find=db.prepare('SELECT expiry FROM mobile_sessions WHERE digest=? AND expiry>?');
@@ -39,7 +39,7 @@ export function createMobileOwner({db,setting,save,deleteSetting,inputJson,json,
   }
   function responseConfig(){
     return {
-      username:username(),siteName:setting('site_name','呼叫车主挪车'),publicUrl:setting('public_url'),
+      username:username(),siteIconConfigured:!!iconGet.get(),siteName:setting('site_name','呼叫车主挪车'),publicUrl:setting('public_url'),
       phoneNumber:setting('phone_number'),wechatId:setting('wechat_id'),
       rateLimitSeconds:Number(setting('rate_limit_seconds','60')),
       requestRetentionLimit:requestFlow.retentionLimit(),requestCount:requestFlow.count(),
@@ -82,8 +82,13 @@ export function createMobileOwner({db,setting,save,deleteSetting,inputJson,json,
       json(res,200,requestFlow.listHistory(page,size));return true;
     }
     if(action==='calls'&&req.method==='GET'){json(res,200,{items:voice.listCallHistory()});return true;}
+    if(action==='site-icon'&&req.method==='PUT'){
+      const {data,mime}=await iconUpload(req);
+      iconSave.run(data,mime,Date.now());json(res,200,{ok:true});return true;
+    }
     if(req.method!=='POST'){json(res,405,{error:'请求方法无效'});return true;}
     const data=await inputJson(req);
+    if(action==='site-icon/clear'){iconClear.run();json(res,200,{ok:true});return true;}
     if(action==='logout'){
       voice.unregisterMobileDevice(data.deviceAuth);del.run(hash(current));json(res,200,{ok:true});return true;
     }
