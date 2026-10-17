@@ -20,11 +20,54 @@ class IncomingCallActivity : Activity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         callId = intent.getStringExtra("callId") ?: ""
         if (!VoiceApi.validCallId(callId)) { finish();return }
-        val panel = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;setPadding(42,75,42,45);gravity=Gravity.CENTER }
-        state = TextView(this).apply { text="📞 收到挪车语音来电";textSize=23f;gravity=Gravity.CENTER }
-        val accept=Button(this).apply { text="接听语音" }
-        val reject=Button(this).apply { text="拒绝" }
-        listOf(state,accept,reject).forEach { panel.addView(it,LinearLayout.LayoutParams(-1,-2)) }
+        val d=resources.displayMetrics.density
+        fun dp(x:Int)=(x*d+0.5f).toInt()
+        window.statusBarColor=OwnerUi.blueDeep
+        window.navigationBarColor=OwnerUi.blueDeep
+        val panel=OwnerUi.vertical(this).apply{
+            gravity=Gravity.CENTER
+            background=OwnerUi.gradient(this@IncomingCallActivity)
+            setPadding(dp(24),dp(35),dp(24),dp(35))
+        }
+        panel.addView(OwnerUi.label(this,"MOVE CAR · 来电提醒",13f,0xFFD9E8FF.toInt(),true).apply{
+            gravity=Gravity.CENTER
+        },LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(30)})
+        val caller=OwnerUi.label(this,"CAR",28f,OwnerUi.white,true).apply{
+            gravity=Gravity.CENTER
+            background=OwnerUi.bg(0xFF4D8BEE.toInt(),70,this@IncomingCallActivity)
+        }
+        panel.addView(caller,LinearLayout.LayoutParams(dp(108),dp(108)).apply{
+            gravity=Gravity.CENTER_HORIZONTAL
+            bottomMargin=dp(32)
+        })
+        state=OwnerUi.label(this,"有人请求你挪车",25f,OwnerUi.white,true).apply{
+            gravity=Gravity.CENTER
+        }
+        panel.addView(state)
+        panel.addView(OwnerUi.label(this,"匿名网络语音来电 · 不显示手机号",14f,0xFFDEE9FF.toInt()).apply{
+            gravity=Gravity.CENTER
+            setPadding(0,dp(12),0,dp(52))
+        })
+        val buttons=OwnerUi.horizontal(this)
+        val accept=Button(this).apply{
+            text="接听"
+            isAllCaps=false
+            textSize=18f
+            setTextColor(OwnerUi.white)
+            background=OwnerUi.pressable(this@IncomingCallActivity,OwnerUi.green,24)
+            minHeight=dp(64)
+        }
+        val reject=Button(this).apply{
+            text="拒绝"
+            isAllCaps=false
+            textSize=18f
+            setTextColor(OwnerUi.white)
+            background=OwnerUi.pressable(this@IncomingCallActivity,OwnerUi.red,24)
+            minHeight=dp(64)
+        }
+        buttons.addView(reject,LinearLayout.LayoutParams(0,dp(64),1f).apply{marginEnd=dp(9)})
+        buttons.addView(accept,LinearLayout.LayoutParams(0,dp(64),1f).apply{marginStart=dp(9)})
+        panel.addView(buttons,LinearLayout.LayoutParams(-1,-2))
         setContentView(panel)
         accept.setOnClickListener { accept() }
         reject.setOnClickListener {
