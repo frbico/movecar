@@ -38,7 +38,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(28, 30, 28, 36)
         }
-        val scroll = ScrollView(this).apply { fillViewport = true; addView(root) }
+        val scroll = ScrollView(this).apply { isFillViewport = true; addView(root) }
         setContentView(scroll)
         title(heading, 23f)
     }
