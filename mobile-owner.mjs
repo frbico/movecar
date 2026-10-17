@@ -159,7 +159,7 @@ export function createMobileOwner({db,setting,save,deleteSetting,inputJson,json,
       save('admin_username',newUsername);
       if(newPassword){const salt=crypto.randomBytes(16).toString('hex');save('admin_salt',salt);save('admin_hash',crypto.scryptSync(newPassword,salt,64).toString('hex'));}
       db.exec('DELETE FROM admin_sessions; DELETE FROM mobile_sessions');
-      voice.unregisterMobileDevice(data.deviceAuth);
+      voice.revokeAllMobileDevices();
       json(res,200,{ok:true,reauth:true});return true;
     }
     json(res,404,{error:'未知车主接口'});return true;
