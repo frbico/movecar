@@ -235,8 +235,8 @@ fi
 echo "Checking TLS and public HTTPS for $SITE and $TURN..."
 READY=0
 for attempt in $(seq 1 45);do
-  if curl -fsS --max-time 8 "https://$SITE/healthz" >/dev/null 2>&1 &&
-     curl -fsS --max-time 8 "https://$TURN/" >/dev/null 2>&1;then
+  if curl -fsS --max-time 8 --resolve "$SITE:443:127.0.0.1" "https://$SITE/healthz" >/dev/null 2>&1 &&
+     curl -fsS --max-time 8 --resolve "$TURN:443:127.0.0.1" "https://$TURN/" >/dev/null 2>&1;then
     READY=1;break
   fi
   sleep 3
