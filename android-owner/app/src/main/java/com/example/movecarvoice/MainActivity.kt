@@ -382,7 +382,7 @@ class MainActivity : Activity() {
             setPadding(0,px(18),0,0)
         }
         for((number,label) in listOf(config.optInt("requestCount").toString() to "挪车记录",
-                        if(paired)"已连接" else "待配置" to "推送状态")){
+                        (if(paired)"已连接" else "待配置") to "推送状态")){
             val item=OwnerUi.vertical(this)
             item.addView(OwnerUi.label(this,number,21f,OwnerUi.white,true))
             item.addView(OwnerUi.label(this,label,11f,0xFFDEEAFF.toInt()))
@@ -438,43 +438,109 @@ class MainActivity : Activity() {
         }
     }
     private fun loadRequests(){
-        api("/api/mobile/requests?page="+historyPage+"&size=20"){ result ->
-            shell("📋 挪车记录")
-            note("共 "+result.optInt("total")+" 条 · 第 "+historyPage+" 页")
-            action("刷新") {loadRequests()}
+        val requestedPage=historyPage
+        api("/api/mobile/requests?page="+requestedPage+"&size=20"){result->
+            if(page!="requests"||historyPage!=requestedPage)return@api
+            shell("挪车请求")
+            val total=result.optInt("total")
+            section("请求记录", "共 "+total+" 条 · 第 "+historyPage+" 页")
+            inCard{
+                action("⟳  刷新请求列表"){loadRequests()}
+            }
             val items=result.optJSONArray("items")
-            if(items==null||items.length()==0)note("暂无挪车记录")
-            else for(i in 0 until items.length()){
+            if(items==null||items.length()==0) {
+                empty("目前没有挪车请求","收到新的扫码留言后，会显示在这里。")
+            }else for(i in 0 until items.length()){
                 val item=items.getJSONObject(i)
                 val id=item.getString("id")
-                title(DateFormat.getDateTimeInstance().format(Date(item.optLong("createdAt"))),17f)
-                note(item.optString("message")+"\n状态："+item.optString("status"))
-                if(item.optString("status")=="waiting")action("✅ 确认这条挪车请求") {
-                    api("/api/mobile/requests/confirm",JSONObject().put("id",id)){navigate("requests")}
+                val state=item.optString("status")
+                val desc=when(state){
+                    "waiting"->"待处理"
+                    "confirmed"->"已确认"
+                    "expired"->"已过期"
+                    else->state
                 }
-                val photo=item.optString("photoUrl")
-                if(photo.startsWith("/"))action("📷 查看现场照片") {browse(base()+photo)}
-                action("删除本条记录") { confirm("删除这条挪车记录？") {
-                    api("/api/mobile/requests/delete",JSONObject().put("id",id)){navigate("requests")}
-                }}
+                inCard{
+                    val heading=OwnerUi.horizontal(this@MainActivity)
+                    val date=DateFormat.getDateTimeInstance(DateFormat.MEDIUM,DateFormat.SHORT)
+                        .format(Date(item.optLong("createdAt")))
+                    heading.addView(OwnerUi.label(this@MainActivity,date,13f,OwnerUi.muted),
+                        LinearLayout.LayoutParams(0,-2,1f))
+                    heading.addView(OwnerUi.pill(this@MainActivity,desc,
+                        if(state=="confirmed")true else if(state=="waiting")false else null))
+                    root.addView(heading)
+                    title(item.optString("message").ifBlank{"有人请求挪车"},16f)
+                    if(item.optBoolean("photoSent"))note("已提交现场照片")
+                    val photo=item.optString("photoUrl")
+                    if(photo.startsWith("/"))
+                        action("查看现场照片 ↗"){browse(base()+photo)}
+                    if(state=="waiting")
+                        action("确认已收到挪车请求",primary=true){
+                            api("/api/mobile/requests/confirm",JSONObject().put("id",id)){
+                                notify("挪车请求已确认");loadRequests()
+                            }
+                        }
+                    action("删除这条记录",danger=true){confirm("删除该条挪车记录及照片？"){
+                        api("/api/mobile/requests/delete",JSONObject().put("id",id)){loadRequests()}
+                    }}
+                }
             }
-            if(historyPage>1)action("上一页") {historyPage--;loadRequests()}
-            if(historyPage*20<result.optInt("total"))action("下一页") {historyPage++;loadRequests()}
-            action("清空所有记录") {confirm("不可恢复！确定删除全部挪车记录和关联照片？") {
-                api("/api/mobile/requests/clear",JSONObject().put("confirm",true)){historyPage=1;navigate("requests")}
-            }}
+            if(historyPage>1)action("← 上一页"){historyPage--;loadRequests()}
+            if(historyPage*20<total)action("下一页 →"){historyPage++;loadRequests()}
+            spacer(15)
+            inCard{
+                title("管理数据",15f)
+                note("清空操作无法恢复，建议先确认无待处理请求。")
+                action("清空全部挪车记录",danger=true){
+                    confirm("确认永久删除全部挪车记录和关联照片？"){
+                        api("/api/mobile/requests/clear",JSONObject().put("confirm",true)){
+                            historyPage=1;loadRequests()
+                        }
+                    }
+                }
+            }
         }
     }
     private fun confirm(message:String,yes:()->Unit){AlertDialog.Builder(this).setMessage(message).setNegativeButton("取消",null).setPositiveButton("确定") {_,_->yes()}.show()}
     private fun calls(result:JSONObject){
-        shell("📞 通话记录")
-        action("刷新") {navigate("calls")}
+        shell("来电记录")
+        section("匿名语音历史","来电接听状态由 MoveCar 服务器记录")
+        inCard{action("⟳  刷新通话记录"){navigate("calls")}}
         val items=result.optJSONArray("items")
-        if(items==null||items.length()==0){note("暂无通话记录");return}
+        if(items==null||items.length()==0){
+            empty("暂无通话记录","扫码者通过网页呼叫后，记录会自动显示。")
+            return
+        }
         for(i in 0 until items.length()){
-            val obj=items.getJSONObject(i)
-            title(DateFormat.getDateTimeInstance().format(Date(obj.optLong("startedAt"))),17f)
-            note("匿名语音来电 · 状态："+obj.optString("status"))
+            val item=items.getJSONObject(i)
+            val raw=item.optString("status")
+            val state=when(raw){
+                "ringing"->"振铃中"
+                "active"->"已接通"
+                "missed"->"未接听"
+                "ended"->"已结束"
+                "rejected"->"已拒绝"
+                "failed"->"呼叫失败"
+                else->raw
+            }
+            inCard{
+                val header=OwnerUi.horizontal(this@MainActivity)
+                val icon=OwnerUi.icon(this@MainActivity,
+                    android.R.drawable.sym_action_call,
+                    if(raw=="missed"||raw=="rejected")OwnerUi.red else OwnerUi.blue,26)
+                header.addView(icon)
+                val content=OwnerUi.vertical(this@MainActivity).apply{
+                    setPadding(px(15),0,0,0)
+                }
+                content.addView(OwnerUi.label(this@MainActivity,
+                    "匿名网络语音",16f,OwnerUi.navy,true))
+                val date=DateFormat.getDateTimeInstance(DateFormat.MEDIUM,DateFormat.SHORT)
+                    .format(Date(item.optLong("startedAt")))
+                content.addView(OwnerUi.label(this@MainActivity,date,12f,OwnerUi.muted))
+                header.addView(content,LinearLayout.LayoutParams(0,-2,1f))
+                header.addView(OwnerUi.pill(this@MainActivity,state,raw=="ended"||raw=="active"))
+                root.addView(header)
+            }
         }
     }
     private fun channels(config:JSONObject){
