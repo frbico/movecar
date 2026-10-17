@@ -28,6 +28,12 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
     id INTEGER PRIMARY KEY CHECK(id=1), auth_digest TEXT NOT NULL,
     fcm_token TEXT NOT NULL, updated_at INTEGER NOT NULL
   );`);
+  db.exec(`CREATE TABLE IF NOT EXISTS voice_call_history(
+    call_id TEXT PRIMARY KEY, started_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+    status TEXT NOT NULL)`);
+  const updateHistory=db.prepare('UPDATE voice_call_history SET status=?,updated_at=? WHERE call_id=?');
+  const insertHistory=db.prepare('INSERT INTO voice_call_history(call_id,started_at,updated_at,status) VALUES(?,?,?,?)');
+  const getHistory=db.prepare('SELECT call_id AS callId,started_at AS startedAt,updated_at AS updatedAt,status FROM voice_call_history ORDER BY started_at DESC LIMIT 100');
   const getDevice=db.prepare('SELECT auth_digest,fcm_token FROM voice_owner_device WHERE id=1');
   const saveDevice=db.prepare('INSERT INTO voice_owner_device(id,auth_digest,fcm_token,updated_at) VALUES(1,?,?,?) ON CONFLICT(id) DO UPDATE SET auth_digest=excluded.auth_digest,fcm_token=excluded.fcm_token,updated_at=excluded.updated_at');
   const updateFcm=db.prepare('UPDATE voice_owner_device SET fcm_token=?,updated_at=? WHERE id=1 AND auth_digest=?');
@@ -53,10 +59,11 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
     if(!device||!auth||!eq(sha(auth),device.auth_digest))throw bad(401,'手机未配对或登录已失效');
     return device;
   }
+  function setStatus(c,status){if(c.status!==status){c.status=status;updateHistory.run(status,now(),c.id);}}
   function cleanup(){
     for(const [k,c] of calls){
-      if(c.status==='ringing'&&now()>c.created+35000)c.status='missed';
-      if(c.status==='active'&&now()>c.created+10*60*1000)c.status='ended';
+      if(c.status==='ringing'&&now()>c.created+35000)setStatus(c,'missed');
+      if(c.status==='active'&&now()>c.created+10*60*1000)setStatus(c,'ended');
       if(now()>c.created+15*60*1000)calls.delete(k);
     }
     for(const [ip,r] of limit)if(now()>r.since+86400000)limit.delete(ip);
@@ -100,6 +107,26 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
       signal:AbortSignal.timeout(10000)
     });
     if(!response.ok)throw bad(502,'FCM 未接受来电通知，请检查设备注册');
+  }
+  async function notifyOwner({title,message,ownerUrl}){
+    const device=getDevice.get();
+    if(!device)throw bad(503,'车主 APP 尚未配对');
+    if(pushCall) return pushCall({type:'move_request',title,message,ownerUrl,deviceToken:device.fcm_token});
+    const sa=JSON.parse(fs.readFileSync(serviceAccountPath,'utf8'));
+    const access=await fcmAccess();
+    const response=await fetch('https://fcm.googleapis.com/v1/projects/'+encodeURIComponent(sa.project_id)+'/messages:send',{
+      method:'POST',headers:{Authorization:'Bearer '+access,'Content-Type':'application/json'},
+      body:JSON.stringify({message:{token:device.fcm_token,
+        data:{type:'move_request',title:String(title).slice(0,90),message:String(message).slice(0,1300),url:String(ownerUrl||'').slice(0,500)},
+        android:{priority:'HIGH',ttl:'600s'}}}),signal:AbortSignal.timeout(10000)});
+    if(!response.ok)throw bad(502,'FCM 无法发送挪车消息');
+  }
+  function registerMobileDevice(fcmToken){
+    if(!enabled)throw bad(503,'语音服务端未配置');
+    if(!validFcm(fcmToken))throw bad(400,'FCM Token 不合法');
+    const ownerToken=token();
+    saveDevice.run(sha(ownerToken),fcmToken,now());
+    return ownerToken;
   }
   function getCall(callId){
     cleanup();const c=calls.get(callId);
@@ -160,8 +187,8 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
       enforceRate(req);
       const callId=id(),callerToken=token();
       const c={id:callId,callerHash:sha(callerToken),ownerHash:null,status:'ringing',created:now(),seq:0,events:[]};
-      calls.set(callId,c);
-      try{await sendPush(callId,device.fcm_token);}catch(e){calls.delete(callId);throw e;}
+      calls.set(callId,c);insertHistory.run(callId,now(),now(),'ringing');
+      try{await sendPush(callId,device.fcm_token);}catch(e){calls.delete(callId);setStatus(c,'failed');throw e;}
       json(res,200,{callId,token:callerToken,expiresIn:35,iceServers:iceServers()});return true;
     }
     const match=route.match(/^\/api\/voice\/calls\/([A-Za-z0-9_-]{24})\/(answer|reject|events|signal|end)$/);
@@ -170,8 +197,8 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
     if(action==='answer'||action==='reject'){
       requireOwner(req);
       if(c.status!=='ringing')throw bad(409,'来电已经结束');
-      if(action==='reject'){c.status='rejected';json(res,200,{ok:true});return true;}
-      const ownerToken=token();c.ownerHash=sha(ownerToken);c.status='active';
+      if(action==='reject'){setStatus(c,'rejected');json(res,200,{ok:true});return true;}
+      const ownerToken=token();c.ownerHash=sha(ownerToken);setStatus(c,'active');
       json(res,200,{ok:true,ownerToken,iceServers:iceServers()});return true;
     }
     const who=role(c,data.token);
@@ -181,7 +208,7 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
       json(res,200,{status:c.status,events:c.events.filter(e=>e.seq>after&&e.from!==who),lastSeq:c.seq,iceServers:iceServers()});return true;
     }
     if(action==='end'){
-      if(['ringing','active'].includes(c.status))c.status='ended';
+      if(['ringing','active'].includes(c.status))setStatus(c,'ended');
       json(res,200,{ok:true});return true;
     }
     if(c.status!=='active')throw bad(409,'通话尚未接通或已经结束');
@@ -195,5 +222,5 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
     c.events.push({seq:++c.seq,from:who,kind,payload});
     json(res,200,{ok:true,seq:c.seq});return true;
   }
-  return {handle,cleanup,close:()=>clearInterval(cleanupTimer),_debug:{calls}};
+  return {handle,cleanup,notifyOwner,registerMobileDevice,isDeviceReady:()=>Boolean(getDevice.get()),listCallHistory:()=>getHistory.all(),close:()=>clearInterval(cleanupTimer),_debug:{calls}};
 }
