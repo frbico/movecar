@@ -48,7 +48,8 @@ export function createInfrastructure({setting,save,dataDir,turnSecret=process.en
       ...(tls?['cert=/runtime/tls/fullchain.pem','pkey=/runtime/tls/privkey.pem','no-dtls','no-tlsv1','no-tlsv1_1']:
         ['no-tls','no-dtls'])
     ];
-    if(!/^[a-f0-9]{64}$/.test(turnSecret))throw new Error('Missing server-generated TURN secret');
+    if(!turnSecret) return false;
+    if(!/^[a-f0-9]{64}$/.test(turnSecret))throw new Error('Invalid server-generated TURN secret');
     if(externalIp&&!/^(?:\d{1,3}\.){3}\d{1,3}(?:\/(?:\d{1,3}\.){3}\d{1,3})?$/.test(externalIp))
       throw new Error('Invalid TURN_EXTERNAL_IP');
     const text=lines.join('\n')+'\n';
@@ -125,6 +126,6 @@ export function createInfrastructure({setting,save,dataDir,turnSecret=process.en
     for(const p of [certFile,keyFile])try{fs.unlinkSync(p);}catch(e){if(e.code!=='ENOENT')throw e;}
     refreshTurn();return {ok:true,turnTlsEnabled:false};
   }
-  refreshTurn();
+  if(turnSecret)refreshTurn();
   return {config,configure,ice,saveFirebase,saveTls,removeTls,refreshTurn};
 }
