@@ -4,12 +4,13 @@ import http from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
 import {createVoiceService} from '../voice-service.mjs';
 
-function createHarness(){
+function createHarness(options={}){
   const db=new DatabaseSync(':memory:');
   const messages=[];
   let clock=Date.now();
   const api=createVoiceService({db,pairingSecret:'test-voice-secret-which-is-long-and-private',
     now:()=>clock,allowLegacyPairing:true,pushCall:async (m)=>messages.push(m),
+    stunUrls:options.stunUrls||'',turnUrls:options.turnUrls||'',turnSecret:options.turnSecret||'',
     json:(res,status,obj)=>{res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(obj));},
     reply:(res,status,body,headers={})=>{res.writeHead(status,headers);res.end(body);},
     inputJson:async(req)=>{let b='';for await(const chunk of req)b+=chunk;if(b.length>16384)throw Error('too large');return JSON.parse(b||'{}');}
@@ -21,8 +22,8 @@ function createHarness(){
   });
   return {db,api,server,messages,clockForward:ms=>{clock+=ms;}};
 }
-async function withServer(run){
-  const h=createHarness();
+async function withServer(run,options={}){
+  const h=createHarness(options);
   await new Promise(resolve=>h.server.listen(0,'127.0.0.1',resolve));
   const url=`http://127.0.0.1:${h.server.address().port}`;
   async function post(path,body={},auth=''){
@@ -77,3 +78,73 @@ test('rate limiting and expired missed calls',async()=>withServer(async({post,cl
   const two=await post('/api/voice/start');assert.equal(two.status,200);
   assert.equal((await post(`/api/voice/calls/${two.body.callId}/reject`,{},reg.body.deviceAuth)).status,200);
 }));
+
+test('ICE failure returns one-use fast-retry tickets, with bounded abuse protection',async()=>withServer(async({post})=>{
+  const pairing=await post('/api/voice/device/register',{pairingSecret:'test-voice-secret-which-is-long-and-private',fcmToken:'fcm:abc_this-is-a-pretend-token-xxxxxxxxx'});
+  assert.equal(pairing.status,200);
+  let start=await post('/api/voice/start');
+  assert.equal(start.status,200);
+  let ticket='';
+  for(let attempt=0;attempt<3;attempt++){
+    const route=type=>`/api/voice/calls/${start.body.callId}/${type}`;
+    const answer=await post(route('answer'),{},pairing.body.deviceAuth);
+    assert.equal(answer.status,200);
+    const ended=await post(route('end'),{token:start.body.token,reason:'ice_failed'});
+    assert.equal(ended.status,200);
+    if(attempt<2){
+      ticket=ended.body.retryToken;
+      assert.match(ticket,/^[A-Za-z0-9_-]{43}$/);
+      assert.equal((await post('/api/voice/start')).status,429,'ordinary attempt still rate-limited');
+      const retry=await post('/api/voice/start',{retryToken:ticket});
+      assert.equal(retry.status,200,'fast retry accepted immediately after ICE failure');
+      assert.equal((await post('/api/voice/start',{retryToken:ticket})).status,429,'ticket cannot be used again');
+      start=retry;
+    }else{
+      assert.equal(ended.body.retryToken,undefined,'max two fast retries');
+      assert.equal((await post('/api/voice/start',{retryToken:ticket})).status,429);
+    }
+  }
+}));
+
+test('owner-side ICE failure enables caller to request a fast retry ticket',async()=>withServer(async({post})=>{
+  const pairing=await post('/api/voice/device/register',{pairingSecret:'test-voice-secret-which-is-long-and-private',fcmToken:'fcm:abc_this-is-a-pretend-token-xxxxxxxxx'});
+  const start=await post('/api/voice/start');
+  const p=type=>`/api/voice/calls/${start.body.callId}/${type}`;
+  const answer=await post(p('answer'),{},pairing.body.deviceAuth);
+  assert.equal((await post(p('end'),{token:answer.body.ownerToken,reason:'ice_failed'})).status,200);
+  const ticket=await post(p('retry'),{token:start.body.token});
+  assert.equal(ticket.status,200);
+  assert.match(ticket.body.retryToken,/^[A-Za-z0-9_-]{43}$/);
+  const retry=await post('/api/voice/start',{retryToken:ticket.body.retryToken});
+  assert.equal(retry.status,200);
+}));
+
+test('ordinary hangup or rejection does not bypass anti-spam rate limit',async()=>withServer(async({post})=>{
+  const pairing=await post('/api/voice/device/register',{pairingSecret:'test-voice-secret-which-is-long-and-private',fcmToken:'fcm:abc_this-is-a-pretend-token-xxxxxxxxx'});
+  const start=await post('/api/voice/start');
+  assert.equal((await post(`/api/voice/calls/${start.body.callId}/reject`,{},pairing.body.deviceAuth)).status,200);
+  assert.equal((await post('/api/voice/start')).status,429);
+}));
+
+test('regional STUN and TURN UDP/TLS are issued with short-lived HMAC credentials',async()=>{
+  const opts={stunUrls:'stun:hk.turn.example:3478,stun:tokyo.turn.example:3478',
+    turnUrls:'turn:hk.turn.example:3478?transport=udp,turns:hk.turn.example:443?transport=tcp',
+    turnSecret:'a-private-example-secret-which-is-not-used-in-production'};
+  await withServer(async({post})=>{
+    const paired=await post('/api/voice/device/register',{
+      pairingSecret:'test-voice-secret-which-is-long-and-private',
+      fcmToken:'fcm:abc_this-is-a-pretend-token-xxxxxxxxx'
+    });
+    assert.equal(paired.status,200);
+    const created=await post('/api/voice/start');
+    assert.equal(created.status,200);
+    assert.deepEqual(created.body.iceServers[0].urls,opts.stunUrls.split(','));
+    assert.deepEqual(created.body.iceServers[1].urls,opts.turnUrls.split(','));
+    assert.match(created.body.iceServers[1].username,/^[0-9]+:movecar$/);
+    assert.ok(created.body.iceServers[1].credential.length>20);
+    assert.notEqual(created.body.iceServers[1].credential,opts.turnSecret);
+    const answered=await post('/api/voice/calls/'+created.body.callId+'/answer',{},paired.body.deviceAuth);
+    assert.equal(answered.status,200);
+    assert.deepEqual(answered.body.iceServers[1].urls,opts.turnUrls.split(','));
+  },opts);
+});

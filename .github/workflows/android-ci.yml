@@ -1,7 +1,7 @@
 name: Android debug APK
 on:
   push:
-    branches: [feature/native-screen-off-voip, feature/owner-mobile-dashboard, feature/owner-ui-v0.4]
+    branches: [feature/native-screen-off-voip, feature/owner-mobile-dashboard, feature/owner-ui-v0.4, feature/voice-network-reliability]
     paths:
       - 'android-owner/**'
       - '.github/workflows/android-ci.yml'

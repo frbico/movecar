@@ -17,6 +17,8 @@ jobs:
           bash -n install.sh run-linux.sh show-admin-password.sh scripts/fetch-upstream.sh scripts/setup-voice-fresh.sh
           python3 -m py_compile scripts/test-voice-endpoints.py
           node --check server.mjs
+          node --check voice-service.mjs
+          node --check voice-page.js
           node --check admin.js
           node --check request-flow.mjs
           node --check request-ui.js

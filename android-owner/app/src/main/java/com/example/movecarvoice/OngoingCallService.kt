@@ -53,6 +53,9 @@ class OngoingCallService : Service() {
     private var localTrack: org.webrtc.AudioTrack? = null
     private var peer: PeerConnection? = null
     private val earlyCandidates = mutableListOf<IceCandidate>()
+    // Queue local SDP/ICE messages when HTTPS signaling temporarily fails.
+    // The polling worker retries them instead of silently losing the answer.
+    private val queuedSignals = ArrayDeque<Pair<String, JSONObject>>()
     private var answered = false
 
     override fun onBind(intent: Intent?) = null
@@ -159,7 +162,9 @@ class OngoingCallService : Service() {
         val adm = JavaAudioDeviceModule.builder(applicationContext).createAudioDeviceModule()
         factory = PeerConnectionFactory.builder().setAudioDeviceModule(adm).createPeerConnectionFactory()
         adm.release()
-        val ice = mutableListOf(PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer())
+        // Avoid hard-coding a blocked Google STUN server. Regional STUN/TURN
+        // comes from the authenticated /events response before SDP answer.
+        val ice = mutableListOf<PeerConnection.IceServer>()
         // Fetch short-lived coturn credentials only after owner authentication via /events.
         // Never embed a permanent TURN secret in the Android APK.
         val rtcConfig = PeerConnection.RTCConfiguration(ice)
@@ -170,8 +175,18 @@ class OngoingCallService : Service() {
                 state = when(s) {
                     PeerConnection.IceConnectionState.CONNECTED,PeerConnection.IceConnectionState.COMPLETED -> "通话中"
                     PeerConnection.IceConnectionState.DISCONNECTED -> "网络重连中…"
-                    PeerConnection.IceConnectionState.FAILED -> "连接失败，请检查 TURN"
+                    PeerConnection.IceConnectionState.FAILED -> "ICE 连接失败，准备结束并允许重拨"
                     else -> state
+                }
+                if (s == PeerConnection.IceConnectionState.FAILED) {
+                    // Allow transient network changes to recover before failing.
+                    worker.schedule({
+                        if (!stopped &&
+                            peer?.iceConnectionState() == PeerConnection.IceConnectionState.FAILED) {
+                            Log.w("MoveCarVoice","ICE remained failed; release failed call")
+                            finishCall(true, "ice_failed")
+                        }
+                    },4,TimeUnit.SECONDS)
                 }
             }
             override fun onIceConnectionReceivingChange(receiving: Boolean) {}
@@ -198,14 +213,33 @@ class OngoingCallService : Service() {
     private fun endpoint(action: String) = "/api/voice/calls/$callId/$action"
     private fun sendSignal(kind: String, payload: JSONObject) {
         if (stopped) return
-        runCatching { VoiceApi.post(base,endpoint("signal"),JSONObject()
-            .put("token",token).put("kind",kind).put("payload",payload)) }
-            .onFailure { Log.w("MoveCarVoice","Signaling request failed: ${it.javaClass.simpleName}") }
+        if (queuedSignals.size>=110) {
+            Log.w("MoveCarVoice","Signaling backlog is full; ICE may fail")
+            return
+        }
+        queuedSignals.addLast(kind to payload)
+        flushSignals()
+    }
+    private fun flushSignals() {
+        while (!stopped && queuedSignals.isNotEmpty()) {
+            val (kind,payload) = queuedSignals.first()
+            val result=runCatching {
+                VoiceApi.post(base,endpoint("signal"),JSONObject()
+                    .put("token",token).put("kind",kind).put("payload",payload))
+            }
+            if (result.isFailure) {
+                Log.w("MoveCarVoice","Signaling delayed; will retry: "+
+                    result.exceptionOrNull()?.javaClass?.simpleName)
+                break
+            }
+            queuedSignals.removeFirst()
+        }
     }
 
     private fun pollSafely() {
         if (stopped) return
         try {
+            flushSignals()
             val result = VoiceApi.post(base,endpoint("events"),JSONObject().put("token",token).put("after",seq))
             val status = result.optString("status")
             if (status != "active") {
@@ -244,8 +278,12 @@ class OngoingCallService : Service() {
             }
         }
         if (servers.isNotEmpty()) {
-            val config = PeerConnection.RTCConfiguration(servers).apply { sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN }
-            peer?.setConfiguration(config)
+            val config = PeerConnection.RTCConfiguration(servers).apply {
+                sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
+            }
+            val ok = peer?.setConfiguration(config) ?: false
+            if (!ok) Log.w("MoveCarVoice","ICE server configuration not applied")
+            else Log.i("MoveCarVoice","ICE configured: "+servers.size+" regional endpoints")
         }
     }
 
@@ -290,12 +328,18 @@ class OngoingCallService : Service() {
         override fun onSetFailure(error: String) { Log.e("MoveCarVoice","SDP set failed: $error") }
     }
 
-    private fun finishCall(notifyOther: Boolean) {
+    private fun finishCall(notifyOther: Boolean, failureReason: String? = null) {
         if (stopped) return
         stopped = true
         if (notifyOther && callId.isNotBlank()) {
             // Do not block onDestroy or the UI thread.
-            Thread { runCatching { VoiceApi.post(base,endpoint("end"),JSONObject().put("token",token)) } }.start()
+            Thread {
+                runCatching {
+                    val body=JSONObject().put("token",token)
+                    if (failureReason != null) body.put("reason",failureReason)
+                    VoiceApi.post(base,endpoint("end"),body)
+                }
+            }.start()
         }
         ticker?.cancel(false)
         worker.execute {
