@@ -4,12 +4,13 @@ import http from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
 import {createVoiceService} from '../voice-service.mjs';
 
-function createHarness(){
+function createHarness(options={}){
   const db=new DatabaseSync(':memory:');
   const messages=[];
   let clock=Date.now();
   const api=createVoiceService({db,pairingSecret:'test-voice-secret-which-is-long-and-private',
     now:()=>clock,allowLegacyPairing:true,pushCall:async (m)=>messages.push(m),
+    stunUrls:options.stunUrls||'',turnUrls:options.turnUrls||'',turnSecret:options.turnSecret||'',
     json:(res,status,obj)=>{res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(obj));},
     reply:(res,status,body,headers={})=>{res.writeHead(status,headers);res.end(body);},
     inputJson:async(req)=>{let b='';for await(const chunk of req)b+=chunk;if(b.length>16384)throw Error('too large');return JSON.parse(b||'{}');}
@@ -21,8 +22,8 @@ function createHarness(){
   });
   return {db,api,server,messages,clockForward:ms=>{clock+=ms;}};
 }
-async function withServer(run){
-  const h=createHarness();
+async function withServer(run,options={}){
+  const h=createHarness(options);
   await new Promise(resolve=>h.server.listen(0,'127.0.0.1',resolve));
   const url=`http://127.0.0.1:${h.server.address().port}`;
   async function post(path,body={},auth=''){
@@ -124,3 +125,26 @@ test('ordinary hangup or rejection does not bypass anti-spam rate limit',async()
   assert.equal((await post(`/api/voice/calls/${start.body.callId}/reject`,{},pairing.body.deviceAuth)).status,200);
   assert.equal((await post('/api/voice/start')).status,429);
 }));
+
+test('regional STUN and TURN UDP/TLS are issued with short-lived HMAC credentials',async()=>{
+  const opts={stunUrls:'stun:hk.turn.example:3478,stun:tokyo.turn.example:3478',
+    turnUrls:'turn:hk.turn.example:3478?transport=udp,turns:hk.turn.example:443?transport=tcp',
+    turnSecret:'a-private-example-secret-which-is-not-used-in-production'};
+  await withServer(async({post})=>{
+    const paired=await post('/api/voice/device/register',{
+      pairingSecret:'test-voice-secret-which-is-long-and-private',
+      fcmToken:'fcm:abc_this-is-a-pretend-token-xxxxxxxxx'
+    });
+    assert.equal(paired.status,200);
+    const created=await post('/api/voice/start');
+    assert.equal(created.status,200);
+    assert.deepEqual(created.body.iceServers[0].urls,opts.stunUrls.split(','));
+    assert.deepEqual(created.body.iceServers[1].urls,opts.turnUrls.split(','));
+    assert.match(created.body.iceServers[1].username,/^[0-9]+:movecar$/);
+    assert.ok(created.body.iceServers[1].credential.length>20);
+    assert.notEqual(created.body.iceServers[1].credential,opts.turnSecret);
+    const answered=await post('/api/voice/calls/'+created.body.callId+'/answer',{},paired.body.deviceAuth);
+    assert.equal(answered.status,200);
+    assert.deepEqual(answered.body.iceServers[1].urls,opts.turnUrls.split(','));
+  },opts);
+});
