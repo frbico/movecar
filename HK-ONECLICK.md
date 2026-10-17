@@ -134,10 +134,10 @@ cd /opt/movecar-hk
 sudo bash scripts/check-hk.sh
 
 # 查看进程状态
-docker compose -f compose.yaml -f compose.hk.yaml ps
+sudo docker compose -f compose.yaml -f compose.hk.yaml ps
 
 # 查看近期错误（不得公开包含用户信息的原始日志）
-docker compose -f compose.yaml -f compose.hk.yaml logs --tail=80 coturn caddy movecar
+sudo docker compose -f compose.yaml -f compose.hk.yaml logs --tail=80 coturn caddy movecar
 
 # 查看自动续期检查
 sudo systemctl status movecar-hk-turn-cert.timer
