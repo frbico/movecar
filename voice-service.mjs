@@ -128,6 +128,13 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
     saveDevice.run(sha(ownerToken),fcmToken,now());
     return ownerToken;
   }
+  function unregisterMobileDevice(deviceAuth){
+    if(typeof deviceAuth!=='string'||!validToken(deviceAuth))return false;
+    const old=getDevice.get();
+    if(!old||!eq(sha(deviceAuth),old.auth_digest))return false;
+    db.prepare('DELETE FROM voice_owner_device WHERE id=1 AND auth_digest=?').run(old.auth_digest);
+    return true;
+  }
   function getCall(callId){
     cleanup();const c=calls.get(callId);
     if(!c)throw bad(404,'通话不存在或已过期');
@@ -222,5 +229,5 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
     c.events.push({seq:++c.seq,from:who,kind,payload});
     json(res,200,{ok:true,seq:c.seq});return true;
   }
-  return {handle,cleanup,notifyOwner,registerMobileDevice,isDeviceReady:()=>Boolean(getDevice.get()),listCallHistory:()=>getHistory.all(),close:()=>clearInterval(cleanupTimer),_debug:{calls}};
+  return {handle,cleanup,notifyOwner,registerMobileDevice,unregisterMobileDevice,isDeviceReady:()=>Boolean(getDevice.get()),listCallHistory:()=>getHistory.all(),close:()=>clearInterval(cleanupTimer),_debug:{calls}};
 }
