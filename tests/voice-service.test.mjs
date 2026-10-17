@@ -77,3 +77,50 @@ test('rate limiting and expired missed calls',async()=>withServer(async({post,cl
   const two=await post('/api/voice/start');assert.equal(two.status,200);
   assert.equal((await post(`/api/voice/calls/${two.body.callId}/reject`,{},reg.body.deviceAuth)).status,200);
 }));
+
+test('ICE failure returns one-use fast-retry tickets, with bounded abuse protection',async()=>withServer(async({post})=>{
+  const pairing=await post('/api/voice/device/register',{pairingSecret:'test-voice-secret-which-is-long-and-private',fcmToken:'fcm:abc_this-is-a-pretend-token-xxxxxxxxx'});
+  assert.equal(pairing.status,200);
+  let start=await post('/api/voice/start');
+  assert.equal(start.status,200);
+  let ticket='';
+  for(let attempt=0;attempt<3;attempt++){
+    const route=type=>`/api/voice/calls/${start.body.callId}/${type}`;
+    const answer=await post(route('answer'),{},pairing.body.deviceAuth);
+    assert.equal(answer.status,200);
+    const ended=await post(route('end'),{token:start.body.token,reason:'ice_failed'});
+    assert.equal(ended.status,200);
+    if(attempt<2){
+      ticket=ended.body.retryToken;
+      assert.match(ticket,/^[A-Za-z0-9_-]{43}$/);
+      assert.equal((await post('/api/voice/start')).status,429,'ordinary attempt still rate-limited');
+      const retry=await post('/api/voice/start',{retryToken:ticket});
+      assert.equal(retry.status,200,'fast retry accepted immediately after ICE failure');
+      assert.equal((await post('/api/voice/start',{retryToken:ticket})).status,429,'ticket cannot be used again');
+      start=retry;
+    }else{
+      assert.equal(ended.body.retryToken,undefined,'max two fast retries');
+      assert.equal((await post('/api/voice/start',{retryToken:ticket})).status,429);
+    }
+  }
+}));
+
+test('owner-side ICE failure enables caller to request a fast retry ticket',async()=>withServer(async({post})=>{
+  const pairing=await post('/api/voice/device/register',{pairingSecret:'test-voice-secret-which-is-long-and-private',fcmToken:'fcm:abc_this-is-a-pretend-token-xxxxxxxxx'});
+  const start=await post('/api/voice/start');
+  const p=type=>`/api/voice/calls/${start.body.callId}/${type}`;
+  const answer=await post(p('answer'),{},pairing.body.deviceAuth);
+  assert.equal((await post(p('end'),{token:answer.body.ownerToken,reason:'ice_failed'})).status,200);
+  const ticket=await post(p('retry'),{token:start.body.token});
+  assert.equal(ticket.status,200);
+  assert.match(ticket.body.retryToken,/^[A-Za-z0-9_-]{43}$/);
+  const retry=await post('/api/voice/start',{retryToken:ticket.body.retryToken});
+  assert.equal(retry.status,200);
+}));
+
+test('ordinary hangup or rejection does not bypass anti-spam rate limit',async()=>withServer(async({post})=>{
+  const pairing=await post('/api/voice/device/register',{pairingSecret:'test-voice-secret-which-is-long-and-private',fcmToken:'fcm:abc_this-is-a-pretend-token-xxxxxxxxx'});
+  const start=await post('/api/voice/start');
+  assert.equal((await post(`/api/voice/calls/${start.body.callId}/reject`,{},pairing.body.deviceAuth)).status,200);
+  assert.equal((await post('/api/voice/start')).status,429);
+}));
