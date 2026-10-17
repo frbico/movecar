@@ -24,12 +24,58 @@ class VoiceActivity : Activity() {
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val panel = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; gravity=Gravity.CENTER; setPadding(30,50,30,50) }
-        val title = TextView(this).apply { text="挪车网络通话";textSize=24f;gravity=Gravity.CENTER }
-        status = TextView(this).apply { text="连接中…";textSize=18f;gravity=Gravity.CENTER }
-        speaker = Button(this).apply { text="开启免提" }
-        val hang = Button(this).apply { text="挂断" }
-        listOf(title,status,speaker,hang).forEach { panel.addView(it,LinearLayout.LayoutParams(-1,-2)) }
+        val d=resources.displayMetrics.density
+        fun dp(x:Int)=(x*d+0.5f).toInt()
+        window.statusBarColor=OwnerUi.blueDeep
+        window.navigationBarColor=OwnerUi.blueDeep
+        val panel=OwnerUi.vertical(this).apply{
+            gravity=Gravity.CENTER
+            background=OwnerUi.gradient(this@VoiceActivity)
+            setPadding(dp(24),dp(35),dp(24),dp(35))
+        }
+        panel.addView(OwnerUi.label(this,"MOVE CAR · 通话中",13f,0xFFD9E8FF.toInt(),true).apply{
+            gravity=Gravity.CENTER
+        },LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(30)})
+        val avatar=OwnerUi.label(this,"CAR",28f,OwnerUi.white,true).apply{
+            gravity=Gravity.CENTER
+            background=OwnerUi.bg(0xFF4D8BEE.toInt(),70,this@VoiceActivity)
+        }
+        panel.addView(avatar,LinearLayout.LayoutParams(dp(108),dp(108)).apply{
+            gravity=Gravity.CENTER_HORIZONTAL
+            bottomMargin=dp(32)
+        })
+        panel.addView(OwnerUi.label(this,"挪车网络通话",25f,OwnerUi.white,true).apply{
+            gravity=Gravity.CENTER
+        })
+        status=OwnerUi.label(this,"连接中…",15f,0xFFDEE9FF.toInt()).apply{
+            gravity=Gravity.CENTER
+            setPadding(0,dp(12),0,dp(52))
+        }
+        panel.addView(status)
+        val actions=OwnerUi.horizontal(this)
+        speaker=Button(this).apply{
+            text="开启免提"
+            isAllCaps=false
+            textSize=16f
+            setTextColor(OwnerUi.blueDeep)
+            background=OwnerUi.pressable(this@VoiceActivity,OwnerUi.white,20)
+            minHeight=dp(64)
+        }
+        val hang=Button(this).apply{
+            text="挂断"
+            isAllCaps=false
+            textSize=17f
+            setTextColor(OwnerUi.white)
+            background=OwnerUi.pressable(this@VoiceActivity,OwnerUi.red,20)
+            minHeight=dp(64)
+        }
+        actions.addView(speaker,LinearLayout.LayoutParams(0,dp(64),1f).apply{marginEnd=dp(9)})
+        actions.addView(hang,LinearLayout.LayoutParams(0,dp(64),1f).apply{marginStart=dp(9)})
+        panel.addView(actions,LinearLayout.LayoutParams(-1,-2))
+        panel.addView(OwnerUi.label(this,"锁屏后语音仍由后台通话服务维护",12f,0xFFDAE7FF.toInt()).apply{
+            gravity=Gravity.CENTER
+            setPadding(0,dp(28),0,0)
+        })
         setContentView(panel)
         speaker.setOnClickListener {
             startService(Intent(this,OngoingCallService::class.java).setAction(OngoingCallService.ACTION_SPEAKER))
