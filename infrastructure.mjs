@@ -29,7 +29,7 @@ export function createInfrastructure({setting,save,dataDir,turnSecret=process.en
   const configured=()=>fs.existsSync(certFile)&&fs.existsSync(keyFile);
   function tlsValidFor(host){
     if(!host||!configured())return false;
-    try {return !!new crypto.X509Certificate(fs.readFileSync(certFile)).checkHost(host);}catch{return false;}
+    try {const c=new crypto.X509Certificate(fs.readFileSync(certFile));return !!c.checkHost(host)&&Date.parse(c.validTo)>Date.now()+86400000;}catch{return false;}
   }
   function refreshTurn(){
     // No externally supplied config lines, paths or arbitrary shell commands.
