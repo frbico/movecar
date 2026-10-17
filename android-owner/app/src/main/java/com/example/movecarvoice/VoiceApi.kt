@@ -34,11 +34,25 @@ object VoiceApi {
             con.setRequestProperty("Content-Type", "application/json")
             if (!auth.isNullOrEmpty()) con.setRequestProperty("Authorization", "Bearer $auth")
             con.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
-            val text = (if (con.responseCode in 200..299) con.inputStream else con.errorStream)
-                ?.bufferedReader()?.use { it.readText() } ?: "{}"
-            val response = JSONObject(text)
-            if (con.responseCode !in 200..299) throw IllegalStateException(response.optString("error", "HTTP ${con.responseCode}"))
-            return response
+            val code = con.responseCode
+            val text = (if (code in 200..299) con.inputStream else con.errorStream)
+                ?.bufferedReader()?.use { it.readText() } ?: ""
+            val response = runCatching { JSONObject(text) }.getOrNull()
+            if (code !in 200..299) {
+                val serverMessage = response?.optString("error", "") ?: ""
+                val readable = when {
+                    code == 404 && path.startsWith("/api/mobile/") ->
+                        "HTTP 404：服务器尚未部署支持账号登录的 v0.3 服务端"
+                    code == 401 -> serverMessage.ifBlank { "HTTP 401：账号或密码不正确" }
+                    code == 429 -> serverMessage.ifBlank { "HTTP 429：操作太频繁，请稍后再试" }
+                    code in 500..599 -> serverMessage.ifBlank { "HTTP $code：服务器内部错误，请检查 Docker 日志" }
+                    else -> serverMessage.ifBlank { "HTTP $code：服务器拒绝了本次请求" }
+                }
+                throw IllegalStateException(readable)
+            }
+            return response ?: throw IllegalStateException(
+                "服务器返回的不是 JSON（HTTP $code）。请检查 HTTPS 域名和反向代理。")
+
         } finally { con.disconnect() }
     }
 
