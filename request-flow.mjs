@@ -37,6 +37,7 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
   const byPoll=db.prepare('SELECT status,confirmed_at FROM move_requests WHERE id=? AND poll_digest=? AND expires_at>?');
   const byId=db.prepare('SELECT * FROM move_requests WHERE id=? AND expires_at>?');
   const confirm=db.prepare("UPDATE move_requests SET status='confirmed', confirmed_at=COALESCE(confirmed_at,?) WHERE owner_digest=? AND expires_at>?");
+  const confirmById=db.prepare("UPDATE move_requests SET status='confirmed',confirmed_at=COALESCE(confirmed_at,?) WHERE id=? AND expires_at>? AND status='waiting'");
   const grantInsert=db.prepare('INSERT INTO move_photo_grants(digest,request_id,expires_at) VALUES(?,?,?)');
   const grantSelect=db.prepare('SELECT request_id FROM move_photo_grants WHERE digest=? AND expires_at>?');
   const photoUsed=db.prepare('UPDATE move_requests SET photo_sent=1 WHERE id=? AND photo_sent=0 AND expires_at>?');
@@ -84,6 +85,7 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
       const total=countRequests.get().total;
       return {total,page,size,items:listRequests.all(size,(page-1)*size).map(item=>({id:item.id,message:item.message,status:item.status==='waiting' && item.expires_at<=Date.now()?'expired':item.status,createdAt:item.created_at,expiresAt:item.expires_at,confirmedAt:item.confirmed_at,photoSent:!!item.photo_sent,photoUrl:(()=>{const pic=availablePhoto.get(item.id,Date.now());return pic?'/api/photo/'+pic.id:null;})()}))};
     },
+    confirmHistory(id){return confirmById.run(Date.now(),id,Date.now()).changes===1;},
     deleteHistory(id){if(!knownRequest.get(id))return false;removeRequest(id);return true;},
     clearHistory(){for(const item of db.prepare('SELECT id FROM move_requests').all())removeRequest(item.id);},
     async handle(req,res,origin,u){
