@@ -47,3 +47,28 @@ jobs:
           curl --fail --silent http://127.0.0.1:18888/request-ui.js | grep -q photoChooseBtn
           curl --fail --silent http://127.0.0.1:18888/owner-view.js | grep -q confirm-move
           curl --fail --silent http://127.0.0.1:18888/admin | grep -q MoveCar
+
+  turn-runtime-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Boot portable Docker stack and verify real TURN UDP allocate
+        run: |
+          bash scripts/fetch-upstream.sh
+          mkdir -p data/turn/tls
+          cp scripts/supervise-turn.sh data/turn/supervise-turn.sh
+          chmod 755 data/turn/supervise-turn.sh
+          sudo chown -R 1000:1000 data/turn
+          python3 - <<'PY'
+          from pathlib import Path
+          Path('.env').write_text('VOICE_TURN_SHARED_SECRET='+'a'*64+'\\nVOICE_PAIRING_SECRET='+'b'*64+'\\nTURN_EXTERNAL_IP=127.0.0.1\\n')
+          PY
+          docker compose -f compose.yaml -f compose.portable.yaml up -d --build
+          trap 'docker compose -f compose.yaml -f compose.portable.yaml logs --tail=45; docker compose -f compose.yaml -f compose.portable.yaml down' EXIT
+          for i in $(seq 1 35); do
+            if curl -fsS http://127.0.0.1:8888/healthz >/dev/null 2>&1; then break; fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8888/healthz
+          sleep 5
+          python3 scripts/turn-probe.py --host 127.0.0.1 --secret-env-file .env --no-tls
