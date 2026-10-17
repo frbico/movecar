@@ -159,7 +159,9 @@ class OngoingCallService : Service() {
         val adm = JavaAudioDeviceModule.builder(applicationContext).createAudioDeviceModule()
         factory = PeerConnectionFactory.builder().setAudioDeviceModule(adm).createPeerConnectionFactory()
         adm.release()
-        val ice = mutableListOf(PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer())
+        // Avoid hard-coding a blocked Google STUN server. Regional STUN/TURN
+        // comes from the authenticated /events response before SDP answer.
+        val ice = mutableListOf<PeerConnection.IceServer>()
         // Fetch short-lived coturn credentials only after owner authentication via /events.
         // Never embed a permanent TURN secret in the Android APK.
         val rtcConfig = PeerConnection.RTCConfiguration(ice)
@@ -170,8 +172,18 @@ class OngoingCallService : Service() {
                 state = when(s) {
                     PeerConnection.IceConnectionState.CONNECTED,PeerConnection.IceConnectionState.COMPLETED -> "通话中"
                     PeerConnection.IceConnectionState.DISCONNECTED -> "网络重连中…"
-                    PeerConnection.IceConnectionState.FAILED -> "连接失败，请检查 TURN"
+                    PeerConnection.IceConnectionState.FAILED -> "ICE 连接失败，准备结束并允许重拨"
                     else -> state
+                }
+                if (s == PeerConnection.IceConnectionState.FAILED) {
+                    // Allow transient network changes to recover before failing.
+                    worker.schedule({
+                        if (!stopped &&
+                            peer?.iceConnectionState() == PeerConnection.IceConnectionState.FAILED) {
+                            Log.w("MoveCarVoice","ICE remained failed; release failed call")
+                            finishCall(true, "ice_failed")
+                        }
+                    },4,TimeUnit.SECONDS)
                 }
             }
             override fun onIceConnectionReceivingChange(receiving: Boolean) {}
@@ -244,8 +256,12 @@ class OngoingCallService : Service() {
             }
         }
         if (servers.isNotEmpty()) {
-            val config = PeerConnection.RTCConfiguration(servers).apply { sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN }
-            peer?.setConfiguration(config)
+            val config = PeerConnection.RTCConfiguration(servers).apply {
+                sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
+            }
+            val ok = peer?.setConfiguration(config) ?: false
+            if (!ok) Log.w("MoveCarVoice","ICE server configuration not applied")
+            else Log.i("MoveCarVoice","ICE configured: "+servers.size+" regional endpoints")
         }
     }
 
@@ -290,12 +306,18 @@ class OngoingCallService : Service() {
         override fun onSetFailure(error: String) { Log.e("MoveCarVoice","SDP set failed: $error") }
     }
 
-    private fun finishCall(notifyOther: Boolean) {
+    private fun finishCall(notifyOther: Boolean, failureReason: String? = null) {
         if (stopped) return
         stopped = true
         if (notifyOther && callId.isNotBlank()) {
             // Do not block onDestroy or the UI thread.
-            Thread { runCatching { VoiceApi.post(base,endpoint("end"),JSONObject().put("token",token)) } }.start()
+            Thread {
+                runCatching {
+                    val body=JSONObject().put("token",token)
+                    if (failureReason != null) body.put("reason",failureReason)
+                    VoiceApi.post(base,endpoint("end"),body)
+                }
+            }.start()
         }
         ticker?.cancel(false)
         worker.execute {
