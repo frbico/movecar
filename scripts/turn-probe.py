@@ -56,6 +56,7 @@ def receive(s,t,id,attrs_bytes=b'',key=None):
 def main():
     ap=argparse.ArgumentParser()
     ap.add_argument('--host',required=True)
+    ap.add_argument('--connect-ip',help='Optional direct IP for local probe, while preserving TLS SNI/hostname validation')
     ap.add_argument('--port',type=int,default=3478)
     ap.add_argument('--tls-port',type=int,default=5349)
     ap.add_argument('--secret-env-file',help='MoveCar .env holding VOICE_TURN_SHARED_SECRET')
@@ -65,7 +66,8 @@ def main():
     if '/' in host or ':' in host:ap.error('--host must be a plain DNS hostname')
     sock=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
     sock.settimeout(5)
-    addr=(host,args.port)
+    dest=args.connect_ip or host
+    addr=(dest,args.port)
     try:
         tid=secrets.token_bytes(12)
         sock.connect(addr)
@@ -101,7 +103,7 @@ def main():
     finally:sock.close()
     # Also test TLS certificate hostname/trust and that coturn accepts STUN over TLS.
     context=ssl.create_default_context()
-    with socket.create_connection((host,args.tls_port),timeout=7) as raw:
+    with socket.create_connection((dest,args.tls_port),timeout=7) as raw:
         with context.wrap_socket(raw,server_hostname=host) as tls:
             tls.settimeout(6)
             tid=secrets.token_bytes(12)
@@ -122,6 +124,7 @@ def main():
             if typ!=0x0101:raise RuntimeError('TLS STUN Binding unexpected reply')
             print('PASS: TLS 5349 with trusted certificate + STUN Binding')
     print('NOTE: these tests verify TURN availability, not real China-operator latency or a full two-device WebRTC media path.')
+    if args.connect_ip:print('NOTE: local IP override was used; test again from another network for firewall/reachability.')
 
 if __name__=='__main__':
     try:main()
