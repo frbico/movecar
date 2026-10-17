@@ -18,7 +18,7 @@ function atomicFile(file,contents,mode=0o600){
   finally{try{fs.unlinkSync(tmp);}catch{}}
 }
 export function createInfrastructure({setting,save,dataDir,turnSecret=process.env.VOICE_TURN_SHARED_SECRET||'',
-  externalIp=process.env.TURN_EXTERNAL_IP||'',runtimeDir=process.env.MOVECAR_RUNTIME_DIR||'/app/runtime',
+  externalIp=process.env.TURN_EXTERNAL_IP||'',runtimeDir=process.env.MOVECAR_RUNTIME_DIR||path.join(dataDir,'turn-runtime'),
   firebaseFile=process.env.FCM_SERVICE_ACCOUNT||path.join(dataDir,'firebase-service-account.json')}){
   fs.mkdirSync(runtimeDir,{recursive:true,mode:0o700});
   const tlsDir=path.join(runtimeDir,'tls');
