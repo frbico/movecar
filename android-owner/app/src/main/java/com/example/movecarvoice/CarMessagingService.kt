@@ -19,12 +19,28 @@ class CarMessagingService : FirebaseMessagingService() {
     }
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        val base = VoiceApi.base(this); val auth = VoiceApi.auth(this)
-        if (base.isNotBlank() && auth.isNotBlank()) {
-            Thread { runCatching { VoiceApi.post(base, "/api/voice/device/token", JSONObject().put("fcmToken", token), auth) } }.start()
+        val base = VoiceApi.base(this)
+        val login = VoiceApi.mobileAuth(this)
+        if (base.isNotBlank() && login.isNotBlank()) {
+            Thread {
+                runCatching {
+                    VoiceApi.post(base, "/api/mobile/device", JSONObject().put("fcmToken", token), login)
+                }.onSuccess { data ->
+                    VoiceApi.prefs(this).edit().putString("auth", data.optString("deviceAuth")).apply()
+                }
+            }.start()
+        } else {
+            val oldAuth = VoiceApi.auth(this)
+            if (base.isNotBlank() && oldAuth.isNotBlank()) {
+                Thread { runCatching { VoiceApi.post(base, "/api/voice/device/token", JSONObject().put("fcmToken", token), oldAuth) } }.start()
+            }
         }
     }
     override fun onMessageReceived(message: RemoteMessage) {
+        if (message.data["type"] == "move_request") {
+            showParkingAlert(message)
+            return
+        }
         if (message.data["type"] != "incoming_call") return
         val callId = message.data["callId"] ?: return
         if (!VoiceApi.validCallId(callId) || VoiceApi.auth(this).isBlank()) return
@@ -60,5 +76,36 @@ class CarMessagingService : FirebaseMessagingService() {
             builder.addAction(Notification.Action.Builder(android.R.drawable.sym_action_call, "接听", answer).build())
         }
         try { nm.notify(NOTIFICATION_ID, builder.build()) } catch (_: SecurityException) { /* permission not granted */ }
+    }
+    private fun showParkingAlert(message: RemoteMessage) {
+        if (VoiceApi.mobileAuth(this).isBlank()) return
+        val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        val channel = "movecar_parking_alerts"
+        nm.createNotificationChannel(NotificationChannel(
+            channel, "挪车留言通知", NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "路人扫码发送的挪车留言、照片和重要通知"
+            enableVibration(true)
+            lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+        })
+        val title = message.data["title"]?.take(90) ?: "有人请求挪车"
+        val text = message.data["message"]?.take(1000) ?: "点击查看挪车请求"
+        val view = PendingIntent.getActivity(this, 11,
+            Intent(this, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val notification = Notification.Builder(this, channel)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(Notification.BigTextStyle().bigText(text))
+            .setCategory(Notification.CATEGORY_MESSAGE)
+            .setVisibility(Notification.VISIBILITY_PRIVATE)
+            .setAutoCancel(true)
+            .setContentIntent(view)
+            .build()
+        try { nm.notify((System.currentTimeMillis() % 2000000000).toInt(), notification) }
+        catch (_: SecurityException) { /* notification permission disabled */ }
     }
 }
