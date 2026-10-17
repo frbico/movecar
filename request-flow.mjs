@@ -6,7 +6,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 
-export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJson,inputPhoto,json,reply,rateGet,ratePut}) {
+export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJson,inputPhoto,json,reply,rateGet,ratePut,notificationAvailable=()=>false}) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS move_requests (
       id TEXT PRIMARY KEY,
@@ -133,7 +133,7 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
       }
       if(route==='/api/notify') {
         if(method!=='POST')return reply(res,405,'Method not allowed'),true;
-        if(!setting('bark_url')&&!setting('serverchan_sendkey')&&!setting('sc3_sendkey'))
+        if(!setting('bark_url')&&!setting('serverchan_sendkey')&&!setting('sc3_sendkey')&&!notificationAvailable())
           return json(res,503,{error:'车主尚未配置推送渠道'}),true;
         const addr=req.socket.remoteAddress||'unknown',now=Date.now(),seconds=Number(setting('rate_limit_seconds','60'));
         if(seconds>0&&(rateGet.get(addr)?.until??0)>now)
