@@ -42,5 +42,27 @@ object VoiceApi {
         } finally { con.disconnect() }
     }
 
+    fun mobileAuth(context: Context): String = prefs(context).getString("mobileAuth", "") ?: ""
+    fun username(context: Context): String = prefs(context).getString("username", "admin") ?: "admin"
+
+    fun get(base: String, path: String, auth: String): JSONObject {
+        require(base.startsWith("https://"))
+        val con = URL(base + path).openConnection() as HttpURLConnection
+        try {
+            con.requestMethod = "GET"
+            con.connectTimeout = 10000
+            con.readTimeout = 10000
+            con.instanceFollowRedirects = false
+            con.setRequestProperty("Accept", "application/json")
+            con.setRequestProperty("Authorization", "Bearer $auth")
+            val status = con.responseCode
+            val body = (if (status in 200..299) con.inputStream else con.errorStream)
+                ?.bufferedReader()?.use { it.readText() } ?: "{}"
+            val obj = JSONObject(body)
+            if (status !in 200..299) throw IllegalStateException(obj.optString("error", "HTTP $status"))
+            return obj
+        } finally { con.disconnect() }
+    }
+
     fun validCallId(value: String) = Regex("^[A-Za-z0-9_-]{24}$").matches(value)
 }
