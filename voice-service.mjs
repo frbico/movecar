@@ -128,6 +128,7 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
     saveDevice.run(sha(ownerToken),fcmToken,now());
     return ownerToken;
   }
+  function revokeAllMobileDevices(){db.prepare('DELETE FROM voice_owner_device').run();}
   function unregisterMobileDevice(deviceAuth){
     if(typeof deviceAuth!=='string'||!validToken(deviceAuth))return false;
     const old=getDevice.get();
@@ -230,5 +231,5 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
     c.events.push({seq:++c.seq,from:who,kind,payload});
     json(res,200,{ok:true,seq:c.seq});return true;
   }
-  return {handle,cleanup,notifyOwner,registerMobileDevice,unregisterMobileDevice,isDeviceReady:()=>Boolean(getDevice.get()),listCallHistory:()=>getHistory.all(),close:()=>clearInterval(cleanupTimer),_debug:{calls}};
+  return {handle,cleanup,notifyOwner,registerMobileDevice,unregisterMobileDevice,revokeAllMobileDevices,isDeviceReady:()=>Boolean(getDevice.get()),listCallHistory:()=>getHistory.all(),close:()=>clearInterval(cleanupTimer),_debug:{calls}};
 }
