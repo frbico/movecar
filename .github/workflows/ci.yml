@@ -63,12 +63,14 @@ jobs:
           from pathlib import Path
           Path('.env').write_text('VOICE_TURN_SHARED_SECRET='+'a'*64+'\\nVOICE_PAIRING_SECRET='+'b'*64+'\\nTURN_EXTERNAL_IP=127.0.0.1\\n')
           PY
-          docker compose -f compose.yaml -f compose.portable.yaml up -d --build
-          trap 'docker compose -f compose.yaml -f compose.portable.yaml logs --tail=45; docker compose -f compose.yaml -f compose.portable.yaml down' EXIT
+          trap 'docker compose -f compose.yaml -f compose.portable.yaml logs --tail=100; docker compose -f compose.yaml -f compose.portable.yaml down' EXIT
+          docker compose -f compose.yaml -f compose.portable.yaml up -d --build movecar
+          docker compose -f compose.yaml -f compose.portable.yaml logs --tail=40 movecar
           for i in $(seq 1 35); do
             if curl -fsS http://127.0.0.1:8888/healthz >/dev/null 2>&1; then break; fi
             sleep 2
           done
           curl -fsS http://127.0.0.1:8888/healthz
+          docker compose -f compose.yaml -f compose.portable.yaml up -d coturn
           sleep 5
           python3 scripts/turn-probe.py --host 127.0.0.1 --secret-env-file .env --no-tls
