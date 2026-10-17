@@ -23,7 +23,7 @@ const validFcm=x=>typeof x==='string'&&x.length>=20&&x.length<=4096&&/^[\x21-\x7
 const validToken=x=>typeof x==='string'&&/^[A-Za-z0-9_-]{43}$/.test(x);
 const readStatic=name=>fs.readFileSync(new URL(name,import.meta.url));
 
-export function createVoiceService({db,json,reply,inputJson,pairingSecret=process.env.VOICE_PAIRING_SECRET||'',serviceAccountPath=process.env.FCM_SERVICE_ACCOUNT||'',pushCall=null,turnUrls=process.env.VOICE_TURN_URLS||'',turnSecret=process.env.VOICE_TURN_SHARED_SECRET||'',allowLegacyPairing=process.env.VOICE_ALLOW_LEGACY_PAIRING==='1',now=()=>Date.now()}){
+export function createVoiceService({db,json,reply,inputJson,pairingSecret=process.env.VOICE_PAIRING_SECRET||'',serviceAccountPath=process.env.FCM_SERVICE_ACCOUNT||'',pushCall=null,turnUrls=process.env.VOICE_TURN_URLS||'',turnSecret=process.env.VOICE_TURN_SHARED_SECRET||'',stunUrls=process.env.VOICE_STUN_URLS||'',allowLegacyPairing=process.env.VOICE_ALLOW_LEGACY_PAIRING==='1',now=()=>Date.now()}){
   db.exec(`CREATE TABLE IF NOT EXISTS voice_owner_device (
     id INTEGER PRIMARY KEY CHECK(id=1), auth_digest TEXT NOT NULL,
     fcm_token TEXT NOT NULL, updated_at INTEGER NOT NULL
@@ -70,9 +70,14 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
   }
   const cleanupTimer=setInterval(cleanup,10000);cleanupTimer.unref?.();
   function iceServers(){
-    const out=[{urls:['stun:stun.l.google.com:19302']}];
+    // Explicit STUN endpoints can be hosted on the same low-latency regional
+    // coturn servers as TURN. A Google STUN hostname is not sufficient for
+    // clients in mainland China.
+    const stun=stunUrls.split(',').map(s=>s.trim())
+      .filter(s=>/^stuns?:[^\\s]+$/.test(s)).slice(0,4);
+    const out=[{urls:stun.length?stun:['stun:stun.l.google.com:19302']}];
     if(turnUrls&&turnSecret){
-      const urls=turnUrls.split(',').map(s=>s.trim()).filter(s=>/^(turn|turns):[^\s]+$/.test(s)).slice(0,4);
+      const urls=turnUrls.split(',').map(s=>s.trim()).filter(s=>/^(turn|turns):[^\s]+$/.test(s)).slice(0,10);
       if(urls.length){
         const username=`${Math.floor(now()/1000)+3600}:movecar`;
         const credential=crypto.createHmac('sha1',turnSecret).update(username).digest('base64');
@@ -148,14 +153,35 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
     if(c.ownerHash&&eq(dig,c.ownerHash))return 'owner';
     throw bad(403,'通话凭证无效');
   }
-  function enforceRate(req){
+  function enforceRate(req,retryToken){
     const ip=String(req.socket.remoteAddress||'unknown');
-    const r=limit.get(ip)||{since:now(),last:0,count:0};
-    if(now()-r.since>86400000){r.since=now();r.count=0;}
-    if(now()-r.last<90000||r.count>=8)throw bad(429,'语音呼叫过于频繁，请稍后重试');
-    // One ringing/active call at a time for the single owner.
+    const r=limit.get(ip)||{since:now(),last:0,count:0,retryHash:'',retryUntil:0};
+    if(now()-r.since>86400000){r.since=now();r.count=0;r.retryHash='';r.retryUntil=0;}
+    // A one-use ticket is returned only for a failed, authenticated call.
+    // It bypasses the 90-second cooldown, NOT the daily abuse limit.
+    const fast=validToken(retryToken)&&r.retryHash&&r.retryUntil>now()&&eq(sha(retryToken),r.retryHash);
+    if(r.count>=8)throw bad(429,'今日语音尝试次数过多，请稍后再试');
+    if(!fast&&now()-r.last<90000)throw bad(429,'呼叫过于频繁，请稍后再试');
     if([...calls.values()].some(c=>['ringing','active'].includes(c.status)))throw bad(409,'车主正在通话或已有来电');
+    if(fast){
+      // Ticket is consumed atomically before the next FCM send.
+      r.retryHash='';r.retryUntil=0;
+    }
     r.count++;r.last=now();limit.set(ip,r);
+    return {ip,depth:fast?r.pendingDepth||1:0};
+  }
+  function issueRetry(c){
+    if(c.retryDepth>=2||now()-c.created>120000)return null;
+    const r=limit.get(c.callerIp);
+    if(!r)return null;
+    if(!c.retryTicket){
+      const t=token();
+      c.retryTicket=t;
+      r.retryHash=sha(t);
+      r.retryUntil=now()+120000;
+      r.pendingDepth=c.retryDepth+1;
+    }
+    return c.retryTicket;
   }
   function send(res,status,body,headers={}){reply(res,status,body,headers);}
   async function handle(req,res,u){
@@ -193,21 +219,28 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
     if(route==='/api/voice/start'){
       requireOrigin(req);
       const device=getDevice.get();if(!device)throw bad(503,'车主尚未连接语音接听 APP');
-      enforceRate(req);
+      const {ip,depth}=enforceRate(req,data.retryToken);
       const callId=id(),callerToken=token();
-      const c={id:callId,callerHash:sha(callerToken),ownerHash:null,status:'ringing',created:now(),seq:0,events:[]};
+      const c={id:callId,callerHash:sha(callerToken),callerIp:ip,retryDepth:depth,retryTicket:null,
+        ownerHash:null,status:'ringing',created:now(),acceptedAt:0,seq:0,events:[]};
       calls.set(callId,c);insertHistory.run(callId,now(),now(),'ringing');
-      try{await sendPush(callId,device.fcm_token);}catch(e){calls.delete(callId);setStatus(c,'failed');throw e;}
+      try{await sendPush(callId,device.fcm_token);}catch(e){
+        calls.delete(callId);setStatus(c,'failed');
+        // FCM itself failed. This isn't an actual ringing attempt.
+        const r=limit.get(ip);
+        if(r&&r.last===c.created){r.last=0;r.count=Math.max(0,r.count-1);}
+        throw e;
+      }
       json(res,200,{callId,token:callerToken,expiresIn:35,iceServers:iceServers()});return true;
     }
-    const match=route.match(/^\/api\/voice\/calls\/([A-Za-z0-9_-]{24})\/(answer|reject|events|signal|end)$/);
+    const match=route.match(/^\/api\/voice\/calls\/([A-Za-z0-9_-]{24})\/(answer|reject|events|signal|end|retry)$/);
     if(!match)throw bad(404,'接口不存在');
     const c=getCall(match[1]),action=match[2];
     if(action==='answer'||action==='reject'){
       requireOwner(req);
       if(c.status!=='ringing')throw bad(409,'来电已经结束');
       if(action==='reject'){setStatus(c,'rejected');json(res,200,{ok:true});return true;}
-      const ownerToken=token();c.ownerHash=sha(ownerToken);setStatus(c,'active');
+      const ownerToken=token();c.ownerHash=sha(ownerToken);c.acceptedAt=now();setStatus(c,'active');
       json(res,200,{ok:true,ownerToken,iceServers:iceServers()});return true;
     }
     const who=role(c,data.token);
@@ -217,8 +250,21 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
       json(res,200,{status:c.status,events:c.events.filter(e=>e.seq>after&&e.from!==who),lastSeq:c.seq,iceServers:iceServers()});return true;
     }
     if(action==='end'){
-      if(['ringing','active'].includes(c.status))setStatus(c,'ended');
-      json(res,200,{ok:true});return true;
+      // Only authenticated peers can mark a connection as failed.
+      const failed=['ice_failed','connect_timeout','signaling_failed'].includes(data.reason);
+      if(['ringing','active'].includes(c.status)){
+        if(failed&&c.status==='active'&&now()-c.acceptedAt<120000)setStatus(c,'failed');
+        else setStatus(c,'ended');
+      }
+      const retryToken=c.status==='failed'&&who==='caller'?issueRetry(c):null;
+      json(res,200,{ok:true,...(retryToken?{retryToken}:{})});return true;
+    }
+    if(action==='retry'){
+      if(who!=='caller')throw bad(403,'仅发起呼叫方可以申请重拨');
+      if(c.status!=='failed')throw bad(409,'本次呼叫没有标记为连接失败');
+      const retryToken=issueRetry(c);
+      if(!retryToken)throw bad(429,'已用完本次呼叫的快速重拨次数');
+      json(res,200,{ok:true,retryToken});return true;
     }
     if(c.status!=='active')throw bad(409,'通话尚未接通或已经结束');
     const kind=data.kind, payload=data.payload;
