@@ -81,38 +81,98 @@ class MainActivity : Activity() {
     }
     private fun loginPage() {
         screen("🚙 MoveCar 车主端")
-        note("使用网页版后台的管理员账号与密码登录。首次账号为 admin；旧密码可通过原服务器后台找回或修改。")
-        val site=field("HTTPS 服务器地址",base())
-        val username=field("管理员账号",VoiceApi.username(this))
-        val password=field("管理员密码",password=true)
-        action("安全登录并绑定消息推送") {
-            val url=try{VoiceApi.normalizeBase(site.text.toString())}catch(e:Exception){notify(e.message ?: "网站 URL 无效");return@action}
-            val name=username.text.toString().trim()
-            val pass=password.text.toString()
-            if(name.isEmpty()||pass.isEmpty()){notify("请输入账号和密码");return@action}
-            FirebaseMessaging.getInstance().token.addOnCompleteListener { fcmTask ->
-                Thread {
-                    val payload=JSONObject().put("username",name).put("password",pass)
-                    if(fcmTask.isSuccessful)payload.put("fcmToken",fcmTask.result)
-                    val result=runCatching {VoiceApi.post(url,"/api/mobile/login",payload)}
-                    runOnUiThread {
-                        result.onSuccess { resultJson ->
-                            VoiceApi.prefs(this).edit()
-                                .putString("base",url)
-                                .putString("username",name)
-                                .putString("mobileAuth",resultJson.getString("token"))
-                                .putString("auth",resultJson.optString("deviceAuth"))
-                                .apply()
-                            password.text.clear()
-                            notify(if(resultJson.optString("deviceAuth").isNotBlank())"登录成功，APP 通知和语音已绑定" else "登录成功；FCM 尚未绑定，请检查 Google Play 服务")
-                            navigate("home")
-                        }.onFailure { notify("登录失败："+(it.message ?: "网络异常")) }
-                    }
-                }.start()
-            }
+        note("输入网页版后台的管理员账号和密码。初始用户名为 admin。")
+        val site = field("HTTPS 服务器地址", base())
+        val username = field("管理员账号", VoiceApi.username(this))
+        val password = field("管理员密码", password = true)
+        val status = TextView(this).apply {
+            text = "先登录后台，成功后自动尝试绑定 Firebase 推送。"
+            textSize = 15f
+            setPadding(0, 12, 0, 12)
         }
-        action("在浏览器打开管理后台") { browse(base()+"/admin") }
+        root.addView(status)
+        val login = Button(this).apply { text = "安全登录并绑定消息推送" }
+        root.addView(login, LinearLayout.LayoutParams(-1, -2))
+        login.setOnClickListener {
+            val url = try {
+                VoiceApi.normalizeBase(site.text.toString())
+            } catch (e: Exception) {
+                status.text = "网址不正确：" + (e.message ?: "请填写 HTTPS 站点地址")
+                return@setOnClickListener
+            }
+            val name = username.text.toString().trim()
+            val pass = password.text.toString()
+            if (name.isEmpty() || pass.isEmpty()) {
+                status.text = "请填写管理员账号和密码"
+                return@setOnClickListener
+            }
+            login.isEnabled = false
+            status.text = "正在验证账号密码，请稍候…"
+            // Authenticate immediately: do not block login waiting for Google FCM Token.
+            Thread {
+                val result = runCatching {
+                    VoiceApi.post(url, "/api/mobile/login",
+                        JSONObject().put("username", name).put("password", pass))
+                }
+                runOnUiThread {
+                    login.isEnabled = true
+                    result.onSuccess { obj ->
+                        val bearer = obj.optString("token")
+                        if (!Regex("^[A-Za-z0-9_-]{43}$").matches(bearer)) {
+                            status.text = "服务器没有返回有效登录令牌，请确认部署了新版服务端"
+                            return@onSuccess
+                        }
+                        VoiceApi.prefs(this).edit()
+                            .putString("base", url)
+                            .putString("username", name)
+                            .putString("mobileAuth", bearer)
+                            .remove("auth")
+                            .apply()
+                        password.text.clear()
+                        notify("后台登录成功，正在绑定消息推送")
+                        navigate("home")
+                        bindPushAfterLogin(url, bearer)
+                    }.onFailure {
+                        status.text = "登录失败：" + (it.message ?: "服务器连接异常")
+                    }
+                }
+            }.start()
+        }
+        action("在浏览器打开管理后台") { browse(site.text.toString().trim().trimEnd('/') + "/admin") }
     }
+
+    private fun bindPushAfterLogin(url: String, bearer: String) {
+        FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+            if (!task.isSuccessful) {
+                notify("后台已登录；Firebase 推送暂未绑定，可从首页重新绑定")
+                return@addOnCompleteListener
+            }
+            val fcmToken = task.result
+            if (fcmToken.isNullOrBlank()) {
+                notify("后台已登录；FCM Token 为空，请从首页重新绑定")
+                return@addOnCompleteListener
+            }
+            Thread {
+                val result = runCatching {
+                    VoiceApi.post(url, "/api/mobile/device",
+                        JSONObject().put("fcmToken", fcmToken), bearer)
+                }
+                runOnUiThread {
+                    result.onSuccess { obj ->
+                        // Do not restore a device token if the user logged out meanwhile.
+                        if (VoiceApi.mobileAuth(this) == bearer) {
+                            VoiceApi.prefs(this).edit()
+                                .putString("auth", obj.optString("deviceAuth")).apply()
+                            notify("消息推送和来电已绑定成功")
+                        }
+                    }.onFailure {
+                        notify("后台已登录，但推送绑定失败：" + (it.message ?: "网络异常"))
+                    }
+                }
+            }.start()
+        }
+    }
+
     private fun browse(url:String){startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(url)))}
     @Deprecated("Uses platform result callback to avoid extra AndroidX dependency")
     override fun onActivityResult(requestCode:Int, resultCode:Int, data:Intent?) {
