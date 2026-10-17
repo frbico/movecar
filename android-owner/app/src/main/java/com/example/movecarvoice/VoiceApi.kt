@@ -64,5 +64,27 @@ object VoiceApi {
         } finally { con.disconnect() }
     }
 
+    fun putBytes(base: String, path: String, bytes: ByteArray, mime: String, auth: String): JSONObject {
+        require(base.startsWith("https://")) { "HTTPS required" }
+        require(bytes.size <= 262144) { "图片太大" }
+        val con = URL(base + path).openConnection() as HttpURLConnection
+        try {
+            con.requestMethod = "PUT"
+            con.connectTimeout = 10000
+            con.readTimeout = 15000
+            con.instanceFollowRedirects = false
+            con.doOutput = true
+            con.setRequestProperty("Authorization", "Bearer $auth")
+            con.setRequestProperty("Content-Type", mime)
+            con.outputStream.use { it.write(bytes) }
+            val status = con.responseCode
+            val text = (if (status in 200..299) con.inputStream else con.errorStream)
+                ?.bufferedReader()?.use { it.readText() } ?: "{}"
+            val result = JSONObject(text)
+            if (status !in 200..299) throw IllegalStateException(result.optString("error", "HTTP $status"))
+            return result
+        } finally { con.disconnect() }
+    }
+
     fun validCallId(value: String) = Regex("^[A-Za-z0-9_-]{24}$").matches(value)
 }
