@@ -29,7 +29,7 @@ install -m 0755 -o 1000 -g 1000 scripts/supervise-turn.sh data/turn/supervise-tu
 touch .env
 chmod 0600 .env
 PUBLIC_IP="$(curl --silent --show-error -4 --max-time 8 https://api.ipify.org || true)"
-LOCAL_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \\([0-9.]\\+\\).*/\\1/p' | head -1 || true)"
+LOCAL_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i=1;i<=NF;i++) if ($i=="src") {print $(i+1);break}}' || true)"
 TURN_IP=''
 if [[ -n "$PUBLIC_IP" ]];then
  if [[ -n "$LOCAL_IP" && "$PUBLIC_IP" != "$LOCAL_IP" ]];then TURN_IP="$PUBLIC_IP/$LOCAL_IP"
@@ -60,7 +60,7 @@ for line in lines:
  else:out.append(line)
 for k,v in updates.items():
  if k not in seen:out.append(k+'='+v)
-p.write_text('\\n'.join(out).rstrip()+'\\n')
+p.write_text(chr(10).join(out).rstrip()+chr(10))
 print('PASS preserving previous pairing credentials; TURN server-specific IP refreshed.')
 PY
 if [[ ! -s upstream/movecar.js ]];then bash scripts/fetch-upstream.sh;fi
