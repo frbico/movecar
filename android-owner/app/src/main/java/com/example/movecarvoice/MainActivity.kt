@@ -69,7 +69,7 @@ class MainActivity : Activity() {
         root = OwnerUi.vertical(this).apply {
             setPadding(px(20), px(4), px(20), px(30))
         }
-        scroll.addView(root, android.widget.ScrollView.LayoutParams(-1, -2))
+        scroll.addView(root, android.widget.FrameLayout.LayoutParams(-1, -2))
         frame.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         if (page != "login") frame.addView(bottomNav())
         setContentView(frame)
