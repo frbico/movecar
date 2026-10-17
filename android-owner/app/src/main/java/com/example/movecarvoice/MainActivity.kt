@@ -210,8 +210,16 @@ class MainActivity : Activity() {
         }.start()
     }
     private fun loginPage() {
-        screen("🚙 MoveCar 车主端")
-        note("输入网页版后台的管理员账号和密码。初始用户名为 admin。")
+        page = "login"
+        screen("安全登录")
+        val welcome=OwnerUi.vertical(this).apply {
+            background=OwnerUi.gradient(this@MainActivity)
+            setPadding(px(22),px(25),px(22),px(25))
+        }
+        welcome.addView(OwnerUi.label(this,"安心联系，随时挪车",23f,OwnerUi.white,true))
+        welcome.addView(OwnerUi.label(this,"一站式管理通知、匿名来电与挪车请求",13f,0xFFDBEAFE.toInt()))
+        root.addView(welcome,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(20)})
+        section("欢迎回来","使用与网页版后台相同的管理员账号。")
         val site = field("HTTPS 服务器地址", base())
         val username = field("管理员账号", VoiceApi.username(this))
         val password = field("管理员密码", password = true)
@@ -221,7 +229,15 @@ class MainActivity : Activity() {
             setPadding(0, 12, 0, 12)
         }
         root.addView(status)
-        val login = Button(this).apply { text = "安全登录并绑定消息推送" }
+        val login=Button(this).apply {
+            text="登录车主中心"
+            isAllCaps=false
+            textSize=16f
+            setTextColor(OwnerUi.white)
+            background=OwnerUi.pressable(this@MainActivity,OwnerUi.blue,15)
+            minHeight=px(54)
+            elevation=0f
+        }
         root.addView(login, LinearLayout.LayoutParams(-1, -2))
         login.setOnClickListener {
             val url = try {
@@ -332,28 +348,85 @@ class MainActivity : Activity() {
     private fun shell(title:String) { screen(title) }
     private fun navigate(next:String) {
         page=next
-        when(next){
-            "home" -> api("/api/mobile/config"){home(it)}
+        val heading=when(next){
+            "home"->"概览";"requests"->"挪车请求";"calls"->"来电记录"
+            "channels"->"通知中心";"settings"->"设置";"account"->"账户安全"
+            else->"车主中心"
+        }
+        screen(heading)
+        inCard{ note("正在同步车主数据…") }
+        when(next) {
+            "home" -> api("/api/mobile/config"){if(page==next)home(it)}
             "requests" -> loadRequests()
-            "calls" -> api("/api/mobile/calls"){calls(it)}
-            "channels" -> api("/api/mobile/config"){channels(it)}
-            "settings" -> api("/api/mobile/config"){settings(it)}
-            "account" -> api("/api/mobile/config"){account(it)}
+            "calls" -> api("/api/mobile/calls"){if(page==next)calls(it)}
+            "channels" -> api("/api/mobile/config"){if(page==next)channels(it)}
+            "settings" -> api("/api/mobile/config"){if(page==next)settings(it)}
+            "account" -> api("/api/mobile/config"){if(page==next)account(it)}
         }
     }
-    private fun home(config:JSONObject){
-        shell("🚙 车主控制台")
-        title(config.optString("siteName","MoveCar"))
-        note("挪车记录："+config.optInt("requestCount")+" 条　｜　账号："+config.optString("username"))
-        val channels=config.getJSONObject("channels")
-        val app=channels.getJSONObject("app")
-        note("APP 原生消息："+(if(app.optBoolean("configured"))"设备已配对" else "未配对")+" / "+(if(app.optBoolean("enabled"))"已启用" else "已关闭"))
-        action("🔔 测试 APP 通知") { testChannel("app") }
-        action("📋 查看挪车留言") { navigate("requests") }
-        action("📞 查看通话记录") { navigate("calls") }
-        action("⚙ 管理通知渠道") { navigate("channels") }
-        action("🌐 网页管理后台") { browse(base()+"/admin") }
-        action("🔄 重新绑定 Google FCM") { syncFcm() }
+    private fun home(config:JSONObject) {
+        shell("概览")
+        val channel=config.getJSONObject("channels")
+        val app=channel.getJSONObject("app")
+        val paired=app.optBoolean("configured")&&app.optBoolean("enabled")
+        val banner=OwnerUi.vertical(this).apply {
+            background=OwnerUi.gradient(this@MainActivity)
+            setPadding(px(22),px(22),px(22),px(21))
+        }
+        banner.addView(OwnerUi.label(this,"车主中心 · 在线守候",12f,0xFFE4EFFF.toInt(),true))
+        banner.addView(OwnerUi.label(this,config.optString("siteName","MoveCar"),
+            25f,OwnerUi.white,true).apply{setPadding(0,px(8),0,px(6))})
+        banner.addView(OwnerUi.label(this,"扫码挪车、语音来电、消息提醒，一处管理",
+            13f,0xFFE1EAFF.toInt()))
+        val stats=OwnerUi.horizontal(this).apply {
+            setPadding(0,px(18),0,0)
+        }
+        for((number,label) in listOf(config.optInt("requestCount").toString() to "挪车记录",
+                        if(paired)"已连接" else "待配置" to "推送状态")){
+            val item=OwnerUi.vertical(this)
+            item.addView(OwnerUi.label(this,number,21f,OwnerUi.white,true))
+            item.addView(OwnerUi.label(this,label,11f,0xFFDEEAFF.toInt()))
+            stats.addView(item,LinearLayout.LayoutParams(0,-2,1f))
+        }
+        banner.addView(stats)
+        root.addView(banner,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(22)})
+
+        section("快捷操作","最常用的操作，随手即达")
+        fun shortcut(caption:String,detail:String,icon:Int,click:()->Unit):LinearLayout =
+            OwnerUi.vertical(this).apply{
+                background=OwnerUi.pressable(this@MainActivity,OwnerUi.white,18,OwnerUi.line)
+                setPadding(px(14),px(17),px(13),px(15))
+                elevation=px(1).toFloat()
+                isClickable=true;isFocusable=true;setOnClickListener{click()}
+                addView(OwnerUi.icon(this@MainActivity,icon,OwnerUi.blue,26))
+                addView(OwnerUi.label(this@MainActivity,caption,15f,OwnerUi.navy,true).apply{
+                    setPadding(0,px(12),0,px(2))
+                })
+                addView(OwnerUi.label(this@MainActivity,detail,12f,OwnerUi.muted))
+            }
+        val grid1=OwnerUi.horizontal(this)
+        grid1.addView(shortcut("挪车请求","确认或处理留言",android.R.drawable.ic_menu_agenda){navigate("requests")},
+            LinearLayout.LayoutParams(0,px(136),1f).apply{marginEnd=px(7)})
+        grid1.addView(shortcut("匿名通话","查看来电历史",android.R.drawable.sym_action_call){navigate("calls")},
+            LinearLayout.LayoutParams(0,px(136),1f).apply{marginStart=px(7)})
+        root.addView(grid1,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(14)})
+        val grid2=OwnerUi.horizontal(this)
+        grid2.addView(shortcut("测试通知","确认推送已送达",android.R.drawable.ic_dialog_email){testChannel("app")},
+            LinearLayout.LayoutParams(0,px(136),1f).apply{marginEnd=px(7)})
+        grid2.addView(shortcut("渠道设置","选择推送方式",android.R.drawable.ic_menu_manage){navigate("channels")},
+            LinearLayout.LayoutParams(0,px(136),1f).apply{marginStart=px(7)})
+        root.addView(grid2,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(18)})
+
+        section("连接状态")
+        inCard {
+            status(if(paired)"● FCM 消息推送已启用" else "● FCM 推送尚未就绪",paired)
+            note("账号："+config.optString("username","admin"))
+            note("网站："+base())
+            note("设备推送："+if(app.optBoolean("configured"))"已绑定" else "尚未绑定")
+            action("重新绑定推送") {syncFcm()}
+        }
+        section("其他")
+        inCard {action("打开网页版管理后台 ↗") {browse(base()+"/admin")}}
     }
     private fun syncFcm(){
         FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
