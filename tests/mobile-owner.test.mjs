@@ -28,6 +28,7 @@ test('native owner sign-in, authentication, notifications, records, and account 
   const api=createMobileOwner({db,voice,requestFlow:flow,
     setting:(k,f='')=>settings.get(k)??f,save:(k,v)=>settings.set(k,String(v)),deleteSetting:k=>settings.delete(k),
     validateOrigin:s=>s,validateBark:s=>s,validateSc3Key:s=>s,validateSendKey:s=>s,
+    iconGet:{get:()=>null},iconSave:{run:()=>{}},iconClear:{run:()=>{}},iconUpload:async()=>({data:Buffer.from('fake'),mime:'image/png'}),
     notifyChannels:async call=>{pushes.push(call);return {[call.channel||'app']:'ok'};},
     inputJson:async req=>{let text='';for await(const c of req)text+=c;return JSON.parse(text||'{}');},
     json:(res,status,obj)=>{res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(obj));}
