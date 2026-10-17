@@ -9,7 +9,7 @@ function createHarness(){
   const messages=[];
   let clock=Date.now();
   const api=createVoiceService({db,pairingSecret:'test-voice-secret-which-is-long-and-private',
-    now:()=>clock,pushCall:async (m)=>messages.push(m),
+    now:()=>clock,allowLegacyPairing:true,pushCall:async (m)=>messages.push(m),
     json:(res,status,obj)=>{res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(obj));},
     reply:(res,status,body,headers={})=>{res.writeHead(status,headers);res.end(body);},
     inputJson:async(req)=>{let b='';for await(const chunk of req)b+=chunk;if(b.length>16384)throw Error('too large');return JSON.parse(b||'{}');}
