@@ -544,35 +544,68 @@ class MainActivity : Activity() {
         }
     }
     private fun channels(config:JSONObject){
-        shell("🔔 通知渠道")
-        note("APP FCM、Bark、Server酱³、微信 Server酱可独立启用。密钥留空表示保留原配置；语音来电独立于普通留言通知开关。")
-        val status=config.getJSONObject("channels")
-        fun channel(name:String,display:String):CheckBox {
-            val obj=status.getJSONObject(name)
-            return check(display+"（"+(if(obj.optBoolean("configured"))"已配置" else "未配置")+"）",obj.optBoolean("enabled"))
+        shell("通知中心")
+        section("通知渠道","自由选择接收消息的方式，来电功能独立运行。")
+        val state=config.getJSONObject("channels")
+        fun configured(key:String)=state.getJSONObject(key).optBoolean("configured")
+        fun enabled(key:String)=state.getJSONObject(key).optBoolean("enabled")
+
+        val app=inCard{
+            title("MoveCar · 原生 FCM",17f)
+            status(if(configured("app"))"● 手机设备已绑定" else "● 尚未绑定手机",configured("app"))
+            note("直接接收扫码留言，不依赖 Bark 或微信；语音来电仍可独立响铃。")
+            val selected=check("接收 APP 挪车通知",enabled("app"))
+            action("发送测试通知"){testChannel("app")}
+            if(!configured("app"))action("重新绑定当前手机"){syncFcm()}
+            selected
         }
-        val app=channel("app","APP 原生 FCM")
-        val bark=channel("bark","Bark · iOS")
-        val sc3=channel("sc3","Server酱³")
-        val turbo=channel("serverchan","微信 Server酱")
-        val barkKey=field("新的 Bark HTTPS API 地址（留空保持）")
-        val sc3Key=field("新的 Server酱³ SendKey（留空保持）")
-        val turboKey=field("新的微信 Server酱 Turbo SendKey（留空保持）")
-        val clearBark=check("清除 Bark 密钥",false)
-        val clearSc3=check("清除 Server酱³ 密钥",false)
-        val clearTurbo=check("清除微信 SendKey",false)
-        action("💾 保存通知设置") {
-            val data=JSONObject()
-                .put("appEnabled",app.isChecked).put("barkEnabled",bark.isChecked)
-                .put("sc3Enabled",sc3.isChecked).put("serverchanEnabled",turbo.isChecked)
-                .put("barkUrl",barkKey.text.toString()).put("sc3SendKey",sc3Key.text.toString())
-                .put("serverchanSendKey",turboKey.text.toString())
-                .put("clearBark",clearBark.isChecked).put("clearSc3",clearSc3.isChecked)
-                .put("clearServerchan",clearTurbo.isChecked)
-            api("/api/mobile/channels",data) {notify("通知配置保存成功");navigate("channels")}
+        val bark=inCard{
+            title("Bark · iPhone / iPad",17f)
+            status(if(configured("bark"))"已保存渠道密钥" else "尚未配置",configured("bark"))
+            val selected=check("启用 Bark 通知",enabled("bark"))
+            action("单独测试 Bark"){testChannel("bark")}
+            selected
         }
-        listOf("app" to "📲 测试 APP 推送","bark" to "测试 Bark","sc3" to "测试 Server酱³","serverchan" to "测试微信","all" to "测试全部已启用渠道").forEach { pair ->
-            action(pair.second){testChannel(pair.first)}
+        val barkKey=inCard{
+            title("Bark 配置",15f)
+            note("输入新的 HTTPS Bark API 地址；留空将保留旧值。")
+            field("Bark API 地址（可选）",password=true)
+        }
+        val clearBark=inCard{ check("移除现有 Bark 密钥",false) }
+
+        val sc3=inCard{
+            title("Server酱³ · Android",17f)
+            status(if(configured("sc3"))"已保存渠道密钥" else "尚未配置",configured("sc3"))
+            val selected=check("启用 Server酱³ 通知",enabled("sc3"))
+            action("单独测试 SC3"){testChannel("sc3")}
+            selected
+        }
+        val sc3Key=inCard{field("新的 Server酱³ SendKey（留空保持）",password=true)}
+        val clearSc3=inCard{check("移除现有 Server酱³ 密钥",false)}
+
+        val turbo=inCard{
+            title("微信 · Server酱",17f)
+            status(if(configured("serverchan"))"已保存渠道密钥" else "尚未配置",configured("serverchan"))
+            val selected=check("启用微信推送",enabled("serverchan"))
+            action("单独测试微信"){testChannel("serverchan")}
+            selected
+        }
+        val turboKey=inCard{field("新的微信 Server酱 SendKey（留空保持）",password=true)}
+        val clearTurbo=inCard{check("移除现有微信 SendKey",false)}
+        inCard{
+            action("保存全部通知设置",primary=true) {
+                val data=JSONObject()
+                    .put("appEnabled",app.isChecked).put("barkEnabled",bark.isChecked)
+                    .put("sc3Enabled",sc3.isChecked).put("serverchanEnabled",turbo.isChecked)
+                    .put("barkUrl",barkKey.text.toString().trim())
+                    .put("sc3SendKey",sc3Key.text.toString().trim())
+                    .put("serverchanSendKey",turboKey.text.toString().trim())
+                    .put("clearBark",clearBark.isChecked)
+                    .put("clearSc3",clearSc3.isChecked)
+                    .put("clearServerchan",clearTurbo.isChecked)
+                api("/api/mobile/channels",data){notify("通知渠道已保存");navigate("channels")}
+            }
+            action("测试全部已启用渠道"){testChannel("all")}
         }
     }
     private fun testChannel(channel:String){
@@ -581,47 +614,87 @@ class MainActivity : Activity() {
         }
     }
     private fun settings(config:JSONObject){
-        shell("⚙ 网站基本设置")
-        val site=field("站点名称",config.optString("siteName"))
-        val url=field("HTTPS 公网地址",config.optString("publicUrl"))
-        val phone=field("车主联系电话（可选）",config.optString("phoneNumber"))
-        val wechat=field("微信号（可选）",config.optString("wechatId"))
-        val rate=field("通知间隔：秒（0–3600）",config.optInt("rateLimitSeconds",60).toString())
-        val limit=field("记录保留条数（1–500）",config.optInt("requestRetentionLimit",50).toString())
-        action("💾 保存基本设置"){
-            val r=rate.text.toString().toIntOrNull()
-            val l=limit.text.toString().toIntOrNull()
-            if(r==null||l==null){notify("请输入正确的数字");return@action}
-            val payload=JSONObject().put("siteName",site.text.toString())
-                .put("publicUrl",url.text.toString()).put("phoneNumber",phone.text.toString())
-                .put("wechatId",wechat.text.toString()).put("rateLimitSeconds",r)
-                .put("requestRetentionLimit",l)
-            api("/api/mobile/settings",payload){notify("保存成功");navigate("settings")}
+        shell("设置")
+        section("网站信息","更改后同时应用于扫码网页和车主 APP。")
+        val fields=inCard{
+            val site=field("站点名称",config.optString("siteName"))
+            val url=field("HTTPS 公网地址",config.optString("publicUrl"))
+            val phone=field("车主联系电话（可选）",config.optString("phoneNumber"))
+            val wechat=field("车主微信号（可选）",config.optString("wechatId"))
+            listOf(site,url,phone,wechat)
         }
-        note("网站图标："+(if(config.optBoolean("siteIconConfigured"))"已上传" else "默认图标"))
-        action("上传网站图标（PNG/JPEG/WebP/ICO，最大 256 KB）") {
-            val intent=Intent(Intent.ACTION_GET_CONTENT).apply { type="*/*";addCategory(Intent.CATEGORY_OPENABLE) }
-            @Suppress("DEPRECATION")
-            startActivityForResult(Intent.createChooser(intent,"选择网站图标"),iconPicker)
+        section("通知与数据")
+        val settings=inCard{
+            val rate=field("通知间隔（秒，0–3600）",config.optInt("rateLimitSeconds",60).toString())
+            val limit=field("记录保留数量（1–500）",config.optInt("requestRetentionLimit",50).toString())
+            rate to limit
         }
-        action("恢复默认网站图标") { confirm("恢复默认图标？") {
-            api("/api/mobile/site-icon/clear",JSONObject()){notify("已恢复默认图标");navigate("settings")}
-        }}
-        action("🌐 高级设置：打开网页版后台") {browse(base()+"/admin")}
+        inCard{
+            action("保存基本设置",primary=true){
+                val rate=settings.first.text.toString().toIntOrNull()
+                val limit=settings.second.text.toString().toIntOrNull()
+                if(rate==null||limit==null){notify("请输入有效的数字");return@action}
+                val data=JSONObject()
+                    .put("siteName",fields[0].text.toString())
+                    .put("publicUrl",fields[1].text.toString())
+                    .put("phoneNumber",fields[2].text.toString())
+                    .put("wechatId",fields[3].text.toString())
+                    .put("rateLimitSeconds",rate)
+                    .put("requestRetentionLimit",limit)
+                api("/api/mobile/settings",data){notify("基本设置保存成功");navigate("settings")}
+            }
+        }
+        section("品牌与图标")
+        inCard{
+            status(if(config.optBoolean("siteIconConfigured"))"● 已设置自定义图标" else "使用默认网站图标",
+                config.optBoolean("siteIconConfigured"))
+            action("上传网站图标（256 KB 以下）"){
+                val intent=Intent(Intent.ACTION_GET_CONTENT).apply{
+                    type="image/*";addCategory(Intent.CATEGORY_OPENABLE)
+                }
+                @Suppress("DEPRECATION")
+                startActivityForResult(Intent.createChooser(intent,"选择网站图标"),iconPicker)
+            }
+            action("恢复默认图标",danger=true){confirm("确定恢复默认图标？"){
+                api("/api/mobile/site-icon/clear",JSONObject()){
+                    notify("图标已恢复");navigate("settings")
+                }
+            }}
+        }
+        section("账户及更多")
+        inCard{
+            action("管理员账号与安全"){navigate("account")}
+            action("打开网页管理后台 ↗"){browse(base()+"/admin")}
+            note("MoveCar Owner v0.4 · Android 原生车主端")
+        }
     }
     private fun account(config:JSONObject){
-        shell("🔐 账户安全")
-        note("与网页端后台使用相同的管理员账号和密码。修改后会退出所有网页及 APP 会话。")
-        val name=field("管理员用户名",config.optString("username","admin"))
-        val old=field("当前密码",password=true)
-        val newer=field("新密码（不修改请留空，至少 12 位）",password=true)
-        action("保存管理员账号 / 密码"){
-            val payload=JSONObject().put("newUsername",name.text.toString().trim())
-                .put("currentPassword",old.text.toString()).put("newPassword",newer.text.toString())
-            api("/api/mobile/account",payload) { notify("账号已更新，请重新登录");clearLogin() }
+        shell("账户安全")
+        section("管理员账号","与网页版后台共用身份，修改后会注销现有登录会话。")
+        val inputs=inCard{
+            val name=field("管理员用户名",config.optString("username","admin"))
+            val old=field("当前密码",password=true)
+            val newer=field("新密码（留空即不修改，至少 12 位）",password=true)
+            Triple(name,old,newer)
         }
-        action("退出登录（停止本机后续通知绑定）") {
-            api("/api/mobile/logout",JSONObject().put("deviceAuth",VoiceApi.auth(this))){ clearLogin() }
+        inCard{
+            action("更新账号设置",primary=true){
+                val data=JSONObject()
+                    .put("newUsername",inputs.first.text.toString().trim())
+                    .put("currentPassword",inputs.second.text.toString())
+                    .put("newPassword",inputs.third.text.toString())
+                api("/api/mobile/account",data){
+                    notify("账户已更新，请重新登录");clearLogin()
+                }
+            }
+            note("安全提醒：账号变更会要求重新登录 APP 和网页后台，并重新绑定推送。")
+        }
+        inCard{
+            action("退出登录",danger=true){confirm("退出登录并取消这部手机的通知绑定？"){
+                api("/api/mobile/logout",JSONObject().put("deviceAuth",VoiceApi.auth(this))){
+                    clearLogin()
+                }
+            }}
         }
     }
     private fun clearLogin(){
