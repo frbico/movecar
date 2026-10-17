@@ -28,18 +28,41 @@ chmod 0700 data/turn data/turn/tls
 install -m 0755 -o 1000 -g 1000 scripts/supervise-turn.sh data/turn/supervise-turn.sh
 touch .env
 chmod 0600 .env
-if ! grep -q '^VOICE_TURN_SHARED_SECRET=' .env;then echo "VOICE_TURN_SHARED_SECRET=$(openssl rand -hex 32)" >>.env;fi
-if ! grep -q '^VOICE_PAIRING_SECRET=' .env;then echo "VOICE_PAIRING_SECRET=$(openssl rand -hex 32)" >>.env;fi
-if ! grep -q '^TURN_EXTERNAL_IP=' .env;then
- PUBLIC_IP="$(curl --silent --show-error -4 --max-time 8 https://api.ipify.org || true)"
- LOCAL_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]\+\).*/\1/p' | head -1 || true)"
- TURN_IP=''
- if [[ -n "$PUBLIC_IP" ]];then
-  if [[ -n "$LOCAL_IP" && "$PUBLIC_IP" != "$LOCAL_IP" ]];then TURN_IP="$PUBLIC_IP/$LOCAL_IP"
-  else TURN_IP="$PUBLIC_IP";fi
- fi
- echo "TURN_EXTERNAL_IP=$TURN_IP" >>.env
+PUBLIC_IP="$(curl --silent --show-error -4 --max-time 8 https://api.ipify.org || true)"
+LOCAL_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \\([0-9.]\\+\\).*/\\1/p' | head -1 || true)"
+TURN_IP=''
+if [[ -n "$PUBLIC_IP" ]];then
+ if [[ -n "$LOCAL_IP" && "$PUBLIC_IP" != "$LOCAL_IP" ]];then TURN_IP="$PUBLIC_IP/$LOCAL_IP"
+ else TURN_IP="$PUBLIC_IP";fi
 fi
+export MOVECAR_DETECTED_TURN_IP="$TURN_IP"
+python3 - <<'PY'
+import os,re,secrets
+from pathlib import Path
+p=Path('.env'); lines=p.read_text().splitlines()
+old={}
+for line in lines:
+ if '=' in line and not line.lstrip().startswith('#'):
+  k,v=line.split('=',1)
+  old[k.strip()]=v.strip().strip('"').strip("'")
+turn=old.get('VOICE_TURN_SHARED_SECRET','')
+if not re.fullmatch('[0-9a-f]{64}',turn):turn=secrets.token_hex(32)
+pair=old.get('VOICE_PAIRING_SECRET','')
+if len(pair)<20:pair=secrets.token_hex(32)
+updates={'VOICE_TURN_SHARED_SECRET':turn,
+         'VOICE_PAIRING_SECRET':pair,
+         'TURN_EXTERNAL_IP':os.environ['MOVECAR_DETECTED_TURN_IP']}
+seen=set();out=[]
+for line in lines:
+ k=line.split('=',1)[0].strip() if '=' in line and not line.lstrip().startswith('#') else ''
+ if k in updates:
+  if k not in seen:out.append(k+'='+updates[k]);seen.add(k)
+ else:out.append(line)
+for k,v in updates.items():
+ if k not in seen:out.append(k+'='+v)
+p.write_text('\\n'.join(out).rstrip()+'\\n')
+print('PASS preserving previous pairing credentials; TURN server-specific IP refreshed.')
+PY
 if [[ ! -s upstream/movecar.js ]];then bash scripts/fetch-upstream.sh;fi
 COMPOSE=(docker compose -f compose.yaml -f compose.portable.yaml)
 # Optional adapter for 1Panel, WITHOUT making 1Panel mandatory.
