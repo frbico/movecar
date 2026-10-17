@@ -89,17 +89,43 @@ Google FCM / Play services -> 代理/VPN
 
 以上仅表达规则意图，并非可以直接导入所有 VPN 的统一语法。P2P 的另一端 ICE 候选往往是 IP 地址，规则必须视 VPN 客户端具体能力调整；绕过 VPN 需考虑 `VpnService.allowBypass`、始终开启 VPN 等限制。
 
-## 五、从东京迁往香港时怎样保留账号及二维码配置？
+## 五、从东京迁往香港并保留账号：一键导出、导入
 
-**必须复制东京数据库，不然新的香港 MoveCar 会生成新的管理员密码和新的设备注册记录。**
+**重要：先在东京导出数据库，再在香港第一次创建 MoveCar 数据卷时导入。** 此功能用于保留用户原有管理员账号密码、挪车记录、网页设置和 FCM 配对状态。不要在已写入新数据的香港数据库上覆盖导入。
 
-在东京现有 MoveCar 容器中，使用 Node SQLite 的一致性备份能力或 sqlite3 `.backup` 功能导出 `state.sqlite`（不要在 SQLite 仍写入时直接拷贝底层 DB 文件且忽略 WAL）。
+东京服务器 SSH：
 
-准备好快照后，在香港 **第一次启动之前** 将快照恢复进 MoveCar 的持久化数据卷，并提供同一个 Firebase JSON。数据库保留了网站设置、登录账户、挪车记录和 FCM 设备绑定等信息；短期登录会话可按需要重新登录。这里没有自动跨主机复制，因为脚本不能/不应该无凭据读取你的东京服务器。
+```bash
+cd ~/movecar-voice-fresh
+git fetch origin feature/hk-oneclick-stack
+# 只取备份脚本也可以，不必升级东京生产容器代码
+git show origin/feature/hk-oneclick-stack:scripts/export-db.sh > /tmp/export-movecar-db.sh
+bash /tmp/export-movecar-db.sh ~/movecar-transfer.sqlite
+```
 
-如果东京部署并未实际使用、无需保留旧数据，直接全新安装即可；新的管理员密码可用项目已有的 `show-admin-password.sh` 查询。
+`export-db.sh` 使用 Node.js SQLite 在线一致性备份 API，而不是直接复制正在写入的 SQLite + WAL；请妥善保管生成的备份文件，包含账号、通知设置及挪车数据。
 
-切换时，先备份东京数据，在香港部署并完成服务器检查，再将 `movecar.ssxi.de` DNS 切换香港。由于部分设备有 DNS 缓存，可能短暂访问旧地址。切换前建议将 TTL 降低。
+通过 `scp` 或 SFTP 将 `movecar-transfer.sqlite` 和 Firebase 服务器服务账号 JSON 安全转移到香港 VPS。假设已经放在 `/home/ubuntu/`。
+
+在**全新香港 VPS** 执行：
+
+```bash
+git clone --branch feature/hk-oneclick-stack --single-branch \
+  https://github.com/frbico/movecar.git /opt/movecar-hk
+cd /opt/movecar-hk
+
+sudo bash scripts/deploy-hk.sh \
+  --site movecar.ssxi.de \
+  --turn turn.ssxi.de \
+  --firebase-key /home/ubuntu/firebase-service-account.json \
+  --import-db /home/ubuntu/movecar-transfer.sqlite
+```
+
+脚本会先检查 SQLite 一致性，**仅在目标卷不存在 state.sqlite 时**导入；发现原有数据库会报错并停止，不覆盖。之后自动启动全部服务、导入 Firebase JSON、申请 HTTPS/TURN TLS 证书、验证端口并设置续期定时器。
+
+注意：`VOICE_PAIRING_SECRET` 不是管理员密码，原数据库没有原 `.env` 中的 TURN 配置；迁移后会自动建立新的 TURN Secret。APP 登录身份是同一套数据库保存的用户名/密码；已有手机可重新登录并重新绑定 FCM。旧东京服务器可以等香港实际通话测试成功再关闭。
+
+域名 DNS 切换之前，先备份东京，按香港实际公网配置 DNS；等 TTL 生效后，在两部大陆手机上检查 `/healthz`、FCM、TURN UDP 和晚高峰真实通话。建议切换前减小 TTL。
 
 ## 六、维护/更新
 
