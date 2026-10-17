@@ -7,8 +7,9 @@
   const defaultIce=[{urls:['stun:stun.l.google.com:19302']}];
   let callId='',auth='',pc=null,localStream=null,last=0,poller=null,closed=false;
   let offerSent=false,inCallAt=0,connectSince=0,retryTicket='',retrying=false;
-  let iceServers=defaultIce,pollFailures=0;
+  let iceServers=defaultIce,pollFailures=0,lastPathCheck=0;
   const pendingIce=[];
+  let pendingAnswer=null;
   const say=s=>{label.textContent=s;};
   async function api(endpoint,body){
     const r=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},
@@ -19,8 +20,8 @@
   }
   const endpoint=action=>'/api/voice/calls/'+encodeURIComponent(callId)+'/'+action;
   async function signal(kind,payload){
-    try{await api(endpoint('signal'),{token:auth,kind,payload});}
-    catch(e){if(!closed)say('网络信令不稳定：'+e.message);}
+    try{await api(endpoint('signal'),{token:auth,kind,payload});return true;}
+    catch(e){if(!closed)say('网络信令不稳定：'+e.message);return false;}
   }
   function releaseMedia(){
     if(pc){try{pc.close();}catch{}pc=null;}
@@ -60,6 +61,29 @@
     }
     retrying=false;
   }
+  async function showSelectedRoute(){
+    if(!pc||!document.querySelector('#diag'))return;
+    try{
+      const report=await pc.getStats();
+      let selected=null;
+      report.forEach(item=>{
+        if(item.type==='transport'&&item.selectedCandidatePairId)
+          selected=report.get(item.selectedCandidatePairId);
+      });
+      if(!selected){
+        report.forEach(item=>{
+          if(item.type==='candidate-pair'&&item.state==='succeeded'&&item.nominated)
+            selected=item;
+        });
+      }
+      if(!selected)return;
+      const a=report.get(selected.localCandidateId),b=report.get(selected.remoteCandidateId);
+      const kind=a?.candidateType==='relay'||b?.candidateType==='relay'?'TURN 中继':'P2P 直连';
+      const rtt=typeof selected.currentRoundTripTime==='number'
+        ?Math.round(selected.currentRoundTripTime*1000)+' ms':'等待测量';
+      document.querySelector('#diag').textContent='连接路径：'+kind+' · 往返延迟：'+rtt;
+    }catch{}
+  }
   async function peer(){
     if(pc)return;
     pc=new RTCPeerConnection({iceServers,iceCandidatePoolSize:1});
@@ -70,6 +94,7 @@
       if(pc.connectionState==='connected'){
         connectSince=0;
         if(!inCallAt)inCallAt=Date.now();
+        void showSelectedRoute();
         say('✅ 通话中');
       }else if(pc.connectionState==='failed'){
         void failed('ice_failed','语音网络连接失败');
@@ -103,9 +128,13 @@
       if(data.status==='active'&&!owner&&!offerSent){
         offerSent=true;
         say('车主已接听，正在建立语音通道…');
-        const offer=await pc.createOffer({offerToReceiveAudio:true});
-        await pc.setLocalDescription(offer);
-        await signal('offer',{type:offer.type,sdp:offer.sdp});
+        if(!pc.localDescription){
+          const offer=await pc.createOffer({offerToReceiveAudio:true});
+          await pc.setLocalDescription(offer);
+        }
+        offerSent=await signal('offer',{
+          type:pc.localDescription.type,sdp:pc.localDescription.sdp
+        });
       }
       for(const event of data.events){
         last=Math.max(last,event.seq);
@@ -113,7 +142,8 @@
           await pc.setRemoteDescription(new RTCSessionDescription(event.payload));
           const answer=await pc.createAnswer();
           await pc.setLocalDescription(answer);
-          await signal('answer',{type:answer.type,sdp:answer.sdp});
+          if(!await signal('answer',{type:answer.type,sdp:answer.sdp}))
+            pendingAnswer={type:answer.type,sdp:answer.sdp};
         }else if(event.kind==='answer'&&!owner){
           await pc.setRemoteDescription(new RTCSessionDescription(event.payload));
         }else if(event.kind==='ice'){
@@ -121,11 +151,17 @@
           else pendingIce.push(event.payload);
         }
       }
+      if(pendingAnswer){
+        if(await signal('answer',pendingAnswer))pendingAnswer=null;
+      }
       if(pc?.remoteDescription&&pendingIce.length){
         for(const candidate of pendingIce.splice(0))await pc.addIceCandidate(candidate);
       }
-      if(connectSince&&Date.now()-connectSince>22000&&pc?.connectionState!=='connected'){
-        await failed('connect_timeout','22 秒内未能建立音频连接');
+      if(inCallAt&&Date.now()-lastPathCheck>5000){
+        lastPathCheck=Date.now();void showSelectedRoute();
+      }
+      if(connectSince&&Date.now()-connectSince>30000&&pc?.connectionState!=='connected'){
+        await failed('connect_timeout','30 秒内未能建立音频连接');
         return;
       }
       if(inCallAt)timer.textContent='已通话 '+Math.floor((Date.now()-inCallAt)/1000)+' 秒';
@@ -140,7 +176,8 @@
   }
   async function begin(){
     closed=false;retrying=false;last=0;offerSent=false;inCallAt=0;connectSince=0;pollFailures=0;
-    callId='';auth='';pendingIce.length=0;timer.textContent='';
+    callId='';auth='';pendingIce.length=0;pendingAnswer=null;timer.textContent='';
+    document.querySelector('#diag').textContent='';
     start.hidden=true;hangup.hidden=false;hangup.disabled=false;
     try{
       if(owner){
