@@ -36,7 +36,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(28, 30, 28, 36)
         }
-        val scroll = ScrollView(this).apply { fillViewport = true; addView(root) }
+        val scroll = ScrollView(this).apply { isFillViewport = true; addView(root) }
         setContentView(scroll)
         title(heading, 23f)
     }
@@ -260,6 +260,7 @@ class MainActivity : Activity() {
         action("保存管理员账号 / 密码"){
             val payload=JSONObject().put("newUsername",name.text.toString().trim())
                 .put("currentPassword",old.text.toString()).put("newPassword",newer.text.toString())
+                .put("deviceAuth",VoiceApi.auth(this))
             api("/api/mobile/account",payload) { notify("账号已更新，请重新登录");clearLogin() }
         }
         action("退出登录（停止本机后续通知绑定）") {
