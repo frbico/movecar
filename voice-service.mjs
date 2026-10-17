@@ -290,5 +290,5 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
     c.events.push({seq:++c.seq,from:who,kind,payload});
     json(res,200,{ok:true,seq:c.seq});return true;
   }
-  return {handle,cleanup,notifyOwner,registerMobileDevice,unregisterMobileDevice,revokeAllMobileDevices,isDeviceReady:()=>Boolean(getDevice.get()),listCallHistory:()=>getHistory.all(),close:()=>clearInterval(cleanupTimer),_debug:{calls}};
+  return {handle,cleanup,notifyOwner,registerMobileDevice,unregisterMobileDevice,revokeAllMobileDevices,isDeviceReady:()=>Boolean(getDevice.get()),listCallHistory:()=>getHistory.all(),resetFirebaseAccess:()=>{cachedAccess=null;},close:()=>clearInterval(cleanupTimer),_debug:{calls}};
 }
