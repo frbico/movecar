@@ -13,3 +13,6 @@ upstream/movecar.js
 upstream/LICENSE
 
 .DS_Store
+
+# Host-specific HK Caddyfile, TURN auth settings and certificates
+deployment/hk/
