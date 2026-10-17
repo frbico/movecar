@@ -1,0 +1,9 @@
+services:
+  movecar:
+    networks:
+      - default
+      - panel
+networks:
+  panel:
+    name: 1panel-network
+    external: true
