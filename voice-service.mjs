@@ -74,7 +74,7 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
     // coturn servers as TURN. A Google STUN hostname is not sufficient for
     // clients in mainland China.
     const stun=stunUrls.split(',').map(s=>s.trim())
-      .filter(s=>/^stuns?:[^\\s]+$/.test(s)).slice(0,4);
+      .filter(s=>/^stuns?:[^\s]+$/.test(s)).slice(0,4);
     const out=[{urls:stun.length?stun:['stun:stun.l.google.com:19302']}];
     if(turnUrls&&turnSecret){
       const urls=turnUrls.split(',').map(s=>s.trim()).filter(s=>/^(turn|turns):[^\s]+$/.test(s)).slice(0,10);
