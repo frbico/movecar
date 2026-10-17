@@ -35,7 +35,7 @@ source /etc/os-release
 [[ "$ID" == "ubuntu" || "$ID" == "debian" || "${ID_LIKE:-}" == *"debian"* ]] ||
   error "This one-click installer supports Ubuntu/Debian. Use manual deployment elsewhere."
 [[ "$(uname -s)" == Linux ]] || error "Host-network coturn requires Linux"
-for tool in docker curl openssl python3 getent find cmp install awk;do
+for tool in docker curl openssl python3 getent find cmp install awk realpath ip sed;do
   command -v "$tool" >/dev/null 2>&1 || error "Missing prerequisite: $tool"
 done
 docker compose version >/dev/null 2>&1 || error "Docker Compose V2 is required."
@@ -118,6 +118,8 @@ pairing=data.get('VOICE_PAIRING_SECRET') or secrets.token_hex(32)
 updates={
   'HOST_BIND':'127.0.0.1',
   'HOST_PORT':'8888',
+  'HK_SITE_DOMAIN':site,
+  'HK_TURN_DOMAIN':turn,
   'VOICE_PAIRING_SECRET':pairing,
   'VOICE_STUN_URLS':f'stun:{turn}:3478',
   'VOICE_TURN_URLS':f'turn:{turn}:3478?transport=udp,turn:{turn}:3478?transport=tcp,turns:{turn}:5349?transport=tcp',
