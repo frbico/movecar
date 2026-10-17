@@ -16,6 +16,7 @@ test('native owner sign-in, authentication, notifications, records, and account 
   const voice={
     registerMobileDevice(fcm){assert.ok(fcm.length>10);deviceAuth=crypto.randomBytes(32).toString('base64url');return deviceAuth;},
     unregisterMobileDevice(auth){if(auth===deviceAuth){revokeCount++;deviceAuth='';return true;}return false;},
+    revokeAllMobileDevices(){if(deviceAuth)revokeCount++;deviceAuth='';},
     isDeviceReady(){return !!deviceAuth;},
     listCallHistory(){return [{callId:'test',status:'ended',startedAt:123456,updatedAt:123457}];}
   };
