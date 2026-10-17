@@ -1,19 +1,12 @@
-# Compose overlay: co-located Hong Kong HTTPS + STUN/TURN.
+# 1Panel is the only HTTPS reverse proxy and certificate manager.
 # Run: docker compose -f compose.yaml -f compose.hk.yaml up -d --build
-# Linux VPS required: host networking for coturn's UDP relay range.
+# 1Panel OpenResty in host network: proxy to http://127.0.0.1:8888
+# 1Panel OpenResty on 1panel-network: proxy to http://movecar:8888
 services:
-  caddy:
-    image: caddy:2.10.2-alpine
-    container_name: movecar-hk-caddy
-    network_mode: host
-    restart: unless-stopped
-    volumes:
-      - ./deployment/hk/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./data/hk/caddy:/data
-      - ./data/hk/caddy-config:/config
-    depends_on:
-      movecar:
-        condition: service_healthy
+  movecar:
+    networks:
+      - default
+      - onepanel
 
   coturn:
     image: coturn/coturn:4.18.0
@@ -22,5 +15,10 @@ services:
     restart: unless-stopped
     command: ["-c", "/etc/coturn/turnserver.conf", "--log-file=stdout"]
     volumes:
-      - ./deployment/hk/turnserver.conf:/etc/coturn/turnserver.conf:ro
-      - ./data/hk/turn-tls:/etc/coturn/tls:ro
+      - ./deployment/onepanel/turnserver.conf:/etc/coturn/turnserver.conf:ro
+      - ./data/onepanel/turn-tls:/etc/coturn/tls:ro
+
+networks:
+  onepanel:
+    name: 1panel-network
+    external: true
