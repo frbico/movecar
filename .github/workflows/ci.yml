@@ -14,7 +14,8 @@ jobs:
       - name: Verify executable scripts, syntax and integration
         run: |
           test -x install.sh && test -x run-linux.sh && test -x scripts/fetch-upstream.sh && test -x show-admin-password.sh
-          bash -n install.sh run-linux.sh show-admin-password.sh scripts/fetch-upstream.sh
+          bash -n install.sh run-linux.sh show-admin-password.sh scripts/fetch-upstream.sh scripts/setup-voice-fresh.sh
+          python3 -m py_compile scripts/test-voice-endpoints.py
           node --check server.mjs
           node --check admin.js
           node --check request-flow.mjs
