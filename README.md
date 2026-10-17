@@ -197,3 +197,10 @@ docker compose -f compose.yaml ps
 本开发分支增加网页扫码匿名呼叫、FCM 来电、Android 原生 WebRTC 双向语音，以及允许接听后熄屏继续运行的麦克风前台服务。当前仍是 **MVP / 未部署 / 未完成真机验证**，不会在未配置 Firebase 的情况下自动启用。完整配置与安全说明参见 [VOICE-CALLS.md](VOICE-CALLS.md)。
 
 Android CI 产出的占位 Firebase APK **不能用于实际来电**；需为仓库 Actions 配置 `MOVECAR_GOOGLE_SERVICES_JSON_B64` 后，在本分支触发一次 Android 构建。需要配置服务端 Firebase 服务账号（不得提交仓库）和必要的 TURN 服务。
+
+
+## 🇭🇰 香港单机部署（MoveCar + Caddy + coturn）
+
+如果车主的三星手机在中国大陆依赖 VPN 接收 Google FCM，扫码者也在中国大陆，可以选择 **香港一台 VPS 同时运行 MoveCar 和 coturn**，并用独立 UDP/TCP/TLS 端口与 DNS-only TURN 域名服务。无需购买第二台 TURN 服务器；但 TURN 数据不能通过普通 HTTP 反向代理。项目提供 [一键部署、东京迁移、证书续期和网络自检文档](HK-ONECLICK.md)，及 `scripts/deploy-hk.sh`、`scripts/export-db.sh`、`scripts/check-hk.sh`。
+
+此功能仍在独立开发分支，需要香港服务器的 Docker、域名 DNS、安全组和 Firebase 服务器私钥。**不会自动修改现有东京服务器，也不会自动替你修改 VPN 分流规则。**

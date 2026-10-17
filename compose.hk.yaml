@@ -1,0 +1,26 @@
+# Compose overlay: co-located Hong Kong HTTPS + STUN/TURN.
+# Run: docker compose -f compose.yaml -f compose.hk.yaml up -d --build
+# Linux VPS required: host networking for coturn's UDP relay range.
+services:
+  caddy:
+    image: caddy:2.10.2-alpine
+    container_name: movecar-hk-caddy
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - ./deployment/hk/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./data/hk/caddy:/data
+      - ./data/hk/caddy-config:/config
+    depends_on:
+      movecar:
+        condition: service_healthy
+
+  coturn:
+    image: coturn/coturn:4.18.0
+    container_name: movecar-hk-turn
+    network_mode: host
+    restart: unless-stopped
+    command: ["-c", "/etc/coturn/turnserver.conf", "--log-file=stdout"]
+    volumes:
+      - ./deployment/hk/turnserver.conf:/etc/coturn/turnserver.conf:ro
+      - ./data/hk/turn-tls:/etc/coturn/tls:ro
