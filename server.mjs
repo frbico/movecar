@@ -8,6 +8,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createRequestFlow } from './request-flow.mjs';
 import { createVoiceService } from './voice-service.mjs';
 import { createMobileOwner } from './mobile-owner.mjs';
+import { createInfrastructure } from './infrastructure.mjs';
 
 const port = Number(process.env.PORT || 8888);
 const dbPath = path.resolve(process.env.DB_PATH || './data/state.sqlite');
@@ -108,9 +109,9 @@ function reply(res, status, body, headers={}) {
   res.end(body);
 }
 function json(res,status,obj,headers={}) { return reply(res,status,JSON.stringify(obj),{'Content-Type':'application/json; charset=utf-8',...headers}); }
-async function inputJson(req) {
+async function inputJson(req, limit = 16384) {
   let total = 0; const arr=[];
-  for await(const chunk of req) { total+=chunk.length; if(total>16384) throw Object.assign(Error('请求过大'),{status:413}); arr.push(chunk); }
+  for await(const chunk of req) { total+=chunk.length; if(total>limit) throw Object.assign(Error('请求过大'),{status:413}); arr.push(chunk); }
   try { const obj=JSON.parse(Buffer.concat(arr).toString('utf8')); if(!obj || typeof obj!=='object'||Array.isArray(obj)) throw Error(); return obj; }
   catch { throw Object.assign(Error('JSON 数据无效'),{status:400}); }
 }
@@ -324,8 +325,9 @@ function staticFile(res,name,type) {
   const txt=fs.readFileSync(path.join(import.meta.dirname,name));
   reply(res,200,txt,{'Content-Type':type,'Content-Security-Policy':"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"});
 }
+const infrastructure=createInfrastructure({setting,save,dataDir});
 const requestFlow=createRequestFlow({db,setting,random,hash,notifyChannels,inputJson,inputPhoto,json,reply,rateGet,ratePut,notificationAvailable:()=>voice.isDeviceReady()&&setting('notify_app_enabled','1')==='1'});
-const voice=createVoiceService({db,json,reply,inputJson});
+const voice=createVoiceService({db,json,reply,inputJson,turnConfig:infrastructure.ice});
 const mobile=createMobileOwner({db,setting,save,deleteSetting:name=>delSettingStmt.run(name),inputJson,json,requestFlow,voice,notifyChannels,validateOrigin,validateBark,validateSendKey,validateSc3Key,iconUpload,iconSave,iconClear,iconGet});
 const failStats=new Map();
 setInterval(()=>{
@@ -382,6 +384,8 @@ const server=http.createServer(async(req,res)=>{
       const auth=session(req);
       if(!auth)return json(res,401,{error:'请先登录'});
       if(route==='/api/admin/session'&&req.method==='GET')return json(res,200,{csrf:auth.csrf});
+      if(route==='/api/admin/deployment'&&req.method==='GET')
+        return json(res,200,infrastructure.config());
       if(route==='/api/admin/config'&&req.method==='GET')return json(res,200,{publicUrl:setting('public_url'),phoneNumber:setting('phone_number'),rateLimitSeconds:Number(setting('rate_limit_seconds','60')),requestRetentionLimit:requestFlow.retentionLimit(),requestCount:requestFlow.count(),siteName:setting('site_name','呼叫车主挪车'),wechatId:setting('wechat_id'),adminUsername:setting('admin_username','admin'),appConfigured:voice.isDeviceReady(),appEnabled:setting('notify_app_enabled','1')==='1',barkEnabled:setting('notify_bark_enabled','1')==='1',sc3Enabled:setting('notify_sc3_enabled','1')==='1',serverchanEnabled:setting('notify_serverchan_enabled','1')==='1',siteIconConfigured:!!iconGet.get(),siteIconUpdatedAt:iconGet.get()?.updated_at||null,barkConfigured:!!setting('bark_url'),serverchanConfigured:!!setting('serverchan_sendkey'),sc3Configured:!!setting('sc3_sendkey')});
       if(route==='/api/admin/requests'&&req.method==='GET'){
         const page=Number(u.searchParams.get('page')||'1'),size=Number(u.searchParams.get('size')||'20');
@@ -389,6 +393,27 @@ const server=http.createServer(async(req,res)=>{
         return json(res,200,requestFlow.listHistory(page,size));
       }
       if(!['POST','PUT'].includes(req.method)||!checkCsrf(req,auth.csrf))return json(res,403,{error:'请求未通过验证'});
+      if(route==='/api/admin/deployment/config'&&req.method==='POST'){
+        if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});
+        const data=await inputJson(req);
+        return json(res,200,{ok:true,...infrastructure.configure(data)});
+      }
+      if(route==='/api/admin/deployment/firebase'&&req.method==='POST'){
+        if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});
+        const data=await inputJson(req,65000);
+        const result=infrastructure.saveFirebase(data.json);
+        voice.resetFirebaseAccess();
+        return json(res,200,result);
+      }
+      if(route==='/api/admin/deployment/tls'&&req.method==='POST'){
+        if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});
+        const data=await inputJson(req,115000);
+        return json(res,200,infrastructure.saveTls(data.certificate,data.privateKey));
+      }
+      if(route==='/api/admin/deployment/tls/clear'&&req.method==='POST'){
+        if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});
+        return json(res,200,infrastructure.removeTls());
+      }
       if(route==='/api/admin/requests/delete'&&req.method==='POST'){
         const data=await inputJson(req);
         if(typeof data.id!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(data.id))return json(res,400,{error:'请求编号无效'});

@@ -23,7 +23,7 @@ const validFcm=x=>typeof x==='string'&&x.length>=20&&x.length<=4096&&/^[\x21-\x7
 const validToken=x=>typeof x==='string'&&/^[A-Za-z0-9_-]{43}$/.test(x);
 const readStatic=name=>fs.readFileSync(new URL(name,import.meta.url));
 
-export function createVoiceService({db,json,reply,inputJson,pairingSecret=process.env.VOICE_PAIRING_SECRET||'',serviceAccountPath=process.env.FCM_SERVICE_ACCOUNT||'',pushCall=null,turnUrls=process.env.VOICE_TURN_URLS||'',turnSecret=process.env.VOICE_TURN_SHARED_SECRET||'',stunUrls=process.env.VOICE_STUN_URLS||'',allowLegacyPairing=process.env.VOICE_ALLOW_LEGACY_PAIRING==='1',now=()=>Date.now()}){
+export function createVoiceService({db,json,reply,inputJson,pairingSecret=process.env.VOICE_PAIRING_SECRET||'',serviceAccountPath=process.env.FCM_SERVICE_ACCOUNT||'',pushCall=null,turnUrls=process.env.VOICE_TURN_URLS||'',turnSecret=process.env.VOICE_TURN_SHARED_SECRET||'',stunUrls=process.env.VOICE_STUN_URLS||'',turnConfig=()=>null,allowLegacyPairing=process.env.VOICE_ALLOW_LEGACY_PAIRING==='1',now=()=>Date.now()}){
   db.exec(`CREATE TABLE IF NOT EXISTS voice_owner_device (
     id INTEGER PRIMARY KEY CHECK(id=1), auth_digest TEXT NOT NULL,
     fcm_token TEXT NOT NULL, updated_at INTEGER NOT NULL
@@ -73,11 +73,14 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
     // Explicit STUN endpoints can be hosted on the same low-latency regional
     // coturn servers as TURN. A Google STUN hostname is not sufficient for
     // clients in mainland China.
-    const stun=stunUrls.split(',').map(s=>s.trim())
+    const configured=turnConfig()||{};
+    const activeStun=configured.stunUrls||stunUrls;
+    const activeTurn=configured.turnUrls||turnUrls;
+    const stun=activeStun.split(',').map(s=>s.trim())
       .filter(s=>/^stuns?:[^\s]+$/.test(s)).slice(0,4);
     const out=[{urls:stun.length?stun:['stun:stun.l.google.com:19302']}];
-    if(turnUrls&&turnSecret){
-      const urls=turnUrls.split(',').map(s=>s.trim()).filter(s=>/^(turn|turns):[^\s]+$/.test(s)).slice(0,10);
+    if(activeTurn&&turnSecret){
+      const urls=activeTurn.split(',').map(s=>s.trim()).filter(s=>/^(turn|turns):[^\s]+$/.test(s)).slice(0,10);
       if(urls.length){
         const username=`${Math.floor(now()/1000)+3600}:movecar`;
         const credential=crypto.createHmac('sha1',turnSecret).update(username).digest('base64');
@@ -287,5 +290,5 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
     c.events.push({seq:++c.seq,from:who,kind,payload});
     json(res,200,{ok:true,seq:c.seq});return true;
   }
-  return {handle,cleanup,notifyOwner,registerMobileDevice,unregisterMobileDevice,revokeAllMobileDevices,isDeviceReady:()=>Boolean(getDevice.get()),listCallHistory:()=>getHistory.all(),close:()=>clearInterval(cleanupTimer),_debug:{calls}};
+  return {handle,cleanup,notifyOwner,registerMobileDevice,unregisterMobileDevice,revokeAllMobileDevices,isDeviceReady:()=>Boolean(getDevice.get()),listCallHistory:()=>getHistory.all(),resetFirebaseAccess:()=>{cachedAccess=null;},close:()=>clearInterval(cleanupTimer),_debug:{calls}};
 }

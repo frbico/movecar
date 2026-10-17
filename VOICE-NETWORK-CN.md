@@ -1,6 +1,6 @@
 # MoveCar 中国大陆网络优化（当前推荐：1Panel 香港单机）
 
-**最新部署入口：[HK-ONECLICK.md](HK-ONECLICK.md)。** 现已优先支持 **香港 1Panel 单 VPS 运行 MoveCar + coturn**，复用 1Panel 自己的 HTTPS、反代与泛域名证书；下面的东京 API + 香港独立 TURN 是可选的多机备用拓扑，**不是默认部署要求**。不要再安装 Caddy 或第二套证书服务。
+**最新通用安装入口：[DEPLOY-ANYWHERE.md](DEPLOY-ANYWHERE.md)。** 项目已改为与服务器地区、1Panel、Nginx 和 Caddy 解耦的一键安装。网站 HTTPS、TURN 域名、Firebase 和证书统一在网页登录后台的「部署与迁移」页面设置；本文件后面的两地网络拓扑只是可选优化方案，不是安装前置条件。
 
 
 目标：**Google FCM 继续通过 VPN 收到来电**，网页和 Android WebRTC 尽量直连；无法 P2P 时，经香港/东京 **TURN 中继**。**不保证绕过所有网络限制或永远成功**，需跨运营商和晚高峰真机验证。

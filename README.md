@@ -199,10 +199,20 @@ docker compose -f compose.yaml ps
 Android CI 产出的占位 Firebase APK **不能用于实际来电**；需为仓库 Actions 配置 `MOVECAR_GOOGLE_SERVICES_JSON_B64` 后，在本分支触发一次 Android 构建。需要配置服务端 Firebase 服务账号（不得提交仓库）和必要的 TURN 服务。
 
 
-## 🇭🇰 1Panel 香港一键部署（MoveCar + TURN）
+## 🚀 通用一键安装（Docker + 任意 HTTPS 反代）
 
-**使用你已经安装的 1Panel 管理 HTTPS、反向代理和现有泛域名证书。** 项目只部署 MoveCar 与 coturn，不会安装 Caddy / Nginx / 第二套 ACME 证书管理。一个香港 VPS、一份 Docker Compose、一条部署命令即可建立 WebRTC 优先直连 + TURN UDP/TCP/TLS 备用路径。支持 1Panel OpenResty host 与 `1panel-network` 两种代理方式，并提供数据库迁移、证书续期同步与端口自检。
+**不绑定 1Panel、香港服务器、东京服务器、Nginx 或 Caddy。** 服务器只需安装 Docker/Compose、Git、Curl、Python3、OpenSSL；所有非基础信息都进入登录后的「部署与迁移」后台向导。
 
-[查看快速安装、1Panel 反代设置、从东京迁移和换域名说明](HK-ONECLICK.md)。源码在 `scripts/deploy-hk.sh`、`compose.hk.yaml` 和 `scripts/check-hk.sh`。
+```bash
+curl -fsSL https://raw.githubusercontent.com/frbico/movecar/feature/universal-setup-wizard/scripts/install-universal.sh | sudo bash
+```
 
-**不会擅自修改 1Panel 现有网站，也不会直接替你切换 DNS 或手机 VPN 路由。**
+自动下载/更新 MoveCar、生成独立 TURN 密钥、启动 MoveCar + coturn、将 Web 管理后端仅绑定到本机 127.0.0.1:8888，防止裸露公网。系统检测到 1Panel 的 Docker 网络时自动接入，但**没有 1Panel 也完全可以安装**。
+
+首次访问可用 SSH 隧道 `ssh -L 8888:127.0.0.1:8888 用户@服务器`，然后在本地浏览器访问 `http://127.0.0.1:8888/admin`。安装输出管理员初始密码（保密，尽快修改）；有现有数据则沿用账号密码。
+
+在后台配置网站 HTTPS 域名、TURN 域名、Firebase Admin SDK JSON；若需要 5349 TLS 备用，从后台上传任意有效 PEM 证书 + 私钥。所有配置保存即生效，coturn 自动重载，**不再要求安装命令输入域名、证书路径或 Firebase 私钥**。
+
+已有 1Panel/Nginx/Caddy 用户仅需为网站建立一次外部 HTTPS 反向代理到 `http://127.0.0.1:8888`（容器与 1Panel 同网络时也支持 `http://movecar:8888`）。TURN 走独立 UDP/TCP 端口，不能用普通 HTTP 反向代理。
+
+[通用安装、备份迁移和检查指南](DEPLOY-ANYWHERE.md)。

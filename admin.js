@@ -3,7 +3,7 @@ const $=id=>document.getElementById(id);let csrf='',view='overview',timer,histor
 function toast(t,error=false){const el=$('toast');el.textContent=t;el.classList.toggle('error',error);el.classList.add('show');clearTimeout(timer);timer=setTimeout(()=>el.classList.remove('show'),4600)}
 async function api(path,data){const get=data===undefined;const r=await fetch(path,{method:get?'GET':'POST',credentials:'same-origin',headers:get?{}:{'Content-Type':'application/json','X-CSRF-Token':csrf},...(get?{}:{body:JSON.stringify(data)})});const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'HTTP '+r.status);return j}
 function loginView(){$('appShell').hidden=true;$('loginView').hidden=false;csrf=''}
-function switchView(next){view=next;document.querySelectorAll('.view').forEach(x=>x.hidden=x.id!=='view-'+next);document.querySelectorAll('[data-view]').forEach(x=>{x.classList.toggle('active',x.dataset.view===next);if(x.dataset.view===next)x.setAttribute('aria-current','page');else x.removeAttribute('aria-current')});$('pageName').textContent={overview:'控制台',channels:'通知渠道',settings:'基本设置',history:'挪车记录',security:'账户安全'}[next];if(next==='history')void loadHistory();}
+function switchView(next){view=next;document.querySelectorAll('.view').forEach(x=>x.hidden=x.id!=='view-'+next);document.querySelectorAll('[data-view]').forEach(x=>{x.classList.toggle('active',x.dataset.view===next);if(x.dataset.view===next)x.setAttribute('aria-current','page');else x.removeAttribute('aria-current')});$('pageName').textContent={overview:'控制台',channels:'通知渠道',settings:'基本设置',setup:'部署与迁移',history:'挪车记录',security:'账户安全'}[next];if(next==='history')void loadHistory();if(next==='setup')void deploymentStatus();}
 function base(){return{publicUrl:$('publicUrl').value.trim(),phoneNumber:$('phoneNumber').value.trim(),rateLimitSeconds:Number($('rateLimit').value),requestRetentionLimit:Number($('requestRetentionLimit').value),siteName:$('siteName').value.trim(),wechatId:$('wechatId').value.trim()}}
 async function panel(){const s=await api('/api/admin/session');csrf=s.csrf;const c=await api('/api/admin/config');$('publicUrl').value=c.publicUrl||'';$('phoneNumber').value=c.phoneNumber||'';$('rateLimit').value=c.rateLimitSeconds??60;$('siteName').value=c.siteName||'呼叫车主挪车';$('wechatId').value=c.wechatId||'';document.title=(c.siteName||'MoveCar')+' · 后台';document.querySelector('.brand').firstChild.textContent='🚙 '+(c.siteName||'MoveCar')+' ';$('siteIconStatus').textContent=c.siteIconConfigured?'已上传自定义图标':'使用默认图标';$('siteIconPreview').hidden=!c.siteIconConfigured;if(c.siteIconConfigured)$('siteIconPreview').src='/site-icon?t='+(c.siteIconUpdatedAt||Date.now());let ico=document.querySelector('link[rel="icon"]');if(c.siteIconConfigured){if(!ico){ico=document.createElement('link');ico.rel='icon';document.head.appendChild(ico);}ico.href='/site-icon?t='+(c.siteIconUpdatedAt||Date.now());}else if(ico)ico.remove();$('requestRetentionLimit').value=c.requestRetentionLimit??50;$('requestRetentionUsage').textContent='当前已保留 '+(c.requestCount??0)+' 条挪车记录，上限 '+(c.requestRetentionLimit??50)+' 条。';const map=[['bark',c.barkConfigured&&c.barkEnabled],['sc3',c.sc3Configured&&c.sc3Enabled],['wechat',c.serverchanConfigured&&c.serverchanEnabled]];$('appOverview').textContent=c.appConfigured?(c.appEnabled?'已连接 · 通知开启':'已连接 · 通知关闭'):'尚未配对';$('appState').textContent=c.appConfigured?'已绑定 FCM':'未配对';for(const [name,enabled] of [['app',c.appEnabled],['bark',c.barkEnabled],['sc3',c.sc3Enabled],['serverchan',c.serverchanEnabled]])$(name+'Enabled').checked=!!enabled;for(const [name,on]of map){$(name+'State').textContent=on?'已启用':'未配置';$(name+'Overview').textContent=on?'已启用':'未配置'}$('activeCount').textContent=map.filter(x=>x[1]).length+(c.appConfigured&&c.appEnabled?1:0);for(const id of ['barkUrl','sendkey','sc3SendKey'])$(id).value='';for(const id of ['clearBark','clearWechat','clearSc3'])$(id).checked=false;$('appShell').hidden=false;$('loginView').hidden=true;switchView(view)}
 $('loginForm').onsubmit=async e=>{e.preventDefault();const btn=e.submitter;btn.disabled=true;try{await api('/api/admin/login',{username:$('loginUsername').value,password:$('loginPassword').value});$('loginPassword').value='';view='overview';await panel();toast('登录成功')}catch(e){toast(e.message,true)}finally{btn.disabled=false}};
@@ -60,3 +60,58 @@ $('siteIconClear').onclick=async()=>{
 };
 
 panel().catch(loginView);
+function secureUpload(){
+ if(location.protocol==='https:'||['localhost','127.0.0.1','::1'].includes(location.hostname))return true;
+ toast('请先使用 HTTPS 或 SSH 本地端口转发访问后台，再上传服务器私钥',true);
+ return false;
+}
+async function deploymentStatus(){
+ try{
+  const c=await api('/api/admin/deployment');
+  $('setupSite').value=c.publicUrl||'';
+  $('setupTurn').value=c.turnHost||'';
+  const lines=[
+    '网站地址：'+(c.publicUrl||'尚未填写'),
+    'TURN：'+(c.turnEnabled?'已配置 · UDP/TCP 3478':'尚未配置'),
+    'TURN TLS：'+(c.turnTlsEnabled?'已启用 5349':'尚未启用'),
+    'Firebase：'+(c.firebaseConfigured?'已导入服务账号':'尚未导入')
+  ];
+  $('setupState').textContent=lines.join('　 |　 ');
+ }catch(e){toast('读取部署状态失败：'+e.message,true);}
+}
+$('deploymentForm').onsubmit=async e=>{
+ e.preventDefault();const btn=e.submitter;btn.disabled=true;
+ try{
+  await api('/api/admin/deployment/config',{siteUrl:$('setupSite').value.trim(),turnHost:$('setupTurn').value.trim()});
+  await deploymentStatus();toast('网站和 TURN 地址已保存，无需重启服务器');
+ }catch(e){toast(e.message,true)}finally{btn.disabled=false}
+};
+$('setupFirebaseSave').onclick=async()=>{
+ if(!secureUpload())return;
+ const file=$('setupFirebaseFile').files?.[0];
+ if(!file){toast('请选择 Admin SDK 服务账号 JSON 文件',true);return}
+ if(file.size>45000){toast('Firebase JSON 文件不能超过 45 KB',true);return}
+ const btn=$('setupFirebaseSave');btn.disabled=true;
+ try{
+  await api('/api/admin/deployment/firebase',{json:await file.text()});
+  $('setupFirebaseFile').value='';await deploymentStatus();toast('Firebase 私钥已安全保存')
+ }catch(e){toast(e.message,true)}finally{btn.disabled=false}
+};
+$('setupTlsSave').onclick=async()=>{
+ if(!secureUpload())return;
+ const cert=$('setupTlsCert').files?.[0],key=$('setupTlsKey').files?.[0];
+ if(!cert||!key){toast('请选择证书与配套私钥文件',true);return}
+ if(cert.size>38000||key.size>38000){toast('证书或私钥文件过大',true);return}
+ const btn=$('setupTlsSave');btn.disabled=true;
+ try{
+  await api('/api/admin/deployment/tls',{certificate:await cert.text(),privateKey:await key.text()});
+  $('setupTlsCert').value='';$('setupTlsKey').value='';
+  await deploymentStatus();toast('TURN TLS 已保存，后台中继服务会自动加载')
+ }catch(e){toast(e.message,true)}finally{btn.disabled=false}
+};
+$('setupTlsClear').onclick=async()=>{
+ if(!confirm('关闭 TURN TLS 5349？UDP/TCP 3478 仍保持可用。'))return;
+ try{await api('/api/admin/deployment/tls/clear',{});await deploymentStatus();toast('TURN TLS 已关闭')}
+ catch(e){toast(e.message,true)}
+};
+$('setupRefresh').onclick=()=>deploymentStatus();
