@@ -23,7 +23,7 @@ const validFcm=x=>typeof x==='string'&&x.length>=20&&x.length<=4096&&/^[\x21-\x7
 const validToken=x=>typeof x==='string'&&/^[A-Za-z0-9_-]{43}$/.test(x);
 const readStatic=name=>fs.readFileSync(new URL(name,import.meta.url));
 
-export function createVoiceService({db,json,reply,inputJson,pairingSecret=process.env.VOICE_PAIRING_SECRET||'',serviceAccountPath=process.env.FCM_SERVICE_ACCOUNT||'',pushCall=null,turnUrls=process.env.VOICE_TURN_URLS||'',turnSecret=process.env.VOICE_TURN_SHARED_SECRET||'',now=()=>Date.now()}){
+export function createVoiceService({db,json,reply,inputJson,pairingSecret=process.env.VOICE_PAIRING_SECRET||'',serviceAccountPath=process.env.FCM_SERVICE_ACCOUNT||'',pushCall=null,turnUrls=process.env.VOICE_TURN_URLS||'',turnSecret=process.env.VOICE_TURN_SHARED_SECRET||'',allowLegacyPairing=process.env.VOICE_ALLOW_LEGACY_PAIRING==='1',now=()=>Date.now()}){
   db.exec(`CREATE TABLE IF NOT EXISTS voice_owner_device (
     id INTEGER PRIMARY KEY CHECK(id=1), auth_digest TEXT NOT NULL,
     fcm_token TEXT NOT NULL, updated_at INTEGER NOT NULL
@@ -176,6 +176,7 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
     if(req.method!=='POST')return send(res,405,'Method not allowed'),true;
     const data=await inputJson(req);
     if(route==='/api/voice/device/register'){
+      if(!allowLegacyPairing)throw bad(410,'旧版配对已停用，请升级 APP 并使用管理员账号密码登录');
       requireOrigin(req);
       if(typeof data.pairingSecret!=='string'||!eq(data.pairingSecret,pairingSecret))throw bad(403,'配对码错误');
       if(!validFcm(data.fcmToken))throw bad(400,'FCM Token 格式不正确');
