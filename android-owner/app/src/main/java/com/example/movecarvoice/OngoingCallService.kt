@@ -53,6 +53,9 @@ class OngoingCallService : Service() {
     private var localTrack: org.webrtc.AudioTrack? = null
     private var peer: PeerConnection? = null
     private val earlyCandidates = mutableListOf<IceCandidate>()
+    // Queue local SDP/ICE messages when HTTPS signaling temporarily fails.
+    // The polling worker retries them instead of silently losing the answer.
+    private val queuedSignals = ArrayDeque<Pair<String, JSONObject>>()
     private var answered = false
 
     override fun onBind(intent: Intent?) = null
@@ -210,14 +213,33 @@ class OngoingCallService : Service() {
     private fun endpoint(action: String) = "/api/voice/calls/$callId/$action"
     private fun sendSignal(kind: String, payload: JSONObject) {
         if (stopped) return
-        runCatching { VoiceApi.post(base,endpoint("signal"),JSONObject()
-            .put("token",token).put("kind",kind).put("payload",payload)) }
-            .onFailure { Log.w("MoveCarVoice","Signaling request failed: ${it.javaClass.simpleName}") }
+        if (queuedSignals.size>=110) {
+            Log.w("MoveCarVoice","Signaling backlog is full; ICE may fail")
+            return
+        }
+        queuedSignals.addLast(kind to payload)
+        flushSignals()
+    }
+    private fun flushSignals() {
+        while (!stopped && queuedSignals.isNotEmpty()) {
+            val (kind,payload) = queuedSignals.first()
+            val result=runCatching {
+                VoiceApi.post(base,endpoint("signal"),JSONObject()
+                    .put("token",token).put("kind",kind).put("payload",payload))
+            }
+            if (result.isFailure) {
+                Log.w("MoveCarVoice","Signaling delayed; will retry: "+
+                    result.exceptionOrNull()?.javaClass?.simpleName)
+                break
+            }
+            queuedSignals.removeFirst()
+        }
     }
 
     private fun pollSafely() {
         if (stopped) return
         try {
+            flushSignals()
             val result = VoiceApi.post(base,endpoint("events"),JSONObject().put("token",token).put("after",seq))
             val status = result.optString("status")
             if (status != "active") {
