@@ -1,6 +1,6 @@
 FROM node:24-alpine
 WORKDIR /app
-COPY server.mjs request-flow.mjs admin.html admin.css admin.js request-ui.js owner-view.html owner-view.js photo-ui.js /app/
+COPY server.mjs request-flow.mjs voice-service.mjs voice-entry.js voice-page.js voice-page.html admin.html admin.css admin.js request-ui.js owner-view.html owner-view.js photo-ui.js /app/
 COPY upstream/movecar.js /app/upstream/movecar.js
 RUN mkdir -p /app/data && chown -R node:node /app
 USER node
