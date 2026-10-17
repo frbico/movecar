@@ -401,7 +401,9 @@ const server=http.createServer(async(req,res)=>{
       if(route==='/api/admin/deployment/firebase'&&req.method==='POST'){
         if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});
         const data=await inputJson(req,65000);
-        return json(res,200,infrastructure.saveFirebase(data.json));
+        const result=infrastructure.saveFirebase(data.json);
+        voice.resetFirebaseAccess();
+        return json(res,200,result);
       }
       if(route==='/api/admin/deployment/tls'&&req.method==='POST'){
         if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});
