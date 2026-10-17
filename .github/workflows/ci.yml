@@ -61,7 +61,10 @@ jobs:
           sudo chown -R 1000:1000 data/turn
           python3 - <<'PY'
           from pathlib import Path
-          Path('.env').write_text('VOICE_TURN_SHARED_SECRET='+'a'*64+'\\nVOICE_PAIRING_SECRET='+'b'*64+'\\nTURN_EXTERNAL_IP=127.0.0.1\\n')
+          with open('.env','w') as fd:
+              print('VOICE_TURN_SHARED_SECRET='+'a'*64,file=fd)
+              print('VOICE_PAIRING_SECRET='+'b'*64,file=fd)
+              print('TURN_EXTERNAL_IP=127.0.0.1',file=fd)
           PY
           trap 'docker compose -f compose.yaml -f compose.portable.yaml logs --tail=100; docker compose -f compose.yaml -f compose.portable.yaml down' EXIT
           docker compose -f compose.yaml -f compose.portable.yaml up -d --build movecar
