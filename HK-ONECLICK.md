@@ -75,7 +75,7 @@ sudo bash scripts/check-hk.sh
 - coturn REST HMAC 401 challenge 后的真实 **UDP Allocate**；
 - `turn.ssxi.de:5349` 经 CA 校验的 TLS 握手和 STUN Binding。
 
-检查成功仍不能保证中国大陆联通/移动/电信晚高峰低丢包，必须用大陆手机公网链路再进行真实通话。可以从大陆另外一台 Linux/Windows 主机运行 `python3 scripts/turn-probe.py --host turn.ssxi.de`，进一步判断 3478 UDP、5349 TLS 是否可达。
+脚本在服务器本机对 127.0.0.1 测试，TLS SNI 仍使用公开域名，避免云 NAT 回环限制引起误报。**它不能替代外部公网端口可达性检测。** 云安全组、运营商和大陆网络的外部测试仍需执行。\n\n检查成功仍不能保证中国大陆联通/移动/电信晚高峰低丢包，必须用大陆手机公网链路再进行真实通话。可以从大陆另外一台 Linux/Windows 主机运行 `python3 scripts/turn-probe.py --host turn.ssxi.de`，进一步判断 3478 UDP、5349 TLS 是否可达。
 
 ## 四、Android 客户端与 VPN
 
