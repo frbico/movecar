@@ -33,33 +33,163 @@ class MainActivity : Activity() {
         if (VoiceApi.mobileAuth(this).isEmpty()) loginPage() else navigate("home")
     }
 
-    private fun screen(heading: String) {
-        root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(28, 30, 28, 36)
-        }
-        val scroll = ScrollView(this).apply { isFillViewport = true; addView(root) }
-        setContentView(scroll)
-        title(heading, 23f)
+
+    private fun px(value: Int) = OwnerUi.dp(this, value)
+    private fun spacer(size: Int = 12) {
+        root.addView(android.view.View(this), LinearLayout.LayoutParams(1, px(size)))
     }
-    private fun title(value: String, size: Float = 19f) {
-        root.addView(TextView(this).apply { text=value; textSize=size; setPadding(0,14,0,12) })
+    private fun screen(heading: String) {
+        window.statusBarColor = OwnerUi.canvas
+        window.navigationBarColor = OwnerUi.white
+        @Suppress("DEPRECATION")
+        window.decorView.systemUiVisibility =
+            android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or
+            android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+
+        val frame = OwnerUi.vertical(this).apply { setBackgroundColor(OwnerUi.canvas) }
+        val top = OwnerUi.horizontal(this).apply {
+            setPadding(px(20), px(16), px(20), px(12))
+        }
+        val mark = OwnerUi.label(this, "M", 22f, OwnerUi.white, true).apply {
+            gravity = Gravity.CENTER
+            background = OwnerUi.bg(OwnerUi.blue, 15, this@MainActivity)
+        }
+        top.addView(mark, LinearLayout.LayoutParams(px(46), px(46)))
+        val headingCol = OwnerUi.vertical(this).apply { setPadding(px(12), 0, 0, 0) }
+        headingCol.addView(OwnerUi.label(this, "MOVE CAR  /  车主中心", 11f, OwnerUi.muted, true))
+        headingCol.addView(OwnerUi.label(this, heading, 19f, OwnerUi.navy, true))
+        top.addView(headingCol, LinearLayout.LayoutParams(0, -2, 1f))
+        if (page != "login") top.addView(OwnerUi.pill(this, "● 已登录", true))
+        frame.addView(top)
+
+        val scroll = ScrollView(this).apply {
+            isFillViewport = true
+            clipToPadding = false
+        }
+        root = OwnerUi.vertical(this).apply {
+            setPadding(px(20), px(4), px(20), px(30))
+        }
+        scroll.addView(root, android.widget.ScrollView.LayoutParams(-1, -2))
+        frame.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        if (page != "login") frame.addView(bottomNav())
+        setContentView(frame)
+    }
+
+    private fun bottomNav(): LinearLayout {
+        val bar=OwnerUi.horizontal(this).apply {
+            setBackgroundColor(OwnerUi.white)
+            setPadding(px(7), px(8), px(7), px(9))
+            elevation=px(12).toFloat()
+        }
+        val tabs=listOf(
+            Triple("首页", "home", android.R.drawable.ic_menu_view),
+            Triple("挪车", "requests", android.R.drawable.ic_menu_agenda),
+            Triple("通话", "calls", android.R.drawable.sym_action_call),
+            Triple("通知", "channels", android.R.drawable.ic_dialog_email),
+            Triple("设置", "settings", android.R.drawable.ic_menu_manage)
+        )
+        for ((label, route, icon) in tabs) {
+            val selected=page==route || (route=="settings"&&page=="account")
+            val color=if(selected) OwnerUi.blue else OwnerUi.muted
+            val item=OwnerUi.vertical(this).apply {
+                gravity=Gravity.CENTER
+                setPadding(px(3), px(7), px(3), px(5))
+                background=OwnerUi.pressable(this@MainActivity,
+                    if(selected)OwnerUi.softBlue else OwnerUi.white, 13)
+                isClickable=true
+                isFocusable=true
+                contentDescription="切换到"+label
+                setOnClickListener { if(page!=route)navigate(route) }
+            }
+            val iconView=OwnerUi.icon(this,icon,color,21)
+            item.addView(iconView)
+            item.addView(OwnerUi.label(this,label,11f,color,selected).apply {
+                gravity=Gravity.CENTER
+                setPadding(0,px(5),0,0)
+            })
+            bar.addView(item,LinearLayout.LayoutParams(0,px(59),1f).apply {
+                marginStart=px(2);marginEnd=px(2)
+            })
+        }
+        return bar
+    }
+
+    private fun title(value: String, size: Float = 18f) {
+        root.addView(OwnerUi.label(this, value, size, OwnerUi.navy, true).apply {
+            setPadding(0, px(10), 0, px(6))
+        },LinearLayout.LayoutParams(-1,-2))
     }
     private fun note(value: String) {
-        root.addView(TextView(this).apply { text=value; textSize=14f; setPadding(0,5,0,11) })
+        root.addView(OwnerUi.label(this, value, 13.5f, OwnerUi.muted).apply {
+            setLineSpacing(px(2).toFloat(),1f)
+            setPadding(0, px(3), 0, px(8))
+        },LinearLayout.LayoutParams(-1,-2))
+    }
+    private inline fun <T> inCard(block: () -> T): T {
+        val holder=OwnerUi.card(this)
+        root.addView(holder,LinearLayout.LayoutParams(-1,-2).apply{
+            bottomMargin=px(13)
+        })
+        val previous=root
+        root=holder
+        return try{block()}finally{root=previous}
+    }
+    private fun section(heading:String,caption:String="") {
+        title(heading,18f)
+        if(caption.isNotBlank())note(caption)
     }
     private fun field(hint: String, value: String = "", password: Boolean = false): EditText {
-        return EditText(this).also {
-            it.hint=hint; it.setText(value); it.setSingleLine()
-            if (password) it.inputType=InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        val block=OwnerUi.vertical(this)
+        block.addView(OwnerUi.label(this,hint,13f,OwnerUi.navy,true))
+        val edit=EditText(this).apply {
+            setSingleLine()
+            setText(value)
+            textSize=15f
+            setTextColor(OwnerUi.navy)
+            setHintTextColor(OwnerUi.muted)
+            background=OwnerUi.bg(OwnerUi.canvas,12,this@MainActivity,OwnerUi.line)
+            setPadding(px(13),px(12),px(13),px(12))
+            minHeight=px(51)
+            if(password)inputType=InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        block.addView(edit,LinearLayout.LayoutParams(-1,-2).apply{topMargin=px(7)})
+        root.addView(block,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(15)})
+        return edit
+    }
+    private fun check(label:String,enabled:Boolean):CheckBox =
+        CheckBox(this).also {
+            it.text=label
+            it.textSize=14f
+            it.setTextColor(OwnerUi.navy)
+            it.isChecked=enabled
+            it.minHeight=px(48)
+            it.buttonTintList=android.content.res.ColorStateList.valueOf(OwnerUi.blue)
             root.addView(it,LinearLayout.LayoutParams(-1,-2))
         }
+    private fun action(label:String,primary:Boolean=false,danger:Boolean=false,callback:()->Unit) {
+        val surface=if(primary)OwnerUi.blue else if(danger)OwnerUi.softRed else OwnerUi.white
+        val foreground=if(primary)OwnerUi.white else if(danger)OwnerUi.red else OwnerUi.blue
+        val button=OwnerUi.label(this,label,14f,foreground,true).apply {
+            gravity=Gravity.CENTER
+            minHeight=px(48)
+            setPadding(px(14),px(12),px(14),px(12))
+            background=OwnerUi.pressable(this@MainActivity,surface,13,
+                if(primary)null else if(danger)OwnerUi.softRed else OwnerUi.line)
+            isClickable=true
+            isFocusable=true
+            setOnClickListener{callback()}
+        }
+        root.addView(button,LinearLayout.LayoutParams(-1,-2).apply {
+            topMargin=px(6);bottomMargin=px(5)
+        })
     }
-    private fun check(label: String, enabled: Boolean): CheckBox = CheckBox(this).also {
-        it.text=label; it.isChecked=enabled; root.addView(it)
+    private fun status(text:String,good:Boolean?=null) {
+        root.addView(OwnerUi.pill(this,text,good),LinearLayout.LayoutParams(-2,-2).apply{
+            topMargin=px(2);bottomMargin=px(8)
+        })
     }
-    private fun action(label: String, callback: () -> Unit) {
-        root.addView(Button(this).apply { text=label; setOnClickListener { callback() } },LinearLayout.LayoutParams(-1,-2))
+    private fun empty(heading:String,description:String){
+        inCard {root.addView(OwnerUi.centerEmpty(this,heading,description))}
     }
     private fun notify(message: String) { Toast.makeText(this,message,Toast.LENGTH_LONG).show() }
     private fun base() = VoiceApi.base(this).ifBlank { homeUrl }
@@ -199,14 +329,7 @@ class MainActivity : Activity() {
         }.start()
     }
 
-    private fun shell(title:String) {
-        screen(title)
-        val row=LinearLayout(this).apply {orientation=LinearLayout.HORIZONTAL}
-        listOf("首页" to "home","挪车" to "requests","通话" to "calls","通知" to "channels","设置" to "settings","账号" to "account").forEach { pair ->
-            row.addView(Button(this).apply {text=pair.first;textSize=11f;setOnClickListener { navigate(pair.second) }},LinearLayout.LayoutParams(0,-2,1f))
-        }
-        root.addView(HorizontalScrollView(this).apply { addView(row) })
-    }
+    private fun shell(title:String) { screen(title) }
     private fun navigate(next:String) {
         page=next
         when(next){
