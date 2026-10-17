@@ -17,7 +17,7 @@ if [[ -f .env ]];then
 fi
 [[ -n "$SITE" && -n "$TURN" ]] || { echo 'Set --site and --turn, or deploy via deploy-hk.sh first.' >&2; exit 2; }
 echo "HTTPS website: https://$SITE"
-curl -fsS --connect-timeout 7 --max-time 20 --resolve "$SITE:443:127.0.0.1" "https://$SITE/healthz"
+curl -fsS --noproxy '*' --connect-timeout 7 --max-time 20 --resolve "$SITE:443:127.0.0.1" "https://$SITE/healthz"
 echo
 echo "Voice API:"
 curl -fsS --connect-timeout 7 --max-time 20 --resolve "$SITE:443:127.0.0.1" "https://$SITE/api/voice/config"
@@ -27,9 +27,9 @@ curl -fsS --connect-timeout 7 --max-time 20 --resolve "$TURN:443:127.0.0.1" "htt
 echo "PASS HTTPS site + TURN certificate hostname"
 echo
 if [[ -f .env ]];then
-  python3 scripts/turn-probe.py --host "$TURN" --connect-ip 127.0.0.1 --connect-ip 127.0.0.1 --secret-env-file .env
+  python3 scripts/turn-probe.py --host "$TURN" --connect-ip 127.0.0.1 --secret-env-file .env
 else
-  python3 scripts/turn-probe.py --host "$TURN"
+  python3 scripts/turn-probe.py --host "$TURN" --connect-ip 127.0.0.1
 fi
 echo
 if command -v docker >/dev/null 2>&1;then
