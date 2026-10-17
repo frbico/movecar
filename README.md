@@ -199,8 +199,10 @@ docker compose -f compose.yaml ps
 Android CI 产出的占位 Firebase APK **不能用于实际来电**；需为仓库 Actions 配置 `MOVECAR_GOOGLE_SERVICES_JSON_B64` 后，在本分支触发一次 Android 构建。需要配置服务端 Firebase 服务账号（不得提交仓库）和必要的 TURN 服务。
 
 
-## 🇭🇰 香港单机部署（MoveCar + Caddy + coturn）
+## 🇭🇰 1Panel 香港一键部署（MoveCar + TURN）
 
-如果车主的三星手机在中国大陆依赖 VPN 接收 Google FCM，扫码者也在中国大陆，可以选择 **香港一台 VPS 同时运行 MoveCar 和 coturn**，并用独立 UDP/TCP/TLS 端口与 DNS-only TURN 域名服务。无需购买第二台 TURN 服务器；但 TURN 数据不能通过普通 HTTP 反向代理。项目提供 [一键部署、东京迁移、证书续期和网络自检文档](HK-ONECLICK.md)，及 `scripts/deploy-hk.sh`、`scripts/export-db.sh`、`scripts/check-hk.sh`。
+**使用你已经安装的 1Panel 管理 HTTPS、反向代理和现有泛域名证书。** 项目只部署 MoveCar 与 coturn，不会安装 Caddy / Nginx / 第二套 ACME 证书管理。一个香港 VPS、一份 Docker Compose、一条部署命令即可建立 WebRTC 优先直连 + TURN UDP/TCP/TLS 备用路径。支持 1Panel OpenResty host 与 `1panel-network` 两种代理方式，并提供数据库迁移、证书续期同步与端口自检。
 
-此功能仍在独立开发分支，需要香港服务器的 Docker、域名 DNS、安全组和 Firebase 服务器私钥。**不会自动修改现有东京服务器，也不会自动替你修改 VPN 分流规则。**
+[查看快速安装、1Panel 反代设置、从东京迁移和换域名说明](HK-ONECLICK.md)。源码在 `scripts/deploy-hk.sh`、`compose.hk.yaml` 和 `scripts/check-hk.sh`。
+
+**不会擅自修改 1Panel 现有网站，也不会直接替你切换 DNS 或手机 VPN 路由。**

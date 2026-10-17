@@ -59,6 +59,7 @@ def main():
     ap.add_argument('--connect-ip',help='Optional direct IP for local probe, while preserving TLS SNI/hostname validation')
     ap.add_argument('--port',type=int,default=3478)
     ap.add_argument('--tls-port',type=int,default=5349)
+    ap.add_argument('--no-tls',action='store_true',help='Skip TLS 5349 when no 1Panel cert is configured')
     ap.add_argument('--secret-env-file',help='MoveCar .env holding VOICE_TURN_SHARED_SECRET')
     args=ap.parse_args()
     host=args.host.strip()
@@ -101,6 +102,9 @@ def main():
                 raise RuntimeError('TURN authenticated UDP allocation failed (code='+code+')')
             print('PASS: authenticated UDP TURN Allocate with short-lived REST credentials')
     finally:sock.close()
+    if args.no_tls:
+        print('SKIP: TURN/TLS 5349 not enabled (provide 1Panel wildcard certificate paths)')
+        return
     # Also test TLS certificate hostname/trust and that coturn accepts STUN over TLS.
     context=ssl.create_default_context()
     with socket.create_connection((dest,args.tls_port),timeout=7) as raw:

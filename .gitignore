@@ -16,3 +16,6 @@ upstream/LICENSE
 
 # Host-specific HK Caddyfile, TURN auth settings and certificates
 deployment/hk/
+
+# Generated 1Panel/coturn config contains the shared TURN authentication secret
+deployment/onepanel/
