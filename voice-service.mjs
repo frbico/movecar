@@ -228,7 +228,17 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
         calls.delete(callId);setStatus(c,'failed');
         // FCM itself failed. This isn't an actual ringing attempt.
         const r=limit.get(ip);
-        if(r&&r.last===c.created){r.last=0;r.count=Math.max(0,r.count-1);}
+        if(r){
+          r.last=0;
+          r.count=Math.max(0,r.count-1);
+          // Sending FCM failed before any call was actually delivered.
+          // Restore a just-consumed retry ticket for a legitimate caller.
+          if(depth>0&&validToken(data.retryToken)){
+            r.retryHash=sha(data.retryToken);
+            r.retryUntil=now()+120000;
+            r.pendingDepth=depth;
+          }
+        }
         throw e;
       }
       json(res,200,{callId,token:callerToken,expiresIn:35,iceServers:iceServers()});return true;
