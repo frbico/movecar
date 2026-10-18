@@ -13,6 +13,7 @@ test('native owner sign-in, authentication, notifications, records, and account 
   settings.set('admin_salt',salt);
   settings.set('admin_hash',crypto.scryptSync('correct-password',salt,64).toString('hex'));
   let deviceAuth='';let revokeCount=0;let confirmationId='',deletedId='';let pushes=[];
+  let callHistory=[{callId:'test',status:'ended',startedAt:123456,updatedAt:123457}];
   const voice={
     registerMobileDevice(fcm){assert.ok(fcm.length>10);deviceAuth=crypto.randomBytes(32).toString('base64url');return deviceAuth;},
     unregisterMobileDevice(auth){if(auth===deviceAuth){revokeCount++;deviceAuth='';return true;}return false;},
@@ -23,7 +24,8 @@ test('native owner sign-in, authentication, notifications, records, and account 
       maxFastRetries:Number(settings.get('voice_fast_retries')||2),
       testMode:settings.get('voice_test_mode')==='1'};},
     resetCallRateLimits(){return true;},
-    listCallHistory(){return [{callId:'test',status:'ended',startedAt:123456,updatedAt:123457}];}
+    listCallHistory(){return callHistory;},
+    clearCallHistory(){const count=callHistory.length;callHistory=[];return count;}
   };
   const flow={
     retentionLimit:()=>Number(settings.get('request_retention_limit')||50),count:()=>1,
@@ -56,6 +58,15 @@ test('native owner sign-in, authentication, notifications, records, and account 
     assert.equal(login.status,200);assert.ok(login.data.deviceAuth);const token=login.data.token;
     const config=await call('config',undefined,token);
     assert.equal(config.status,200);assert.equal(config.data.channels.app.configured,true);
+    const initialCalls=await call('calls',undefined,token);
+    assert.equal(initialCalls.data.items.length,1);
+    assert.equal((await call('calls/clear',{},token)).status,400,'requires explicit confirmation');
+    assert.equal((await call('calls/clear',{confirm:true})).status,401,'only signed-in owner may clear history');
+    const cleared=await call('calls/clear',{confirm:true},token);
+    assert.equal(cleared.status,200);
+    assert.equal(cleared.data.deleted,1);
+    assert.deepEqual((await call('calls',undefined,token)).data.items,[]);
+
     assert.equal(config.data.voicePolicy.dailyLimit,8);
     const newPolicy=await call('voice-policy',{
       dailyLimit:40,cooldownSeconds:5,maxFastRetries:4,testMode:true
