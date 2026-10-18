@@ -136,10 +136,12 @@ if(fs.existsSync("/app/data/state.sqlite")){
  const db=new DatabaseSync("/app/data/state.sqlite");
  try{await backup(db,"/app/data/movecar-preupdate.sqlite");}finally{db.close();}
 }' || FAIL "Failed to create consistent SQLite backup; nothing changed"
-  docker cp movecar:/app/data/movecar-preupdate.sqlite "$ARCHIVE/state.sqlite" >/dev/null 2>&1 || true
+  docker cp movecar:/app/data/movecar-preupdate.sqlite "$ARCHIVE/state.sqlite" >/dev/null ||
+    FAIL "Database backup copy failed; stopped before modifying program"
   docker exec movecar rm -f /app/data/movecar-preupdate.sqlite >/dev/null 2>&1 || true
   mkdir -p "$ARCHIVE/app-data"
-  docker cp 'movecar:/app/data/.' "$ARCHIVE/app-data/" >/dev/null 2>&1 || true
+  docker cp 'movecar:/app/data/.' "$ARCHIVE/app-data/" >/dev/null ||
+    FAIL "App data backup failed; stopped before modifying program"
 fi
 chmod -R go-rwx "$ARCHIVE"
 status running '备份完成，正在安全更新 Git 代码与 Docker 容器…' "$PREVIOUS" "$TARGET"
@@ -175,6 +177,16 @@ if (( fetch_rc == 0 ));then
  "${COMPOSE[@]}" up -d --build movecar coturn
  update_rc=$?
 else update_rc=1;fi
+if (( update_rc == 0 ));then
+  # Verify the *new* container actually exposes the requested revision; a
+  # surviving old service on port 8888 would otherwise yield a false success.
+  running_sha="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' movecar 2>/dev/null |
+    sed -n 's/^MOVECAR_COMMIT_SHA=//p' | head -1)"
+  if [[ "$running_sha" != "$TARGET" ]];then
+    echo "Rebuilt container revision mismatch: expected $TARGET, found $running_sha" >&2
+    update_rc=1
+  fi
+fi
 if (( update_rc == 0 ));then
   good=0
   for i in $(seq 1 45);do
