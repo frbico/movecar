@@ -48,6 +48,37 @@ jobs:
           curl --fail --silent http://127.0.0.1:18888/owner-view.js | grep -q confirm-move
           curl --fail --silent http://127.0.0.1:18888/admin | grep -q MoveCar
 
+
+  cert-reuse-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Discover existing website PEM files and import without revealing key
+        run: |
+          mkdir -p data/turn/tls data/testcert
+          openssl req -x509 -newkey rsa:2048 -nodes -days 5 -sha256 \
+            -subj '/CN=turn.example.test' \
+            -addext 'subjectAltName=DNS:turn.example.test' \
+            -keyout data/testcert/privkey.pem -out data/testcert/fullchain.pem >/dev/null 2>&1
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          Path('data/turn/cert-source.json').write_text(json.dumps({
+            'mode':'directory',
+            'directory':os.path.abspath('data/testcert'),
+            'turnHost':'turn.example.test'}))
+          PY
+          sudo python3 scripts/sync-host-cert.py "$PWD"
+          sudo test -s data/turn/tls/fullchain.pem
+          sudo test -s data/turn/tls/privkey.pem
+          sudo python3 - <<'PY'
+          import json
+          from pathlib import Path
+          status=json.loads(Path('data/turn/cert-sync-status.json').read_text())
+          assert status['ok'], status['message']
+          print('PASS website certificate directory matching and private TLS sync')
+          PY
+
   turn-runtime-smoke:
     runs-on: ubuntu-latest
     steps:
