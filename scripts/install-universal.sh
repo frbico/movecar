@@ -102,8 +102,26 @@ Persistent=true
 [Install]
 WantedBy=timers.target
 EOF
+ cat >/etc/systemd/system/movecar-turn-health.service <<EOF
+[Unit]
+Description=Verify authenticated local TURN allocation for MoveCar wizard
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 $DIR/scripts/host-health.py $DIR
+EOF
+ cat >/etc/systemd/system/movecar-turn-health.timer <<EOF
+[Unit]
+Description=Check TURN health once a minute
+[Timer]
+OnBootSec=20s
+OnUnitActiveSec=1min
+Persistent=true
+[Install]
+WantedBy=timers.target
+EOF
  systemctl daemon-reload
  systemctl enable --now movecar-cert-sync.timer >/dev/null
+ systemctl enable --now movecar-turn-health.timer >/dev/null
  echo '已启用网站证书只读同步助手（由原证书管理器继续负责签发续期）'
 else
  echo '提醒：系统没有 systemd，后台可手动上传证书；目录自动同步需要配置 cron。'
