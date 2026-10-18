@@ -513,109 +513,124 @@ class MainActivity : Activity() {
             }
         }
     }
+    private fun compactControl(text:String, color:Int=OwnerUi.blue, task:()->Unit):TextView =
+        OwnerUi.label(this,text,12.5f,color,true).apply {
+            setPadding(px(7),px(9),px(7),px(9))
+            gravity=Gravity.CENTER
+            isClickable=true;isFocusable=true
+            background=OwnerUi.pressable(this@MainActivity,OwnerUi.white,7)
+            setOnClickListener{task()}
+        }
+
+    private fun formattedTime(time:Long):String =
+        DateFormat.getDateTimeInstance(DateFormat.MEDIUM,DateFormat.SHORT)
+            .format(Date(time))
+
     private fun loadRequests(force:Boolean=false){
         val requestedPage=historyPage
         fetchPage("/api/mobile/requests?page="+requestedPage+"&size=20",force){result->
-            if(page!="requests"||historyPage!=requestedPage)return@api
+            if(page!="requests"||historyPage!=requestedPage)return@fetchPage
             shell("挪车请求")
             val total=result.optInt("total")
-            section("请求记录", "共 "+total+" 条 · 第 "+historyPage+" 页")
-            inCard{
-                action("⟳  刷新请求列表"){loadRequests()}
-            }
+            note("共 "+total+" 条 · 第 "+historyPage+" 页　　右上角 ↻ 同步")
             val items=result.optJSONArray("items")
-            if(items==null||items.length()==0) {
-                empty("目前没有挪车请求","收到新的扫码留言后，会显示在这里。")
-            }else for(i in 0 until items.length()){
-                val item=items.getJSONObject(i)
-                val id=item.getString("id")
-                val state=item.optString("status")
-                val desc=when(state){
-                    "waiting"->"待处理"
-                    "confirmed"->"已确认"
-                    "expired"->"已过期"
-                    else->state
-                }
-                inCard{
-                    val heading=OwnerUi.horizontal(this@MainActivity)
-                    val date=DateFormat.getDateTimeInstance(DateFormat.MEDIUM,DateFormat.SHORT)
-                        .format(Date(item.optLong("createdAt")))
-                    heading.addView(OwnerUi.label(this@MainActivity,date,13f,OwnerUi.muted),
+            if(items==null||items.length()==0){
+                empty("目前没有挪车请求","收到扫码留言后，这里将自动保存记录。")
+            }else inCard {
+                for(i in 0 until items.length()){
+                    if(i>0)root.addView(OwnerUi.line(this@MainActivity))
+                    val item=items.getJSONObject(i)
+                    val id=item.optString("id")
+                    val state=item.optString("status")
+                    val label=when(state){"waiting"->"待处理";"confirmed"->"已确认";"expired"->"已过期";else->state}
+                    val itemRow=OwnerUi.vertical(this@MainActivity).apply {
+                        setPadding(px(0),px(11),px(0),px(10))
+                    }
+                    val header=OwnerUi.horizontal(this@MainActivity)
+                    header.addView(OwnerUi.label(this@MainActivity,
+                        formattedTime(item.optLong("createdAt")),12f,OwnerUi.muted),
                         LinearLayout.LayoutParams(0,-2,1f))
-                    heading.addView(OwnerUi.pill(this@MainActivity,desc,
+                    header.addView(OwnerUi.pill(this@MainActivity,label,
                         if(state=="confirmed")true else if(state=="waiting")false else null))
-                    root.addView(heading)
-                    title(item.optString("message").ifBlank{"有人请求挪车"},16f)
-                    if(item.optBoolean("photoSent"))note("已提交现场照片")
+                    itemRow.addView(header)
+                    val message=OwnerUi.label(this@MainActivity,
+                        item.optString("message").ifBlank{"有人请求挪车"},14.5f,OwnerUi.navy,true).apply {
+                            setPadding(0,px(5),0,px(2));maxLines=3;ellipsize=android.text.TextUtils.TruncateAt.END
+                        }
+                    itemRow.addView(message)
+                    val actions=OwnerUi.horizontal(this@MainActivity)
                     val photo=item.optString("photoUrl")
                     if(photo.startsWith("/"))
-                        action("查看现场照片 ↗"){browse(base()+photo)}
-                    if(state=="waiting")
-                        action("确认已收到挪车请求",primary=true){
-                            api("/api/mobile/requests/confirm",JSONObject().put("id",id)){
-                                notify("挪车请求已确认");loadRequests()
-                            }
+                        actions.addView(compactControl("📷  查看照片"){browse(base()+photo)})
+                    else if(item.optBoolean("photoSent"))
+                        actions.addView(OwnerUi.label(this@MainActivity,"照片已过期",12f,OwnerUi.muted))
+                    if(state=="waiting")actions.addView(compactControl("✓  确认收到") {
+                        api("/api/mobile/requests/confirm",JSONObject().put("id",id)){
+                            notify("已确认");loadRequests(true)
                         }
-                    action("删除这条记录",danger=true){confirm("删除该条挪车记录及照片？"){
-                        api("/api/mobile/requests/delete",JSONObject().put("id",id)){loadRequests()}
-                    }}
+                    })
+                    actions.addView(android.view.View(this@MainActivity),LinearLayout.LayoutParams(0,1,1f))
+                    actions.addView(compactControl("删除",OwnerUi.red) {
+                        confirm("删除该条挪车记录及其照片？"){
+                            api("/api/mobile/requests/delete",JSONObject().put("id",id)){loadRequests(true)}
+                        }
+                    })
+                    itemRow.addView(actions)
+                    root.addView(itemRow)
                 }
             }
-            if(historyPage>1)action("← 上一页"){historyPage--;loadRequests()}
-            if(historyPage*20<total)action("下一页 →"){historyPage++;loadRequests()}
-            spacer(15)
-            inCard{
-                title("管理数据",15f)
-                note("清空操作无法恢复，建议先确认无待处理请求。")
-                action("清空全部挪车记录",danger=true){
-                    confirm("确认永久删除全部挪车记录和关联照片？"){
-                        api("/api/mobile/requests/clear",JSONObject().put("confirm",true)){
-                            historyPage=1;loadRequests()
-                        }
+            val paging=OwnerUi.horizontal(this).apply{gravity=Gravity.CENTER}
+            if(historyPage>1)paging.addView(compactControl("← 上一页") {historyPage--;navigate("requests")})
+            if(historyPage*20<total)paging.addView(compactControl("下一页 →") {historyPage++;navigate("requests")})
+            root.addView(paging,LinearLayout.LayoutParams(-1,-2))
+            spacer(12)
+            action("清空全部挪车记录",danger=true){
+                confirm("永久删除所有挪车记录和照片？"){
+                    api("/api/mobile/requests/clear",JSONObject().put("confirm",true)){
+                        historyPage=1;loadRequests(true)
                     }
                 }
             }
         }
     }
-    private fun confirm(message:String,yes:()->Unit){AlertDialog.Builder(this).setMessage(message).setNegativeButton("取消",null).setPositiveButton("确定") {_,_->yes()}.show()}
+
+    private fun confirm(message:String,yes:()->Unit){
+        AlertDialog.Builder(this).setMessage(message)
+            .setNegativeButton("取消",null)
+            .setPositiveButton("确定") {_,_->yes()}.show()
+    }
     private fun calls(result:JSONObject){
         shell("来电记录")
-        section("匿名语音历史","来电接听状态由 MoveCar 服务器记录")
-        inCard{action("⟳  刷新通话记录"){navigate("calls")}}
         val items=result.optJSONArray("items")
+        note("匿名来电历史 · 共 "+(items?.length()?:0)+" 条　　右上角 ↻ 同步")
         if(items==null||items.length()==0){
-            empty("暂无通话记录","扫码者通过网页呼叫后，记录会自动显示。")
+            empty("暂无通话记录","接收到的语音来电会显示在这里。")
             return
         }
-        for(i in 0 until items.length()){
-            val item=items.getJSONObject(i)
-            val raw=item.optString("status")
-            val state=when(raw){
-                "ringing"->"振铃中"
-                "active"->"已接通"
-                "missed"->"未接听"
-                "ended"->"已结束"
-                "rejected"->"已拒绝"
-                "failed"->"呼叫失败"
-                else->raw
-            }
-            inCard{
-                val header=OwnerUi.horizontal(this@MainActivity)
-                val icon=OwnerUi.icon(this@MainActivity,
-                    android.R.drawable.sym_action_call,
-                    if(raw=="missed"||raw=="rejected")OwnerUi.red else OwnerUi.blue,26)
-                header.addView(icon)
-                val content=OwnerUi.vertical(this@MainActivity).apply{
-                    setPadding(px(15),0,0,0)
+        inCard {
+            for(i in 0 until items.length()){
+                val item=items.getJSONObject(i)
+                val raw=item.optString("status")
+                val state=when(raw){
+                    "ringing"->"振铃中";"active"->"通话中";"missed"->"未接听"
+                    "ended"->"已结束";"rejected"->"已拒绝";"failed"->"连接失败";else->raw
                 }
-                content.addView(OwnerUi.label(this@MainActivity,
-                    "匿名网络语音",16f,OwnerUi.navy,true))
-                val date=DateFormat.getDateTimeInstance(DateFormat.MEDIUM,DateFormat.SHORT)
-                    .format(Date(item.optLong("startedAt")))
-                content.addView(OwnerUi.label(this@MainActivity,date,12f,OwnerUi.muted))
-                header.addView(content,LinearLayout.LayoutParams(0,-2,1f))
-                header.addView(OwnerUi.pill(this@MainActivity,state,raw=="ended"||raw=="active"))
-                root.addView(header)
+                val problem=raw=="missed"||raw=="rejected"||raw=="failed"
+                val row=OwnerUi.horizontal(this@MainActivity).apply {
+                    setPadding(px(3),px(10),px(2),px(10))
+                }
+                val icon=OwnerUi.label(this@MainActivity,if(problem)"↙" else "↗",
+                    24f,if(problem)OwnerUi.red else OwnerUi.green,true).apply{gravity=Gravity.CENTER}
+                row.addView(icon,LinearLayout.LayoutParams(px(40),px(40)))
+                val info=OwnerUi.vertical(this@MainActivity)
+                info.addView(OwnerUi.label(this@MainActivity,"匿名网络语音",14.5f,OwnerUi.navy,true))
+                info.addView(OwnerUi.label(this@MainActivity,
+                    formattedTime(item.optLong("startedAt")),12f,OwnerUi.muted))
+                row.addView(info,LinearLayout.LayoutParams(0,-2,1f))
+                row.addView(OwnerUi.label(this@MainActivity,state,12f,
+                    if(problem)OwnerUi.red else OwnerUi.muted,true))
+                root.addView(row)
+                if(i<items.length()-1)root.addView(OwnerUi.line(this@MainActivity))
             }
         }
     }
