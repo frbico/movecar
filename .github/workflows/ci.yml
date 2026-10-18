@@ -23,6 +23,7 @@ jobs:
           node --check server.mjs
           node --check voice-service.mjs
           node --check voice-page.js
+          node --check voice-entry.js
           node --check admin.js
           node --check request-flow.mjs
           node --check request-ui.js
