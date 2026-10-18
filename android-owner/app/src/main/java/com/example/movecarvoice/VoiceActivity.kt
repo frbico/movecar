@@ -105,8 +105,12 @@ class VoiceActivity : Activity() {
             pendingAuth=auth
             // Do not keep private bearer tokens in the Activity intent after handoff.
             intent.removeExtra("ownerToken")
-        } else if (OngoingCallService.currentCallId==null) {
-            status.text="暂无进行中的通话"
+        } else {
+            // Return-to-call from the ongoing notification carries no bearer
+            // token. Reattach to the already running foreground service.
+            id = OngoingCallService.currentCallId.orEmpty()
+            if (id.isBlank()) status.text="暂无进行中的通话"
+            else callWasActive=true
         }
     }
     override fun onResume() { super.onResume();handler.post(updateUi) }
