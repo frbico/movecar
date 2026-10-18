@@ -794,6 +794,45 @@ class MainActivity : Activity() {
                 api("/api/mobile/settings",data){notify("基本设置保存成功");navigate("settings")}
             }
         }
+        section("语音呼叫限制")
+        val voicePolicy=config.optJSONObject("voicePolicy") ?: JSONObject()
+        inCard {
+            note("扫码语音通话：设置后立即生效，不影响挪车留言")
+            val daily=field("24 小时最多尝试次数（0=不限）",
+                voicePolicy.optInt("dailyLimit",8).toString())
+            val cooldown=field("两次拨打间隔（秒，0=无等待）",
+                voicePolicy.optInt("cooldownSeconds",90).toString())
+            val retries=field("网络失败可立即重拨次数（0–10）",
+                voicePolicy.optInt("maxFastRetries",2).toString())
+            val testing=check("测试模式：不限制普通拨打次数与间隔",
+                voicePolicy.optBoolean("testMode",false))
+            note("测试模式公开生效，仍保留单路并发保护；正式投入使用后请关闭。")
+            action("保存语音通话规则",primary=true) {
+                val a=daily.text.toString().toIntOrNull()
+                val b=cooldown.text.toString().toIntOrNull()
+                val c=retries.text.toString().toIntOrNull()
+                if(a==null||a !in 0..500||b==null||b !in 0..3600||
+                    c==null||c !in 0..10){
+                    notify("请输入正确的通话限制范围");return@action
+                }
+                val send={
+                    api("/api/mobile/voice-policy",JSONObject()
+                        .put("dailyLimit",a).put("cooldownSeconds",b)
+                        .put("maxFastRetries",c).put("testMode",testing.isChecked)){
+                        notify("语音规则已保存");navigate("settings")
+                    }
+                }
+                if(testing.isChecked)confirm("开启测试模式后，陌生扫码者也可以连续呼叫，确认吗？",send)
+                else send()
+            }
+            action("清除今日测试次数与冷却记录") {
+                confirm("清除当前呼叫次数和冷却状态？不会删除通话历史。"){
+                    api("/api/mobile/voice-policy/reset",JSONObject()){
+                        notify("已清除测试次数，可以立即继续拨打")
+                    }
+                }
+            }
+        }
         section("品牌与图标")
         inCard{
             status(if(config.optBoolean("siteIconConfigured"))"● 已设置自定义图标" else "使用默认网站图标",
@@ -833,7 +872,7 @@ class MainActivity : Activity() {
             action("更换服务器或域名"){confirm("切换后将返回登录界面，请输入新服务器 HTTPS 域名，使用管理员账号重新登录。原服务器数据不会删除。"){
                 clearLogin()
             }}
-            note("MoveCar Owner v0.5 · 缓存优先、后台定时刷新和锁屏通话")
+            note("MoveCar Owner v0.5.1 · 锁屏来电诊断与语音次数设置")
         }
     }
     private fun account(config:JSONObject){
