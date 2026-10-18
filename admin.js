@@ -185,3 +185,13 @@ $('setupTlsClear').onclick=async()=>{
  catch(e){toast(e.message,true);}
 };
 renderSetupStep();
+
+async function refreshCertificateState(){
+ if(view!=='setup'||setupStep!==2)return;
+ try{
+  const c=await api('/api/admin/deployment');
+  $('setupCertState').textContent=(c.turnTlsEnabled?'✓ TURN TLS 已启用。':'TURN TLS 尚未启用。')+
+    (c.certificateCheck?.message||'请自动查找网站证书、填写目录或上传 PEM。');
+ }catch{}
+}
+setInterval(()=>void refreshCertificateState(),12000);
