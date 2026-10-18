@@ -5,12 +5,19 @@
 *{box-sizing:border-box}body{font-family:system-ui,-apple-system,Roboto,sans-serif;margin:0;min-height:100vh;background:#f3f7f9;color:#173f4b;display:grid;place-items:center;padding:20px}
 main{background:white;max-width:470px;width:100%;padding:28px 22px;border-radius:20px;box-shadow:0 8px 25px #173f4b10;text-align:center}
 h1{font-size:23px}p{line-height:1.6;color:#4b636e}button{border:0;padding:17px 20px;border-radius:14px;font-size:17px;font-weight:bold;width:100%;margin-top:14px;cursor:pointer}
-#start{background:#117b63;color:white}#hangup{background:#b43c42;color:white}#hangup[hidden],#start[hidden]{display:none}
+#start{background:#008069;color:white}#hangup{background:#b43c42;color:white}
+#speaker{background:#e8f5ee;color:#075e54;border:1px solid #b2d9c9}
+#hangup[hidden],#start[hidden],#speaker[hidden]{display:none}
+button{transition:background .2s ease}button:focus-visible{outline:3px solid #39bba3}
+
 #status{font-weight:600}#timer{font-variant-numeric:tabular-nums}small{display:block;margin-top:20px;color:#617985}
 </style></head><body>
 <main><div style="font-size:46px">📞</div><h1 id="title">匿名网络语音</h1>
 <p id="status" role="status" aria-live="polite">准备就绪</p><p id="timer"></p><p id="diag" style="font-size:12px;color:#607483" aria-live="off"></p>
-<button id="start">开始语音呼叫</button><button id="hangup" hidden>挂断通话</button>
+<button id="start">开始语音呼叫</button>
+<button id="speaker" hidden type="button" aria-pressed="false">🔈 切换免提</button>
+<button id="hangup" hidden>挂断通话</button>
+<p id="audioRouteNote" style="font-size:12px;color:#617985" role="status" aria-live="polite"></p>
 <audio id="remote" autoplay playsinline></audio>
 <small>全程使用网络数据、不显示双方手机号。请允许麦克风权限。无人接听时约 35 秒自动结束。通话最长 10 分钟。</small>
 </main><script src="/voice-page.js" defer></script></body></html>
