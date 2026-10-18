@@ -41,6 +41,7 @@ export function createMobileOwner({db,setting,save,deleteSetting,inputJson,json,
     return {
       username:username(),siteIconConfigured:!!iconGet.get(),siteName:setting('site_name','呼叫车主挪车'),publicUrl:setting('public_url'),
       phoneNumber:setting('phone_number'),wechatId:setting('wechat_id'),
+      voicePolicy:voice.getCallPolicy(),
       rateLimitSeconds:Number(setting('rate_limit_seconds','60')),
       requestRetentionLimit:requestFlow.retentionLimit(),requestCount:requestFlow.count(),
       channels:{
@@ -136,6 +137,27 @@ export function createMobileOwner({db,setting,save,deleteSetting,inputJson,json,
       for(const [name,value] of pending){if(value===null)deleteSetting(name);else save(name,value);}
       for(const key of channelKeys)if(typeof data[key+'Enabled']==='boolean')save('notify_'+key+'_enabled',data[key+'Enabled']?'1':'0');
       json(res,200,{ok:true,channels:responseConfig().channels});return true;
+    }
+    if(action==='voice-policy'){
+      const rules=[
+        ['dailyLimit',0,500],['cooldownSeconds',0,3600],['maxFastRetries',0,10]
+      ];
+      for(const [field,min,max] of rules){
+        if(!Number.isInteger(data[field])||data[field]<min||data[field]>max)
+          throw fail(400,field+' 超出范围');
+      }
+      if(typeof data.testMode!=='boolean')throw fail(400,'测试模式格式错误');
+      if(!data.testMode&&data.dailyLimit===0&&data.cooldownSeconds===0)
+        throw fail(400,'正式模式不能同时取消次数和间隔限制');
+      save('voice_daily_limit',data.dailyLimit);
+      save('voice_cooldown_seconds',data.cooldownSeconds);
+      save('voice_fast_retries',data.maxFastRetries);
+      save('voice_test_mode',data.testMode?'1':'0');
+      json(res,200,{ok:true,voicePolicy:voice.getCallPolicy()});return true;
+    }
+    if(action==='voice-policy/reset'){
+      voice.resetCallRateLimits();
+      json(res,200,{ok:true});return true;
     }
     if(action==='settings'){
       if(typeof data.siteName!=='string'||data.siteName.trim().length<1||data.siteName.trim().length>40)throw fail(400,'站点名称须为 1–40 字');

@@ -42,7 +42,10 @@ class MainActivity : Activity() {
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 10)
         }
-        if (VoiceApi.mobileAuth(this).isEmpty()) loginPage() else navigate(if(intent.getStringExtra("openPage")=="requests")"requests" else "home")
+        if (VoiceApi.mobileAuth(this).isEmpty()) loginPage() else {
+            navigate(if(intent.getStringExtra("openPage")=="requests")"requests" else "home")
+            window.decorView.post { promptCallPermissionsOnce() }
+        }
     }
 
 
@@ -364,6 +367,7 @@ class MainActivity : Activity() {
                         OwnerCache.invalidate(this)
                         notify("后台登录成功，正在绑定消息推送")
                         navigate("home")
+                        window.decorView.post { promptCallPermissionsOnce() }
                         bindPushAfterLogin(url, bearer)
                     }.onFailure {
                         status.text = "登录失败：" + (it.message ?: "服务器连接异常")
@@ -702,8 +706,65 @@ class MainActivity : Activity() {
             notify("已提交推送："+it.optJSONObject("channels")?.toString())
         }
     }
+    private fun showCallPermissionStatus() {
+        if(Build.VERSION.SDK_INT<26)return
+        CarMessagingService.ensureIncomingCallChannel(this)
+        val nm=getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
+        val channel=nm.getNotificationChannel(CarMessagingService.CHANNEL)
+        val notifications=nm.areNotificationsEnabled()
+        val high=channel?.importance?.let { it>=android.app.NotificationManager.IMPORTANCE_HIGH }==true
+        val full=Build.VERSION.SDK_INT<34||nm.canUseFullScreenIntent()
+        section("来电亮屏与通知权限")
+        inCard {
+            status(if(notifications)"✓ 全部通知已允许" else "✕ APP 通知被关闭",notifications)
+            status(if(high)"✓ 来电通知渠道：高优先级" else "✕ 来电通知渠道被限制",high)
+            status(if(full)"✓ 全屏来电通知：已授权" else "✕ 全屏来电权限未开启",full)
+            note("三星 One UI 必须允许 APP 的「全屏提醒/全屏意图」、来电通知渠道和锁屏显示。关闭免打扰限制后再锁屏测试。")
+            if(!notifications)action("打开 APP 通知设置"){
+                startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE,packageName))
+            }
+            if(!high)action("打开来电通知渠道设置"){
+                startActivity(Intent(android.provider.Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                    .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE,packageName)
+                    .putExtra(android.provider.Settings.EXTRA_CHANNEL_ID,CarMessagingService.CHANNEL))
+            }
+            if(!full&&Build.VERSION.SDK_INT>=34)action("授权全屏来电 / 亮屏"){
+                try {
+                    startActivity(Intent(android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT)
+                        .setData(Uri.parse("package:"+packageName)))
+                }catch(_:Exception){
+                    startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                        .setData(Uri.parse("package:"+packageName)))
+                }
+            }
+            action("打开系统电池优化设置（检查后台限制）"){
+                startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            }
+            note("受系统权限、免打扰和省电策略影响，无法通过应用程序强制绕过用户关闭的锁屏提醒。")
+        }
+    }
+
+    private fun promptCallPermissionsOnce(){
+        if(Build.VERSION.SDK_INT<34)return
+        val nm=getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
+        CarMessagingService.ensureIncomingCallChannel(this)
+        val allowed=nm.canUseFullScreenIntent()&&nm.areNotificationsEnabled()&&
+            (nm.getNotificationChannel(CarMessagingService.CHANNEL)?.importance?:0)>=android.app.NotificationManager.IMPORTANCE_HIGH
+        if(allowed)return
+        val prefs=VoiceApi.prefs(this)
+        if(prefs.getBoolean("callPermPromptV06",false))return
+        prefs.edit().putBoolean("callPermPromptV06",true).apply()
+        android.app.AlertDialog.Builder(this)
+            .setTitle("开启锁屏来电亮屏")
+            .setMessage("检测到三星系统尚未完整允许 MoveCar 全屏来电。请在设置中允许全屏提醒、来电通知和锁屏显示，否则只能听到振铃。")
+            .setNegativeButton("稍后",null)
+            .setPositiveButton("前往设置"){_,_->navigate("settings")}
+            .show()
+    }
     private fun settings(config:JSONObject){
         shell("设置")
+        showCallPermissionStatus()
         section("网站信息","更改后同时应用于扫码网页和车主 APP。")
         val fields=inCard{
             val site=field("站点名称",config.optString("siteName"))
@@ -731,6 +792,45 @@ class MainActivity : Activity() {
                     .put("rateLimitSeconds",rate)
                     .put("requestRetentionLimit",limit)
                 api("/api/mobile/settings",data){notify("基本设置保存成功");navigate("settings")}
+            }
+        }
+        section("语音呼叫限制")
+        val voicePolicy=config.optJSONObject("voicePolicy") ?: JSONObject()
+        inCard {
+            note("扫码语音通话：设置后立即生效，不影响挪车留言")
+            val daily=field("24 小时最多尝试次数（0=不限）",
+                voicePolicy.optInt("dailyLimit",8).toString())
+            val cooldown=field("两次拨打间隔（秒，0=无等待）",
+                voicePolicy.optInt("cooldownSeconds",90).toString())
+            val retries=field("网络失败可立即重拨次数（0–10）",
+                voicePolicy.optInt("maxFastRetries",2).toString())
+            val testing=check("测试模式：不限制普通拨打次数与间隔",
+                voicePolicy.optBoolean("testMode",false))
+            note("测试模式公开生效，仍保留单路并发保护；正式投入使用后请关闭。")
+            action("保存语音通话规则",primary=true) {
+                val a=daily.text.toString().toIntOrNull()
+                val b=cooldown.text.toString().toIntOrNull()
+                val c=retries.text.toString().toIntOrNull()
+                if(a==null||a !in 0..500||b==null||b !in 0..3600||
+                    c==null||c !in 0..10){
+                    notify("请输入正确的通话限制范围");return@action
+                }
+                val send={
+                    api("/api/mobile/voice-policy",JSONObject()
+                        .put("dailyLimit",a).put("cooldownSeconds",b)
+                        .put("maxFastRetries",c).put("testMode",testing.isChecked)){
+                        notify("语音规则已保存");navigate("settings")
+                    }
+                }
+                if(testing.isChecked)confirm("开启测试模式后，陌生扫码者也可以连续呼叫，确认吗？",send)
+                else send()
+            }
+            action("清除今日测试次数与冷却记录") {
+                confirm("清除当前呼叫次数和冷却状态？不会删除通话历史。"){
+                    api("/api/mobile/voice-policy/reset",JSONObject()){
+                        notify("已清除测试次数，可以立即继续拨打")
+                    }
+                }
             }
         }
         section("品牌与图标")
@@ -772,7 +872,7 @@ class MainActivity : Activity() {
             action("更换服务器或域名"){confirm("切换后将返回登录界面，请输入新服务器 HTTPS 域名，使用管理员账号重新登录。原服务器数据不会删除。"){
                 clearLogin()
             }}
-            note("MoveCar Owner v0.5 · 缓存优先、后台定时刷新和锁屏通话")
+            note("MoveCar Owner v0.5.1 · 锁屏来电诊断与语音次数设置")
         }
     }
     private fun account(config:JSONObject){

@@ -141,5 +141,27 @@
 <div class="brand-icon-row"><img id="siteIconPreview" src="" alt="当前网站图标" hidden><span id="siteIconStatus">暂未设置图标</span></div>
 <input type="file" id="siteIconFile" accept="image/png,image/jpeg,image/webp,image/x-icon,.ico" aria-label="选择网站图标">
 <div class="form-actions"><button type="button" class="primary" id="siteIconUpload">上传图标</button><button type="button" class="outline" id="siteIconClear">恢复默认图标</button></div>
-</div></section>
+</div>
+<section id="voicePolicyCard" class="card">
+<h2>📞 语音通话限制</h2>
+<p>只限制陌生扫码用户的语音发起次数；不影响正常留言通知、车主接听、TURN 或通话质量。设置保存后立即生效，无需重启服务。</p>
+<div class="voice-policy-grid">
+<label>最近 24 小时最多尝试次数
+<input id="voiceDailyLimit" type="number" min="0" max="500" step="1" value="8">
+<small>0 = 不限制次数（正式模式需保留呼叫间隔）</small></label>
+<label>两次普通呼叫最小间隔（秒）
+<input id="voiceCooldown" type="number" min="0" max="3600" step="1" value="90">
+<small>0 = 取消等待；连接失败的快速重拨可跳过等待</small></label>
+<label>网络连接失败可快速重拨次数
+<input id="voiceFastRetries" type="number" min="0" max="10" step="1" value="2">
+<small>0 = 关闭快速重拨；最多 10 次</small></label>
+</div>
+<label class="voice-test-toggle"><input id="voiceTestMode" type="checkbox">
+<strong>测试模式：暂时不限制每日次数和呼叫间隔</strong></label>
+<p class="notice">测试模式仍然限制同时只有一路来电，保留通话时长和语音信令的安全限制。正式使用建议关闭，以防二维码被恶意频繁呼叫。</p>
+<div class="form-actions">
+<button id="saveVoicePolicy" type="button" class="primary">保存通话规则</button>
+<button id="resetVoiceCounters" type="button" class="outline">清除目前测试次数</button>
+</div><p id="voicePolicyStatus" role="status" class="muted"></p>
+</section></section>
 <section id="view-security" class="view" hidden><div class="page-title"><h1>账户安全</h1><p>建议使用 HTTPS 访问管理后台。</p></div><form id="passwordForm" class="card"><h2>修改管理员密码</h2><label>当前密码<input id="oldPassword" type="password" required autocomplete="current-password"></label><label>新密码（至少 12 位）<input id="newPassword" type="password" minlength="12" maxlength="128" required autocomplete="new-password"></label><button type="submit" class="primary">更新管理员密码</button></form></section></main><footer>MoveCar · Linux / Docker 自部署版</footer></div></div><div id="toast" role="status" aria-live="polite"></div></body></html>

@@ -18,6 +18,11 @@ test('native owner sign-in, authentication, notifications, records, and account 
     unregisterMobileDevice(auth){if(auth===deviceAuth){revokeCount++;deviceAuth='';return true;}return false;},
     revokeAllMobileDevices(){if(deviceAuth)revokeCount++;deviceAuth='';},
     isDeviceReady(){return !!deviceAuth;},
+    getCallPolicy(){return {dailyLimit:Number(settings.get('voice_daily_limit')||8),
+      cooldownSeconds:Number(settings.get('voice_cooldown_seconds')||90),
+      maxFastRetries:Number(settings.get('voice_fast_retries')||2),
+      testMode:settings.get('voice_test_mode')==='1'};},
+    resetCallRateLimits(){return true;},
     listCallHistory(){return [{callId:'test',status:'ended',startedAt:123456,updatedAt:123457}];}
   };
   const flow={
@@ -51,6 +56,14 @@ test('native owner sign-in, authentication, notifications, records, and account 
     assert.equal(login.status,200);assert.ok(login.data.deviceAuth);const token=login.data.token;
     const config=await call('config',undefined,token);
     assert.equal(config.status,200);assert.equal(config.data.channels.app.configured,true);
+    assert.equal(config.data.voicePolicy.dailyLimit,8);
+    const newPolicy=await call('voice-policy',{
+      dailyLimit:40,cooldownSeconds:5,maxFastRetries:4,testMode:true
+    },token);
+    assert.equal(newPolicy.status,200);
+    assert.equal(newPolicy.data.voicePolicy.testMode,true);
+    assert.equal((await call('voice-policy/reset',{},token)).status,200);
+
     assert.equal((await call('channels',{appEnabled:false,sc3SendKey:'sctp-not-a-real-secret',barkEnabled:false},token)).status,200);
     assert.equal(settings.get('notify_app_enabled'),'0');
     const channels=await call('config',undefined,token);

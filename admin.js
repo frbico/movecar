@@ -5,7 +5,12 @@ async function api(path,data){const get=data===undefined;const r=await fetch(pat
 function loginView(){$('appShell').hidden=true;$('loginView').hidden=false;csrf=''}
 function switchView(next){if(setupLocked&&next!=='setup'){next='setup';toast('请先完成首次部署检测');}view=next;document.querySelectorAll('.view').forEach(x=>x.hidden=x.id!=='view-'+next);document.querySelectorAll('[data-view]').forEach(x=>{x.classList.toggle('active',x.dataset.view===next);if(x.dataset.view===next)x.setAttribute('aria-current','page');else x.removeAttribute('aria-current')});$('pageName').textContent={overview:'控制台',channels:'通知渠道',settings:'基本设置',setup:'部署与迁移',history:'挪车记录',security:'账户安全'}[next];if(next==='history')void loadHistory();if(next==='setup')void deploymentStatus();}
 function base(){return{publicUrl:$('publicUrl').value.trim(),phoneNumber:$('phoneNumber').value.trim(),rateLimitSeconds:Number($('rateLimit').value),requestRetentionLimit:Number($('requestRetentionLimit').value),siteName:$('siteName').value.trim(),wechatId:$('wechatId').value.trim()}}
-async function panel(){const s=await api('/api/admin/session');csrf=s.csrf;const c=await api('/api/admin/config');$('publicUrl').value=c.publicUrl||'';$('phoneNumber').value=c.phoneNumber||'';$('rateLimit').value=c.rateLimitSeconds??60;$('siteName').value=c.siteName||'呼叫车主挪车';$('wechatId').value=c.wechatId||'';document.title=(c.siteName||'MoveCar')+' · 后台';document.querySelector('.brand').firstChild.textContent='🚙 '+(c.siteName||'MoveCar')+' ';$('siteIconStatus').textContent=c.siteIconConfigured?'已上传自定义图标':'使用默认图标';$('siteIconPreview').hidden=!c.siteIconConfigured;if(c.siteIconConfigured)$('siteIconPreview').src='/site-icon?t='+(c.siteIconUpdatedAt||Date.now());let ico=document.querySelector('link[rel="icon"]');if(c.siteIconConfigured){if(!ico){ico=document.createElement('link');ico.rel='icon';document.head.appendChild(ico);}ico.href='/site-icon?t='+(c.siteIconUpdatedAt||Date.now());}else if(ico)ico.remove();$('requestRetentionLimit').value=c.requestRetentionLimit??50;$('requestRetentionUsage').textContent='当前已保留 '+(c.requestCount??0)+' 条挪车记录，上限 '+(c.requestRetentionLimit??50)+' 条。';const map=[['bark',c.barkConfigured&&c.barkEnabled],['sc3',c.sc3Configured&&c.sc3Enabled],['wechat',c.serverchanConfigured&&c.serverchanEnabled]];$('appOverview').textContent=c.appConfigured?(c.appEnabled?'已连接 · 通知开启':'已连接 · 通知关闭'):'尚未配对';$('appState').textContent=c.appConfigured?'已绑定 FCM':'未配对';for(const [name,enabled] of [['app',c.appEnabled],['bark',c.barkEnabled],['sc3',c.sc3Enabled],['serverchan',c.serverchanEnabled]])$(name+'Enabled').checked=!!enabled;for(const [name,on]of map){$(name+'State').textContent=on?'已启用':'未配置';$(name+'Overview').textContent=on?'已启用':'未配置'}$('activeCount').textContent=map.filter(x=>x[1]).length+(c.appConfigured&&c.appEnabled?1:0);for(const id of ['barkUrl','sendkey','sc3SendKey'])$(id).value='';for(const id of ['clearBark','clearWechat','clearSc3'])$(id).checked=false;const deployment=await api('/api/admin/deployment');setupLocked=!deployment.onboardingFinished;
+async function panel(){const s=await api('/api/admin/session');csrf=s.csrf;const c=await api('/api/admin/config');$('voiceDailyLimit').value=c.voicePolicy?.dailyLimit??8;
+$('voiceCooldown').value=c.voicePolicy?.cooldownSeconds??90;
+$('voiceFastRetries').value=c.voicePolicy?.maxFastRetries??2;
+$('voiceTestMode').checked=c.voicePolicy?.testMode===true;
+$('voicePolicyStatus').textContent=c.voicePolicy?.testMode?'测试模式已启用 · 当前无限制普通尝试':'正式模式 · 当前使用配置的呼叫限制';
+$('publicUrl').value=c.publicUrl||'';$('phoneNumber').value=c.phoneNumber||'';$('rateLimit').value=c.rateLimitSeconds??60;$('siteName').value=c.siteName||'呼叫车主挪车';$('wechatId').value=c.wechatId||'';document.title=(c.siteName||'MoveCar')+' · 后台';document.querySelector('.brand').firstChild.textContent='🚙 '+(c.siteName||'MoveCar')+' ';$('siteIconStatus').textContent=c.siteIconConfigured?'已上传自定义图标':'使用默认图标';$('siteIconPreview').hidden=!c.siteIconConfigured;if(c.siteIconConfigured)$('siteIconPreview').src='/site-icon?t='+(c.siteIconUpdatedAt||Date.now());let ico=document.querySelector('link[rel="icon"]');if(c.siteIconConfigured){if(!ico){ico=document.createElement('link');ico.rel='icon';document.head.appendChild(ico);}ico.href='/site-icon?t='+(c.siteIconUpdatedAt||Date.now());}else if(ico)ico.remove();$('requestRetentionLimit').value=c.requestRetentionLimit??50;$('requestRetentionUsage').textContent='当前已保留 '+(c.requestCount??0)+' 条挪车记录，上限 '+(c.requestRetentionLimit??50)+' 条。';const map=[['bark',c.barkConfigured&&c.barkEnabled],['sc3',c.sc3Configured&&c.sc3Enabled],['wechat',c.serverchanConfigured&&c.serverchanEnabled]];$('appOverview').textContent=c.appConfigured?(c.appEnabled?'已连接 · 通知开启':'已连接 · 通知关闭'):'尚未配对';$('appState').textContent=c.appConfigured?'已绑定 FCM':'未配对';for(const [name,enabled] of [['app',c.appEnabled],['bark',c.barkEnabled],['sc3',c.sc3Enabled],['serverchan',c.serverchanEnabled]])$(name+'Enabled').checked=!!enabled;for(const [name,on]of map){$(name+'State').textContent=on?'已启用':'未配置';$(name+'Overview').textContent=on?'已启用':'未配置'}$('activeCount').textContent=map.filter(x=>x[1]).length+(c.appConfigured&&c.appEnabled?1:0);for(const id of ['barkUrl','sendkey','sc3SendKey'])$(id).value='';for(const id of ['clearBark','clearWechat','clearSc3'])$(id).checked=false;const deployment=await api('/api/admin/deployment');setupLocked=!deployment.onboardingFinished;
 document.querySelectorAll('.sidebar .nav,.sidebar .side-link').forEach(el=>{el.hidden=setupLocked&&el.dataset.view!=='setup';});
 $('setupHeading').textContent=setupLocked?'首次部署向导':'部署配置';
 $('setupIntroduction').textContent=setupLocked?'依次完成四步配置，必要检测合格后即可使用管理后台。':'查看当前环境配置，点击对应修改按钮直接编辑；修改域名后只需重新检测，不会重复进入首次向导。';
@@ -287,3 +292,29 @@ async function refreshCertificateState(){
  }catch{}
 }
 setInterval(()=>void refreshCertificateState(),12000);
+
+$('saveVoicePolicy').onclick=async()=>{
+ const btn=$('saveVoicePolicy');btn.disabled=true;
+ try{
+  const dailyLimit=Number($('voiceDailyLimit').value),
+        cooldownSeconds=Number($('voiceCooldown').value),
+        maxFastRetries=Number($('voiceFastRetries').value),
+        testMode=$('voiceTestMode').checked;
+  if([dailyLimit,cooldownSeconds,maxFastRetries].some(x=>!Number.isInteger(x))){
+    toast('请输入有效的整数',true);return;
+  }
+  if(testMode&&!confirm('测试模式会暂时移除次数和等待限制；二维码被陌生人扫描时也能连续呼叫。确认开启？'))return;
+  const result=await api('/api/admin/voice-policy',{dailyLimit,cooldownSeconds,maxFastRetries,testMode});
+  $('voicePolicyStatus').textContent=result.voicePolicy.testMode?'✓ 测试模式已启用':'✓ 正式通话限制已更新';
+  toast('通话规则已立即生效，已经达到旧上限的测试也可继续使用新配置');
+ }catch(e){toast(e.message,true);}finally{btn.disabled=false;}
+};
+$('resetVoiceCounters').onclick=async()=>{
+ if(!confirm('清除当前服务器内存中的通话次数和冷却记录？这不会删除通话记录。'))return;
+ const btn=$('resetVoiceCounters');btn.disabled=true;
+ try{
+  await api('/api/admin/voice-policy/reset',{confirm:true});
+  $('voicePolicyStatus').textContent='✓ 已清空当前次数与冷却计数，可立即测试';
+  toast('已清除测试次数，可马上继续拨打');
+ }catch(e){toast(e.message,true);}finally{btn.disabled=false;}
+};

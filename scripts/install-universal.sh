@@ -7,7 +7,7 @@ die(){ printf '安装失败：%s\n' "$*" >&2;exit 1; }
 for cmd in docker git curl python3 openssl;do command -v "$cmd" >/dev/null || die "未安装 $cmd；请先安装 Docker Engine、Compose V2 与基础命令";done
 docker compose version >/dev/null || die "需要 Docker Compose V2"
 DIR="${MOVECAR_DIR:-/opt/movecar}"
-BRANCH="${MOVECAR_BRANCH:-feature/mobile-v05-whatsapp-reliability}"
+BRANCH="${MOVECAR_BRANCH:-feature/call-permissions-voice-limits}"
 [[ "$BRANCH" =~ ^[a-zA-Z0-9][a-zA-Z0-9/_.-]*$ && "$BRANCH" != *'..'* ]] ||
   die '非法 Git 分支名称'
 if [[ -e "$DIR" && ! -d "$DIR/.git" ]];then die "目录 $DIR 已存在且不是 Git 仓库；不会覆盖";fi
@@ -15,7 +15,33 @@ if [[ ! -e "$DIR" ]];then
  git clone -b "$BRANCH" --single-branch https://github.com/frbico/movecar.git "$DIR"
 else
  if [[ -n "$(git -C "$DIR" status --porcelain --untracked-files=no)" ]];then
-   die "$DIR 存在未提交的代码修改，不会覆盖，请先备份或提交"
+   if [[ "${MOVECAR_BACKUP_DIRTY:-0}" != 1 ]];then
+     echo '检测到旧版本的本地代码修改。为避免覆盖，安装程序默认停止。' >&2
+     echo '确实要升级时，可设 MOVECAR_BACKUP_DIRTY=1；程序先将修改备份到 /root/movecar-update-backups 并存入 git stash，再切换版本。' >&2
+     echo "查看变更：git -C $DIR status --short" >&2
+     die '旧代码尚有未提交修改；没有删除任何数据'
+   fi
+   # An explicitly requested upgrade safely retains ALL tracked changes.
+   # Untracked files and ignored secrets/data are never deleted or stashed.
+   # Backup the binary-capable Git patch separately in case stash access is
+   # inconvenient after switching from an old single-branch clone.
+   BACKUP_DIR="/root/movecar-update-backups/$(date -u +%Y%m%dT%H%M%SZ)-$"
+   umask 077
+   mkdir -p "$BACKUP_DIR"
+   chmod 0700 "$BACKUP_DIR"
+   git -C "$DIR" status --short > "$BACKUP_DIR/tracked-status.txt"
+   git -C "$DIR" diff --binary HEAD > "$BACKUP_DIR/tracked-changes.patch"
+   git -C "$DIR" rev-parse HEAD > "$BACKUP_DIR/previous-commit.txt"
+   git -C "$DIR" branch --show-current > "$BACKUP_DIR/previous-branch.txt"
+   git -C "$DIR" stash push -m "MoveCar auto-backup before upgrade $(date -u +%FT%TZ)" \
+      || die "git stash 失败；补丁已保存在 $BACKUP_DIR。请检查 Git 文件权限"
+   git -C "$DIR" rev-parse 'stash@{0}' > "$BACKUP_DIR/stash-commit.txt" \
+      || die "无法验证 Git stash；请检查 $BACKUP_DIR"
+   [[ -z "$(git -C "$DIR" status --porcelain --untracked-files=no)" ]] \
+      || die "仍有未提交修改，已停止；备份在 $BACKUP_DIR"
+   echo "✓ 本地修改已安全备份：$BACKUP_DIR"
+   echo "✓ Git stash ID：$(cat "$BACKUP_DIR/stash-commit.txt")"
+   echo '本次不会自动恢复旧代码改动，以免覆盖新版本；如需旧修改，请从备份补丁或 Git stash 手动查看。'
  fi
  # A single-branch checkout may have fetch refspec for an older branch only.
  # Fetch an explicit remote-tracking ref before switching; FETCH_HEAD alone

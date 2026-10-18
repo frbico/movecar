@@ -16,17 +16,24 @@
     speaker.setAttribute('aria-pressed','false');
     speaker.textContent='🔈 开启免提';
     if(typeof remote.setSinkId!=='function'){
-      audioNote.textContent='浏览器无法直接指定听筒，使用手机当前音频路由；可通过系统音频设置切换。';
+      speaker.textContent='🔈 音频输出设置';
+      audioNote.textContent='你的手机浏览器不提供听筒/扬声器切换权限。为保护隐私，请戴耳机或从手机系统切换声音输出。';
       return;
     }
     const devices=await audioOutputs();
     const receiver=devices.find(d=>/earpiece|receiver|听筒/i.test(d.label));
-    const preferred=receiver?.deviceId||'communications';
+    if(!receiver){
+      // 'communications' is not a guaranteed earpiece on mobile Chrome.
+      // Do not claim the loudspeaker has been switched off.
+      speaker.textContent='🔈 选择音频设备';
+      audioNote.textContent='网页没有找到手机听筒设备。可尝试手动选择，无法选择时建议使用耳机。';
+      return;
+    }
     try{
-      await remote.setSinkId(preferred);
-      audioNote.textContent='优先使用听筒 / 通信音频输出';
+      await remote.setSinkId(receiver.deviceId);
+      audioNote.textContent='已选择手机听筒输出';
     }catch{
-      audioNote.textContent='本浏览器未提供听筒路由，使用当前系统默认音频输出。';
+      audioNote.textContent='无法强制切换到听筒（浏览器限制）。建议使用耳机或系统声音菜单。';
     }
   }
   async function toggleAudioRoute(){
@@ -51,7 +58,7 @@
           return;
         }catch{}
       }
-      audioNote.textContent='当前浏览器不允许网页强制开启扬声器，请从手机系统音频菜单切换。';
+      audioNote.textContent='Android Chrome 等移动浏览器无法由网页强制控制听筒/免提。请使用系统音频切换或耳机；这不是 TURN 连接故障。';
     }else await preferReceiver();
   }
   document.querySelector('#title').textContent=owner?'接听挪车语音':'呼叫车主（网络语音）';
@@ -138,7 +145,11 @@
   async function peer(){
     if(pc)return;
     pc=new RTCPeerConnection({iceServers,iceCandidatePoolSize:1});
-    pc.ontrack=e=>{remote.srcObject=e.streams[0];void preferReceiver();};
+    pc.ontrack=e=>{
+      remote.srcObject=e.streams[0];
+      remote.play().catch(()=>{audioNote.textContent='请点一下通话页面以启用音频播放';});
+      void preferReceiver();
+    };
     pc.onicecandidate=e=>{if(e.candidate)void signal('ice',e.candidate.toJSON());};
     pc.onconnectionstatechange=()=>{
       if(closed||!pc)return;
@@ -253,7 +264,9 @@
       }
       if(!navigator.mediaDevices?.getUserMedia)throw Error('请使用 HTTPS 页面并允许浏览器麦克风权限');
       say('正在申请麦克风权限…');
-      localStream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
+      localStream=await navigator.mediaDevices.getUserMedia({
+        audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:false
+      });
       if(!owner){
         say('正在通知车主…');
         const currentRetry=retryTicket;

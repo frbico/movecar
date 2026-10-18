@@ -5,14 +5,28 @@ import android.content.Intent
 import android.media.RingtoneManager
 import android.media.AudioAttributes
 import android.os.Build
+import android.os.PowerManager
+import android.util.Log
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import org.json.JSONObject
 
 class CarMessagingService : FirebaseMessagingService() {
     companion object {
-        const val CHANNEL = "movecar_incoming_calls"
+        const val CHANNEL = "movecar_voice_calls_v2"
         const val NOTIFICATION_ID = 1001
+        fun ensureIncomingCallChannel(context: android.content.Context) {
+            val nm=context.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.createNotificationChannel(NotificationChannel(
+                CHANNEL, "挪车语音来电（响铃与亮屏）", NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description="扫码者发起的匿名语音呼叫"
+                enableVibration(true)
+                setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE),
+                    AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE).build())
+                lockscreenVisibility=Notification.VISIBILITY_PUBLIC
+            })
+        }
         fun cancel(context: android.content.Context) {
             (context.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(NOTIFICATION_ID)
         }
@@ -45,17 +59,17 @@ class CarMessagingService : FirebaseMessagingService() {
         val callId = message.data["callId"] ?: return
         if (!VoiceApi.validCallId(callId) || VoiceApi.auth(this).isBlank()) return
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        val channel = NotificationChannel(CHANNEL, "挪车语音来电", NotificationManager.IMPORTANCE_HIGH).apply {
-            description = "扫码者发起的语音呼叫"
-            enableVibration(true)
-            setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE), AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE).build())
-            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-        }
-        nm.createNotificationChannel(channel)
+        ensureIncomingCallChannel(this)
+        // Android notification-channel importance is immutable. Never override
+        // a user-disabled channel, but do expose its state in the APP settings.
         // Android 14+ may require the user to grant full-screen call notification
         // permission. No background activity launch: use the OS call notification.
         val fullScreenAllowed = Build.VERSION.SDK_INT < 34 || nm.canUseFullScreenIntent()
-        val intent = Intent(this, IncomingCallActivity::class.java).putExtra("callId", callId)
+        val intent = Intent(this, IncomingCallActivity::class.java).apply {
+            action = "com.example.movecarvoice.INCOMING_VOICE"
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            putExtra("callId", callId)
+        }
         val view = PendingIntent.getActivity(this, 1, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val answer = PendingIntent.getActivity(this, 2, Intent(intent).putExtra("answer", true), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val decline = PendingIntent.getBroadcast(this, 3, Intent(this, CallActionReceiver::class.java).putExtra("callId", callId), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
@@ -71,6 +85,8 @@ class CarMessagingService : FirebaseMessagingService() {
             .setOngoing(false)
             .setContentIntent(view)
             .setFullScreenIntent(view, fullScreenAllowed)
+            .setWhen(System.currentTimeMillis())
+            .setShowWhen(true)
         if (Build.VERSION.SDK_INT >= 31) {
             val person = android.app.Person.Builder().setName("挪车语音呼叫").setImportant(true).build()
             builder.setStyle(Notification.CallStyle.forIncomingCall(person, decline, answer))
@@ -78,7 +94,26 @@ class CarMessagingService : FirebaseMessagingService() {
             builder.addAction(Notification.Action.Builder(android.R.drawable.ic_menu_close_clear_cancel, "拒绝", decline).build())
             builder.addAction(Notification.Action.Builder(android.R.drawable.sym_action_call, "接听", answer).build())
         }
-        try { nm.notify(NOTIFICATION_ID, builder.build()) } catch (_: SecurityException) { /* permission not granted */ }
+        try {
+            nm.notify(NOTIFICATION_ID, builder.build())
+            // Strictly gated by the user's full-screen call entitlement; a
+            // short timeout gives Samsung/One UI a chance to wake the display
+            // before Android starts the full-screen incoming-call Activity.
+            if (fullScreenAllowed && nm.areNotificationsEnabled() &&
+                nm.getNotificationChannel(CHANNEL)?.importance == NotificationManager.IMPORTANCE_HIGH) {
+                val power = getSystemService(POWER_SERVICE) as PowerManager
+                if (!power.isInteractive) {
+                    @Suppress("DEPRECATION")
+                    val wake = power.newWakeLock(
+                        PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                        "MoveCar:IncomingCallScreen")
+                    // Never hold it for the entire ringing interval.
+                    wake.acquire(3500L)
+                }
+            }
+        } catch (e: SecurityException) {
+            Log.w("MoveCarCalls","Notification or wake-up permission denied",e)
+        }
     }
     private fun showParkingAlert(message: RemoteMessage) {
         if (VoiceApi.mobileAuth(this).isBlank()) return
