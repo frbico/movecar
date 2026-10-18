@@ -128,7 +128,7 @@ class MainActivity : Activity() {
         val bar=OwnerUi.horizontal(this).apply {
             setBackgroundColor(OwnerUi.white)
             setPadding(px(5), px(4), px(5), px(5))
-            elevation=px(1).toFloat()
+            elevation=0f
         }
         val tabs=listOf(
             Triple("首页", "home", android.R.drawable.ic_menu_view),
@@ -286,6 +286,7 @@ class MainActivity : Activity() {
                     if(body!=null)OwnerCache.invalidate(this)
                     done(it)
                 }.onFailure {
+                    if(body==null)loadingPath=null
                     notify("操作失败："+(it.message ?: "网络异常"))
                     if(it.message?.contains("登录已过期")==true) { VoiceApi.prefs(this).edit().remove("mobileAuth").remove("auth").apply();loginPage() }
                 }
@@ -446,52 +447,48 @@ class MainActivity : Activity() {
         val app=channel.getJSONObject("app")
         val paired=app.optBoolean("configured")&&app.optBoolean("enabled")
         val banner=OwnerUi.vertical(this).apply {
-            background=OwnerUi.gradient(this@MainActivity)
-            setPadding(px(22),px(22),px(22),px(21))
+            background=OwnerUi.bg(OwnerUi.white,12,this@MainActivity,OwnerUi.line)
+            setPadding(px(15),px(16),px(15),px(13))
         }
-        banner.addView(OwnerUi.label(this,"车主中心 · 在线守候",12f,0xFFE4EFFF.toInt(),true))
         banner.addView(OwnerUi.label(this,config.optString("siteName","MoveCar"),
-            25f,OwnerUi.white,true).apply{setPadding(0,px(8),0,px(6))})
-        banner.addView(OwnerUi.label(this,"扫码挪车、语音来电、消息提醒，一处管理",
-            13f,0xFFE1EAFF.toInt()))
-        val stats=OwnerUi.horizontal(this).apply {
-            setPadding(0,px(18),0,0)
-        }
-        for((number,label) in listOf(config.optInt("requestCount").toString() to "挪车记录",
-                        (if(paired)"已连接" else "待配置") to "推送状态")){
-            val item=OwnerUi.vertical(this)
-            item.addView(OwnerUi.label(this,number,21f,OwnerUi.white,true))
-            item.addView(OwnerUi.label(this,label,11f,0xFFDEEAFF.toInt()))
-            stats.addView(item,LinearLayout.LayoutParams(0,-2,1f))
-        }
+            19f,OwnerUi.navy,true))
+        banner.addView(OwnerUi.label(this,
+            if(paired)"● 已连接 · 新请求将推送到手机" else "● 推送暂未绑定，请检查通知设置",
+            12f,if(paired)OwnerUi.green else OwnerUi.amber).apply{
+            setPadding(0,px(6),0,px(8))
+        })
+        val stats=OwnerUi.horizontal(this)
+        stats.addView(OwnerUi.label(this,
+            "挪车请求 "+config.optInt("requestCount").toString()+" 条",
+            12.5f,OwnerUi.muted))
         banner.addView(stats)
-        root.addView(banner,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(22)})
+        root.addView(banner,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(8)})
 
-        section("快捷操作","最常用的操作，随手即达")
+        section("快捷操作")
         fun shortcut(caption:String,detail:String,icon:Int,click:()->Unit):LinearLayout =
             OwnerUi.vertical(this).apply{
-                background=OwnerUi.pressable(this@MainActivity,OwnerUi.white,18,OwnerUi.line)
-                setPadding(px(14),px(17),px(13),px(15))
+                background=OwnerUi.pressable(this@MainActivity,OwnerUi.white,12,OwnerUi.line)
+                setPadding(px(12),px(10),px(12),px(10))
                 elevation=px(1).toFloat()
                 isClickable=true;isFocusable=true;setOnClickListener{click()}
-                addView(OwnerUi.icon(this@MainActivity,icon,OwnerUi.blue,26))
+                addView(OwnerUi.icon(this@MainActivity,icon,OwnerUi.green,20))
                 addView(OwnerUi.label(this@MainActivity,caption,15f,OwnerUi.navy,true).apply{
-                    setPadding(0,px(12),0,px(2))
+                    setPadding(0,px(5),0,px(1))
                 })
                 addView(OwnerUi.label(this@MainActivity,detail,12f,OwnerUi.muted))
             }
         val grid1=OwnerUi.horizontal(this)
         grid1.addView(shortcut("挪车请求","确认或处理留言",android.R.drawable.ic_menu_agenda){navigate("requests")},
-            LinearLayout.LayoutParams(0,px(136),1f).apply{marginEnd=px(7)})
+            LinearLayout.LayoutParams(0,px(90),1f).apply{marginEnd=px(7)})
         grid1.addView(shortcut("匿名通话","查看来电历史",android.R.drawable.sym_action_call){navigate("calls")},
-            LinearLayout.LayoutParams(0,px(136),1f).apply{marginStart=px(7)})
-        root.addView(grid1,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(14)})
+            LinearLayout.LayoutParams(0,px(90),1f).apply{marginStart=px(7)})
+        root.addView(grid1,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(7)})
         val grid2=OwnerUi.horizontal(this)
         grid2.addView(shortcut("测试通知","确认推送已送达",android.R.drawable.ic_dialog_email){testChannel("app")},
             LinearLayout.LayoutParams(0,px(136),1f).apply{marginEnd=px(7)})
         grid2.addView(shortcut("渠道设置","选择推送方式",android.R.drawable.ic_menu_manage){navigate("channels")},
             LinearLayout.LayoutParams(0,px(136),1f).apply{marginStart=px(7)})
-        root.addView(grid2,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(18)})
+        root.addView(grid2,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(9)})
 
         section("连接状态")
         inCard {
@@ -501,8 +498,7 @@ class MainActivity : Activity() {
             note("设备推送："+if(app.optBoolean("configured"))"已绑定" else "尚未绑定")
             action("重新绑定推送") {syncFcm()}
         }
-        section("其他")
-        inCard {action("打开网页版管理后台 ↗") {browse(base()+"/admin")}}
+        action("打开网页版管理后台 ↗"){browse(base()+"/admin")}
     }
     private fun syncFcm(){
         FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
