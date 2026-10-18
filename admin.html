@@ -25,7 +25,7 @@
 <button class="primary" type="submit">保存网站与 TURN 地址</button>
 </form>
 <div id="setupState" class="notice" role="status">读取服务状态中…</div>
-<p>反向代理目标：<code>http://127.0.0.1:8888</code>（主机代理）或 <code>http://movecar:8888</code>（同 Docker 网络）。服务器请开放 <code>3478/udp</code>、<code>3478/tcp</code>、<code>49160–49260/udp</code>，启用 TURN TLS 后开放 <code>5349/tcp</code>。</p></div>
+<p>反向代理目标：<code>http://127.0.0.1:8888</code>（主机代理）或 <code>http://movecar:8888</code>（同 Docker 网络）。服务器请开放 <code>3478/udp</code>、<code>3478/tcp</code>、<code>49160–49191/udp</code>，启用 TURN TLS 后开放 <code>5349/tcp</code>。</p></div>
 <div class="card"><h2>② Firebase 推送（可稍后配置）</h2><p>选择 Firebase 控制台下载的 <strong>Admin SDK 服务账号 JSON</strong>。服务器将私钥保存到受保护的数据卷，页面不会回显内容。Android APP 自身仍使用构建时的 Firebase 项目。</p>
 <label>Firebase 服务账号 JSON 文件<input id="setupFirebaseFile" type="file" accept=".json,application/json"></label>
 <button type="button" class="primary" id="setupFirebaseSave">安全保存 Firebase 配置</button></div>
