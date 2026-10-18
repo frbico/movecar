@@ -147,7 +147,21 @@ class OngoingCallService : Service() {
                 am.availableCommunicationDevices.firstOrNull {
                     it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
                 }?.let { am.setCommunicationDevice(it) }
-            } else am.clearCommunicationDevice()
+            } else {
+                // Prefer the phone receiver instead of a loudspeaker when
+                // available, but preserve an attached wired/Bluetooth headset.
+                val current=am.communicationDevice
+                val usingExternal=current?.type==android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                    current?.type==android.media.AudioDeviceInfo.TYPE_BLE_HEADSET ||
+                    current?.type==android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET
+                if(!usingExternal){
+                    val receiver=am.availableCommunicationDevices.firstOrNull {
+                        it.type==android.media.AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
+                    }
+                    if(receiver!=null)am.setCommunicationDevice(receiver)
+                    else am.clearCommunicationDevice()
+                }
+            }
         } else {
             @Suppress("DEPRECATION")
             am.isSpeakerphoneOn = enabled
