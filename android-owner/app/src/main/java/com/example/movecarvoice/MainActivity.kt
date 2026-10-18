@@ -42,7 +42,10 @@ class MainActivity : Activity() {
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 10)
         }
-        if (VoiceApi.mobileAuth(this).isEmpty()) loginPage() else navigate(if(intent.getStringExtra("openPage")=="requests")"requests" else "home")
+        if (VoiceApi.mobileAuth(this).isEmpty()) loginPage() else {
+            navigate(if(intent.getStringExtra("openPage")=="requests")"requests" else "home")
+            window.decorView.post { promptCallPermissionsOnce() }
+        }
     }
 
 
@@ -364,6 +367,7 @@ class MainActivity : Activity() {
                         OwnerCache.invalidate(this)
                         notify("后台登录成功，正在绑定消息推送")
                         navigate("home")
+                        window.decorView.post { promptCallPermissionsOnce() }
                         bindPushAfterLogin(url, bearer)
                     }.onFailure {
                         status.text = "登录失败：" + (it.message ?: "服务器连接异常")
@@ -702,8 +706,65 @@ class MainActivity : Activity() {
             notify("已提交推送："+it.optJSONObject("channels")?.toString())
         }
     }
+    private fun showCallPermissionStatus() {
+        if(Build.VERSION.SDK_INT<26)return
+        CarMessagingService.ensureIncomingCallChannel(this)
+        val nm=getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
+        val channel=nm.getNotificationChannel(CarMessagingService.CHANNEL)
+        val notifications=nm.areNotificationsEnabled()
+        val high=channel?.importance?.let { it>=android.app.NotificationManager.IMPORTANCE_HIGH }==true
+        val full=Build.VERSION.SDK_INT<34||nm.canUseFullScreenIntent()
+        section("来电亮屏与通知权限")
+        inCard {
+            status(if(notifications)"✓ 全部通知已允许" else "✕ APP 通知被关闭",notifications)
+            status(if(high)"✓ 来电通知渠道：高优先级" else "✕ 来电通知渠道被限制",high)
+            status(if(full)"✓ 全屏来电通知：已授权" else "✕ 全屏来电权限未开启",full)
+            note("三星 One UI 必须允许 APP 的「全屏提醒/全屏意图」、来电通知渠道和锁屏显示。关闭免打扰限制后再锁屏测试。")
+            if(!notifications)action("打开 APP 通知设置"){
+                startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE,packageName))
+            }
+            if(!high)action("打开来电通知渠道设置"){
+                startActivity(Intent(android.provider.Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                    .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE,packageName)
+                    .putExtra(android.provider.Settings.EXTRA_CHANNEL_ID,CarMessagingService.CHANNEL))
+            }
+            if(!full&&Build.VERSION.SDK_INT>=34)action("授权全屏来电 / 亮屏"){
+                try {
+                    startActivity(Intent(android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT)
+                        .setData(Uri.parse("package:"+packageName)))
+                }catch(_:Exception){
+                    startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                        .setData(Uri.parse("package:"+packageName)))
+                }
+            }
+            action("打开系统电池优化设置（检查后台限制）"){
+                startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            }
+            note("受系统权限、免打扰和省电策略影响，无法通过应用程序强制绕过用户关闭的锁屏提醒。")
+        }
+    }
+
+    private fun promptCallPermissionsOnce(){
+        if(Build.VERSION.SDK_INT<34)return
+        val nm=getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
+        CarMessagingService.ensureIncomingCallChannel(this)
+        val allowed=nm.canUseFullScreenIntent()&&nm.areNotificationsEnabled()&&
+            (nm.getNotificationChannel(CarMessagingService.CHANNEL)?.importance?:0)>=android.app.NotificationManager.IMPORTANCE_HIGH
+        if(allowed)return
+        val prefs=VoiceApi.prefs(this)
+        if(prefs.getBoolean("callPermPromptV06",false))return
+        prefs.edit().putBoolean("callPermPromptV06",true).apply()
+        android.app.AlertDialog.Builder(this)
+            .setTitle("开启锁屏来电亮屏")
+            .setMessage("检测到三星系统尚未完整允许 MoveCar 全屏来电。请在设置中允许全屏提醒、来电通知和锁屏显示，否则只能听到振铃。")
+            .setNegativeButton("稍后",null)
+            .setPositiveButton("前往设置"){_,_->navigate("settings")}
+            .show()
+    }
     private fun settings(config:JSONObject){
         shell("设置")
+        showCallPermissionStatus()
         section("网站信息","更改后同时应用于扫码网页和车主 APP。")
         val fields=inCard{
             val site=field("站点名称",config.optString("siteName"))
