@@ -92,10 +92,15 @@
  document.head.appendChild(cosmetic);
  try{
    const recent=Number(sessionStorage.getItem('movecar-last-notified')||0);
-   if(recent&&Date.now()-recent<12*60*1000){
+   if(new URLSearchParams(location.search).get('contact')==='1' &&
+       recent&&Date.now()-recent<12*60*1000){
+     sessionStorage.removeItem('movecar-last-notified');
      document.getElementById('mainView').style.display='none';
      success.style.display='flex';
      if(waiting)waiting.textContent='通知已发送，等待车主回应…';
+     const clean=new URL(location.href);
+     clean.searchParams.delete('contact');
+     history.replaceState(history.state,'',clean.pathname+clean.search+clean.hash);
    }
  }catch{}
  const notifyText=(text)=>{
