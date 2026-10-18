@@ -51,6 +51,11 @@ fi
 # Stop DB writes, then preserve backup data before erasing the test stack.
 if docker container inspect movecar >/dev/null 2>&1;then
   docker stop movecar >/dev/null 2>&1 || true
+  mkdir -p "$BACKUP/old-app-data"
+  if docker cp 'movecar:/app/data/.' "$BACKUP/old-app-data/" >/dev/null 2>&1;then
+    chmod -R go-rwx "$BACKUP/old-app-data"
+    echo '已保护性备份完整 MoveCar 数据目录（含记录附件）'
+  fi
   for item in state.sqlite state.sqlite-wal state.sqlite-shm firebase-service-account.json admin-initial-password;do
     if docker cp "movecar:/app/data/$item" "$BACKUP/$item" >/dev/null 2>&1;then
       chmod 0600 "$BACKUP/$item"
@@ -83,6 +88,15 @@ for dir in /opt/movecar /opt/movecar-hk /root/movecar-voice-fresh /root/movecar-
     rm -rf -- "$dir"
   fi
 done
+# Remove only obsolete MoveCar build images. Do not globally prune Docker
+# layers or remove coturn/Caddy images that other projects might use.
+while IFS= read -r image;do
+  case "$image" in
+    movecar-movecar:*|movecar-hk-movecar:*|movecar-voice-fresh-movecar:*)
+      docker image rm "$image" >/dev/null 2>&1 || true
+      ;;
+  esac
+done < <(docker image ls --format '{{.Repository}}:{{.Tag}}')
 # Undo obsolete extra relay-pool UFW/firewalld rule only (not 1Panel 80/443).
 if command -v ufw >/dev/null 2>&1;then
   ufw --force delete allow 49160:49260/udp >/dev/null 2>&1 || true
