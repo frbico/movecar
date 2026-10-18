@@ -72,7 +72,7 @@ test('rate limiting and expired missed calls',async()=>withServer(async({post,cl
   const reg=await post('/api/voice/device/register',{pairingSecret:'test-voice-secret-which-is-long-and-private',fcmToken:'fcm:abc_this-is-a-pretend-token-xxxxxxxxx'});
   const one=await post('/api/voice/start');
   assert.equal(one.status,200);
-  assert.equal((await post('/api/voice/start')).status,429);
+  assert.equal((await post('/api/voice/start')).status,409,'a ringing call is busy, not a daily-limit failure');
   clockForward(40000);
   assert.equal((await post(`/api/voice/calls/${one.body.callId}/events`,{token:one.body.token})).body.status,'missed');
   clockForward(51000);
