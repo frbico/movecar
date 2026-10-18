@@ -105,3 +105,40 @@ if [[ "$PREVIOUS" == "$TARGET" ]];then
   status success '已经是最新版本' "$PREVIOUS" "$TARGET"
   exit 0
 fi
+STAMP="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+ARCHIVE="$BACKUP_ROOT/$STAMP"
+mkdir -p "$ARCHIVE"
+chmod 0700 "$ARCHIVE"
+echo "$PREVIOUS" > "$ARCHIVE/previous-commit.txt"
+git -C "$ROOT" status --short > "$ARCHIVE/status.txt"
+git -C "$ROOT" diff --binary HEAD > "$ARCHIVE/local-modifications.patch"
+if [[ -f "$ROOT/.env" ]];then
+  cp -p "$ROOT/.env" "$ARCHIVE/dot-env"
+  chmod 0600 "$ARCHIVE/dot-env"
+fi
+if docker container inspect movecar >/dev/null 2>&1;then
+  docker exec movecar node --input-type=module -e '
+import {DatabaseSync,backup} from "node:sqlite";
+import fs from "node:fs";
+if(fs.existsSync("/app/data/state.sqlite")){
+ const db=new DatabaseSync("/app/data/state.sqlite");
+ try{await backup(db,"/app/data/movecar-preupdate.sqlite");}finally{db.close();}
+}' || FAIL "Failed to create consistent SQLite backup; nothing changed"
+  docker cp movecar:/app/data/movecar-preupdate.sqlite "$ARCHIVE/state.sqlite" >/dev/null 2>&1 || true
+  docker exec movecar rm -f /app/data/movecar-preupdate.sqlite >/dev/null 2>&1 || true
+  mkdir -p "$ARCHIVE/app-data"
+  docker cp 'movecar:/app/data/.' "$ARCHIVE/app-data/" >/dev/null 2>&1 || true
+fi
+chmod -R go-rwx "$ARCHIVE"
+status running '备份完成，正在安全更新 Git 代码与 Docker 容器…' "$PREVIOUS" "$TARGET"
+if [[ -n "$(git -C "$ROOT" status --porcelain --untracked-files=no)" ]];then
+  git -C "$ROOT" stash push -m "MoveCar preupgrade $STAMP" ||
+    FAIL "Cannot stash tracked changes; patch is at $ARCHIVE"
+  git -C "$ROOT" rev-parse 'stash@{0}' > "$ARCHIVE/stash-ref.txt"
+fi
+git -C "$ROOT" fetch origin '+refs/heads/release/stable:refs/remotes/origin/release/stable'
+FETCHED="$(git -C "$ROOT" rev-parse refs/remotes/origin/release/stable)"
+[[ "$FETCHED" == "$TARGET" ]] || FAIL 'Release moved while fetching; retry'
+git -C "$ROOT" switch -C release/stable "$TARGET" ||
+  FAIL "Conflicting untracked files; source and data backup is at $ARCHIVE"
+cd "$ROOT"
