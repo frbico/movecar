@@ -14,10 +14,11 @@ jobs:
       - name: Verify executable scripts, syntax and integration
         run: |
           test -x install.sh && test -x run-linux.sh && test -x scripts/fetch-upstream.sh && test -x show-admin-password.sh
-          bash -n install.sh run-linux.sh show-admin-password.sh scripts/fetch-upstream.sh scripts/setup-voice-fresh.sh scripts/export-db.sh scripts/install-universal.sh scripts/supervise-turn.sh scripts/check-portable.sh scripts/restore-db.sh scripts/configure-firewall.sh scripts/reset-reinstall.sh
+          bash -n install.sh run-linux.sh show-admin-password.sh scripts/fetch-upstream.sh scripts/setup-voice-fresh.sh scripts/export-db.sh scripts/install-universal.sh scripts/supervise-turn.sh scripts/check-portable.sh scripts/restore-db.sh scripts/configure-firewall.sh scripts/reset-reinstall.sh scripts/host-updater.sh scripts/recover-install.sh
           python3 -m py_compile scripts/test-voice-endpoints.py scripts/turn-probe.py scripts/sync-host-cert.py scripts/host-health.py
           python3 scripts/turn-probe.py --help
           docker compose -f compose.yaml -f compose.portable.yaml config --quiet
+          node --check update-service.mjs
           node --check infrastructure.mjs
           node --check server.mjs
           node --check voice-service.mjs
