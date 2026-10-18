@@ -85,6 +85,18 @@ fi
 # Optional ROOT-only certificate watcher for existing 1Panel/Nginx/Let's Encrypt files.
 # The Node web service has NO host mount, Docker socket or elevated file privileges.
 if command -v systemctl >/dev/null 2>&1 && [[ -d /run/systemd/system ]];then
+ cat >/etc/systemd/system/movecar-firewall.service <<EOF
+[Unit]
+Description=Keep MoveCar STUN/TURN host firewall ports open after server restart
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash $DIR/scripts/configure-firewall.sh
+RemainAfterExit=yes
+[Install]
+WantedBy=multi-user.target
+EOF
  cat >/etc/systemd/system/movecar-cert-sync.service <<EOF
 [Unit]
 Description=Synchronize existing web certificates for MoveCar TURN
@@ -122,6 +134,7 @@ EOF
  systemctl daemon-reload
  systemctl enable --now movecar-cert-sync.timer >/dev/null
  systemctl enable --now movecar-turn-health.timer >/dev/null
+ systemctl enable movecar-firewall.service >/dev/null
  echo '已启用网站证书只读同步助手（由原证书管理器继续负责签发续期）'
 else
  echo '提醒：系统没有 systemd，后台可手动上传证书；目录自动同步需要配置 cron。'
