@@ -7,7 +7,7 @@
 SSH 登录新服务器，确保 Docker Compose v2、Git、Curl、Python3、OpenSSL 已安装。执行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/frbico/movecar/feature/universal-setup-wizard/scripts/install-universal.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/frbico/movecar/feature/onboarding-firewall-cert-sync/scripts/install-universal.sh | sudo bash
 ```
 
 该命令会从 GitHub 下载项目到 `/opt/movecar`，随机生成 TURN 长密钥和语音配对码，自动检测 VPS 公网/内网 IP、启动 `movecar` 与 `movecar-turn`，在 UFW 已启用的情况下开放 TURN 必要端口；生成的密钥和私钥不会上传 GitHub，已有账号数据库和数据卷保留。
@@ -31,7 +31,7 @@ ssh -L 8888:127.0.0.1:8888 你的SSH账号@服务器IP
 2. Firebase Admin SDK `firebase-service-account.json`（本地选文件），由后台保存到受保护 Docker 数据卷；Android APP 本身仍需要已经通过 Firebase 编译的版本；
 3. **可选但推荐**：网站证书管理器已经签发的 `fullchain.pem` 与 `privkey.pem`（本地选文件）。它必须匹配 TURN 域名。上传后自动启用 TURN TLS 5349 并重载 coturn，不需要 SSH 命令。不上传也能使用 TURN UDP/TCP 3478；受限网络下连接稳定性可能低些。
 
-注：本方案不接管第三方证书的**自动续期**，因此如果你使用 1Panel、Nginx 或 Caddy 的自动续期，**当证书更新时仍要在后台重新上传新的 PEM 文件**，否则 TURN TLS 最终会因证书到期失败。未来可以实现特定证书管理器的可选只读自动同步插件，而不把它作为安装前置条件。
+证书自动模式只读取服务器目录中已有的证书文件，原 1Panel/Nginx/Caddy 仍负责签发续期。使用 **服务器目录或自动查找** 模式时，安装程序的只读宿主机任务每分钟检查证书变化并同步给 coturn；如果你选择的是**浏览器手动上传**模式，则证书续期后需要再次上传。无法仅从公网 HTTPS 页面获得 TLS 私钥。
 
 ## 3. 给现有网站反向代理
 
