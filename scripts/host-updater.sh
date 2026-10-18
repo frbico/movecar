@@ -142,3 +142,33 @@ FETCHED="$(git -C "$ROOT" rev-parse refs/remotes/origin/release/stable)"
 git -C "$ROOT" switch -C release/stable "$TARGET" ||
   FAIL "Conflicting untracked files; source and data backup is at $ARCHIVE"
 cd "$ROOT"
+python3 - "$TARGET" <<'PY'
+from pathlib import Path
+import sys
+p=Path('.env')
+lines=p.read_text().splitlines() if p.exists() else []
+lines=[x for x in lines if not x.startswith('MOVECAR_COMMIT_SHA=')]
+lines.append('MOVECAR_COMMIT_SHA='+sys.argv[1])
+p.write_text(chr(10).join(lines)+chr(10))
+p.chmod(0o600)
+PY
+COMPOSE=(docker compose -f compose.yaml -f compose.portable.yaml)
+if docker network inspect 1panel-network >/dev/null 2>&1;then
+ COMPOSE+=(-f compose.network-onepanel.yaml)
+fi
+set +e
+bash scripts/fetch-upstream.sh
+fetch_rc=$?
+if (( fetch_rc == 0 ));then
+ "${COMPOSE[@]}" up -d --build movecar coturn
+ update_rc=$?
+else update_rc=1;fi
+if (( update_rc == 0 ));then
+  good=0
+  for i in $(seq 1 45);do
+    if curl --noproxy '*' -fsS --max-time 4 http://127.0.0.1:8888/healthz >/dev/null 2>&1;then good=1;break;fi
+    sleep 2
+  done
+  [[ "$good" == 1 ]] || update_rc=1
+fi
+set -e
