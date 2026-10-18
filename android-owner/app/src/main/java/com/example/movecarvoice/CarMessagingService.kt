@@ -15,6 +15,18 @@ class CarMessagingService : FirebaseMessagingService() {
     companion object {
         const val CHANNEL = "movecar_voice_calls_v2"
         const val NOTIFICATION_ID = 1001
+        fun ensureIncomingCallChannel(context: android.content.Context) {
+            val nm=context.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.createNotificationChannel(NotificationChannel(
+                CHANNEL, "挪车语音来电（响铃与亮屏）", NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description="扫码者发起的匿名语音呼叫"
+                enableVibration(true)
+                setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE),
+                    AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE).build())
+                lockscreenVisibility=Notification.VISIBILITY_PUBLIC
+            })
+        }
         fun cancel(context: android.content.Context) {
             (context.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(NOTIFICATION_ID)
         }
@@ -47,16 +59,9 @@ class CarMessagingService : FirebaseMessagingService() {
         val callId = message.data["callId"] ?: return
         if (!VoiceApi.validCallId(callId) || VoiceApi.auth(this).isBlank()) return
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        // v2 channel: the old one may have been created with restrictive
-        // user/device state; Android notification-channel importance is
-        // immutable after creation, so a newly named call channel is required.
-        val channel = NotificationChannel(CHANNEL, "挪车语音来电（响铃与亮屏）", NotificationManager.IMPORTANCE_HIGH).apply {
-            description = "扫码者发起的语音呼叫"
-            enableVibration(true)
-            setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE), AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE).build())
-            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-        }
-        nm.createNotificationChannel(channel)
+        ensureIncomingCallChannel(this)
+        // Android notification-channel importance is immutable. Never override
+        // a user-disabled channel, but do expose its state in the APP settings.
         // Android 14+ may require the user to grant full-screen call notification
         // permission. No background activity launch: use the OS call notification.
         val fullScreenAllowed = Build.VERSION.SDK_INT < 34 || nm.canUseFullScreenIntent()
