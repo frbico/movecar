@@ -2,7 +2,7 @@
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MoveCar · 管理后台</title><link rel="stylesheet" href="/admin.css"><script defer src="/admin.js"></script></head>
 <body>
 <section class="login" id="loginView"><form id="loginForm" class="card login-card"><div class="symbol">🚙</div><small>MOVE CAR CONTROL</small><h1>欢迎回来</h1><p>登录管理车辆通知与推送渠道</p><label>管理员账号<input id="loginUsername" autocomplete="username" value="admin" required></label><label>管理员密码<input id="loginPassword" type="password" autocomplete="current-password" required></label><button type="submit" class="primary">登录管理后台 →</button><p>首次密码在服务器执行 <code>./show-admin-password.sh</code> 查看。</p></form></section>
-<div class="layout" id="appShell" hidden><aside class="sidebar"><a class="brand" href="/" target="_blank" rel="noopener">🚙 MoveCar <small>CONTROL CENTER</small></a><div class="nav-caption">导航</div><nav><button class="nav active" data-view="overview">▦　控制台</button><button class="nav" data-view="channels">♧　通知渠道</button><button class="nav" data-view="history">▤　挪车记录</button><button class="nav" data-view="setup">🧩　部署与迁移</button><button class="nav" data-view="settings">⚙　基本设置</button><button class="nav" data-view="security">♙　账户安全</button></nav><a class="side-link" href="/" target="_blank" rel="noopener">↗ 打开挪车页面</a></aside>
+<div class="layout" id="appShell" hidden><aside class="sidebar"><a class="brand" href="/" target="_blank" rel="noopener">🚙 MoveCar <small>CONTROL CENTER</small></a><div class="nav-caption">导航</div><nav><button class="nav active" data-view="overview">▦　控制台</button><button class="nav" data-view="channels">♧　通知渠道</button><button class="nav" data-view="history">▤　挪车记录</button><button class="nav" data-view="setup">🧩　部署与迁移</button><button class="nav" data-view="settings">⚙　基本设置</button><button class="nav" data-view="updates">↻　检查更新</button><button class="nav" data-view="security">♙　账户安全</button></nav><a class="side-link" href="/" target="_blank" rel="noopener">↗ 打开挪车页面</a></aside>
 <div class="main"><header class="top"><strong id="pageName">控制台</strong><span><i class="green-dot"></i> 服务运行中</span><button id="logout" class="outline">退出登录</button></header>
 <main class="content"><section id="view-overview" class="view"><div class="page-title"><h1>控制台</h1><p>查看通知状态，快速管理你的挪车系统。</p></div><div class="stats"><div class="card stat"><span>已启用通知渠道</span><strong id="activeCount">0</strong><small>多个渠道可同时推送</small></div><div class="card stat"><span>Bark · iOS</span><strong id="barkOverview">未配置</strong><small>苹果设备原生通知</small></div><div class="card stat"><span>Server酱³ · Android</span><strong id="sc3Overview">未配置</strong><small>适合小米 / 三星</small></div><div class="card stat"><span>微信 · Turbo</span><strong id="wechatOverview">未配置</strong><small>备用渠道</small></div></div><div class="card"><h2>📲 APP 原生推送</h2><p>配对状态：<strong id="appOverview">未连接</strong>。现在可以仅依赖车主 APP 接收普通挪车留言，无需配置第三方通知密钥。</p></div><div class="card"><h2>快捷操作</h2><div class="quick"><button data-go="channels">🔔　管理推送渠道 →</button><button data-test-channel="all">↗　发送测试通知 →</button><button data-go="history">▤　查看历史记录 →</button><button data-go="settings">⚙　基本设置 →</button></div></div><div class="card"><h2>使用提示</h2><p>建议配置 HTTPS 公网地址。两台手机可以通过同一个 Server酱³ SendKey 接收原生通知，保存后逐台锁屏测试。</p></div></section>
 <section id="view-channels" class="view" hidden><div class="page-title"><h1>通知渠道</h1><p>独立配置推送密钥，可并行推送到所有已配置渠道。</p></div><p class="notice">密钥不会回显，留空表示保留原配置；需要移除时勾选清除选项。</p><form id="channelsForm"><div class="card channel recommended"><div class="channel-heading"><h2>📲 MoveCar APP 原生推送 <small>三星 / Android · FCM</small></h2><span id="appState">尚未配对</span></div><p>车主 APP 登录后自动绑定 Google FCM，无需填写 SendKey；普通挪车留言和语音来电使用不同通知渠道。语音来电不受这里的普通留言通知开关影响。</p><label><input type="checkbox" id="appEnabled" checked> 启用 APP 原生留言推送</label><div class="channel-actions"><button type="button" class="outline" data-test-channel="app">测试 APP 推送 →</button></div></div>
@@ -164,4 +164,28 @@
 <button id="resetVoiceCounters" type="button" class="outline">清除目前测试次数</button>
 </div><p id="voicePolicyStatus" role="status" class="muted"></p>
 </section></section>
+<section id="view-updates" class="view" hidden>
+<div class="page-title"><h1>版本更新</h1><p>统一检查与升级 MoveCar，保留现有账号、Firebase、TURN 和挪车记录。以后新版本从这里更新，无需反复 SSH。</p></div>
+<div class="card">
+  <h2>当前版本</h2>
+  <div class="update-versions">
+    <div><span>正在运行</span><strong id="updateCurrentVersion">读取中…</strong><small id="updateCurrentSha">—</small></div>
+    <div><span>稳定版发布</span><strong id="updateLatestVersion">点击检查更新</strong><small id="updateLatestSha">—</small></div>
+  </div>
+  <div class="form-actions"><button id="updateCheck" type="button" class="primary">检查更新</button><button id="updateRefresh" type="button" class="outline">刷新升级状态</button></div>
+  <p id="updateStatus" class="notice" role="status">升级前会备份数据库与本地代码差异；若更新后服务不健康，将尝试回退。</p>
+</div>
+<div class="card" id="updateReleaseCard" hidden>
+  <h2>更新内容</h2>
+  <ul id="updateChanges" class="update-changes"></ul>
+  <div id="updateConfirmArea" hidden>
+    <p class="notice">确认升级前请检查当前服务是否正在通话。重建容器可能短暂中断正在进行的语音通话。</p>
+    <label>输入当前管理员密码，再确认一键升级
+      <input id="updatePassword" type="password" autocomplete="current-password" placeholder="管理员密码" maxlength="200">
+    </label>
+    <button id="updateStart" type="button" class="primary">确认备份并升级</button>
+  </div>
+</div>
+<div class="card"><h2>安全与备份</h2><p>升级任务在服务器上的专用服务中执行，后台没有 Docker 操作权限。仅使用项目官方固定稳定版发布通道，不接受自定义下载地址或命令。</p><p>备份保存在 <code>/root/movecar-update-backups/</code>；升级失败会保留错误状态，便于排查。任何时候都不要使用 Docker 全局清理命令。</p></div>
+</section>
 <section id="view-security" class="view" hidden><div class="page-title"><h1>账户安全</h1><p>建议使用 HTTPS 访问管理后台。</p></div><form id="passwordForm" class="card"><h2>修改管理员密码</h2><label>当前密码<input id="oldPassword" type="password" required autocomplete="current-password"></label><label>新密码（至少 12 位）<input id="newPassword" type="password" minlength="12" maxlength="128" required autocomplete="new-password"></label><button type="submit" class="primary">更新管理员密码</button></form></section></main><footer>MoveCar · Linux / Docker 自部署版</footer></div></div><div id="toast" role="status" aria-live="polite"></div></body></html>
