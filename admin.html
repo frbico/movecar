@@ -16,26 +16,125 @@
 <div class="history-table-wrap"><table class="history-table"><thead><tr><th>时间</th><th>留言</th><th>状态</th><th>照片</th><th>操作</th></tr></thead><tbody id="historyRows"><tr><td colspan="5">正在加载…</td></tr></tbody></table></div>
 <div class="history-page"><button type="button" class="outline" id="historyPrev">上一页</button><span id="historyPage">第 1 页</span><button type="button" class="outline" id="historyNext">下一页</button></div></div></section>
 <section id="view-setup" class="view" hidden>
-<div class="page-title"><h1>部署与迁移</h1><p>服务器安装完成后，在这里统一设置网站域名、TURN 和通知。更换 VPS 或域名无需改代码。</p></div>
-<div class="card"><h2>① 网站和通话中继</h2>
-<p>网站通过你已有的 1Panel / Nginx / Caddy 反代；MoveCar 不替你安装第二套 Web 服务。TURN 直连对应端口，无须 HTTP 反代。</p>
-<form id="deploymentForm">
-<label>网站 HTTPS 访问地址<input id="setupSite" type="url" placeholder="https://movecar.example.com" required></label>
-<label>TURN 域名（DNS A 记录指向本 VPS 公网 IP）<input id="setupTurn" placeholder="turn.example.com" required></label>
-<button class="primary" type="submit">保存网站与 TURN 地址</button>
-</form>
-<div id="setupState" class="notice" role="status">读取服务状态中…</div>
-<p>反向代理目标：<code>http://127.0.0.1:8888</code>（主机代理）或 <code>http://movecar:8888</code>（同 Docker 网络）。服务器请开放 <code>3478/udp</code>、<code>3478/tcp</code>、<code>49160–49260/udp</code>，启用 TURN TLS 后开放 <code>5349/tcp</code>。</p></div>
-<div class="card"><h2>② Firebase 推送（可稍后配置）</h2><p>选择 Firebase 控制台下载的 <strong>Admin SDK 服务账号 JSON</strong>。服务器将私钥保存到受保护的数据卷，页面不会回显内容。Android APP 自身仍使用构建时的 Firebase 项目。</p>
-<label>Firebase 服务账号 JSON 文件<input id="setupFirebaseFile" type="file" accept=".json,application/json"></label>
-<button type="button" class="primary" id="setupFirebaseSave">安全保存 Firebase 配置</button></div>
-<div class="card"><h2>③ TURN TLS 备用连接（推荐）</h2>
-<p>如果已有 1Panel 泛域名证书，直接从后台选择对应的 fullchain.pem 和 privkey.pem 文件即可；其他证书管理软件也完全支持。首次无需配置，后续更新证书可再次上传，无需 SSH 重启容器。</p>
-<label>完整 PEM 证书文件<input id="setupTlsCert" type="file" accept=".pem,.crt,.cer"></label>
-<label>对应 PEM 私钥文件<input id="setupTlsKey" type="file" accept=".pem,.key"></label>
-<div class="form-actions"><button type="button" class="primary" id="setupTlsSave">启用或更新 TURN TLS</button><button type="button" class="outline" id="setupTlsClear">仅关闭 TURN TLS</button></div>
+<div class="page-title"><h1 id="setupHeading">首次部署向导</h1><p id="setupIntroduction">首次安装时按步骤完成配置，检测合格后即可使用完整后台。</p></div>
+<div id="setupManaged" hidden>
+  <div class="managed-status" id="managedStatus" role="status">正在读取当前服务器配置…</div>
+  <div class="managed-grid">
+    <section class="card managed-card">
+      <div class="managed-card-head"><h2>网站与 TURN</h2><button class="outline" type="button" data-setup-edit="0">修改地址</button></div>
+      <dl class="managed-details">
+        <div><dt>HTTPS 网站地址</dt><dd id="managedSite">—</dd></div>
+        <div><dt>TURN 主机名</dt><dd id="managedTurn">—</dd></div>
+        <div><dt>主要连接</dt><dd id="managedTurnUdp">—</dd></div>
+        <div><dt>TLS 备用地址</dt><dd id="managedTurnTls">—</dd></div>
+      </dl>
+      <p>网站反代：<code>127.0.0.1:8888</code>（主机）或 <code>movecar:8888</code>（同 Docker 网络）；TURN 不需要 HTTP 反代。</p>
+    </section>
+    <section class="card managed-card">
+      <div class="managed-card-head"><h2>Firebase 消息推送</h2><button class="outline" type="button" data-setup-edit="1">更新账号文件</button></div>
+      <dl class="managed-details">
+        <div><dt>服务账号</dt><dd id="managedFirebase">—</dd></div>
+        <div><dt>Firebase 项目 ID</dt><dd id="managedFirebaseProject">—</dd></div>
+      </dl>
+      <p>服务端密钥只存储在服务器数据卷；后台不显示私钥内容。</p>
+    </section>
+    <section class="card managed-card">
+      <div class="managed-card-head"><h2>TURN TLS 证书</h2><button class="outline" type="button" data-setup-edit="2">管理证书</button></div>
+      <dl class="managed-details">
+        <div><dt>TLS 状态</dt><dd id="managedTlsStatus">—</dd></div>
+        <div><dt>证书来源</dt><dd id="managedCertSource">—</dd></div>
+        <div><dt>服务器目录</dt><dd id="managedCertDirectory">—</dd></div>
+        <div><dt>证书有效期至</dt><dd id="managedCertExpiry">—</dd></div>
+        <div><dt>自动同步检查</dt><dd id="managedCertCheck">—</dd></div>
+      </dl>
+    </section>
+    <section class="card managed-card">
+      <div class="managed-card-head"><h2>连接与环境检测</h2><button class="outline" type="button" data-setup-edit="3">查看详细检测</button></div>
+      <dl class="managed-details">
+        <div><dt>本机 TURN 中继</dt><dd id="managedTurnHealth">—</dd></div>
+        <div><dt>主机防火墙</dt><dd id="managedFirewall">—</dd></div>
+      </dl>
+      <div class="form-actions"><button id="managedVerify" type="button" class="outline">重新检查全部服务</button></div>
+      <div id="managedChecks" role="status" class="managed-checks"></div>
+    </section>
+  </div>
+  <section class="card managed-ports">
+    <div class="managed-card-head"><div><h2>服务器需要开放的端口</h2><p>主机防火墙由安装程序尝试自动放行；云服务商安全组仍需手动设置相应入站规则。</p></div></div>
+    <div class="port-table-scroll"><table class="port-table">
+      <thead><tr><th>协议</th><th>端口 / 范围</th><th>作用</th><th>云安全组</th></tr></thead>
+      <tbody>
+        <tr><td>UDP</td><td><code>3478</code></td><td>STUN / TURN 主要连接</td><td>必须放行</td></tr>
+        <tr><td>TCP</td><td><code>3478</code></td><td>TURN TCP 备用</td><td>必须放行</td></tr>
+        <tr><td>UDP</td><td><code>49160–49191</code></td><td>TURN 媒体中继，共 32 个 UDP 端口</td><td>整段放行</td></tr>
+        <tr><td>TCP</td><td><code>5349</code></td><td>TURN TLS 备用（启用证书时）</td><td>建议放行</td></tr>
+        <tr><td>TCP</td><td><code>8888</code></td><td>MoveCar 本机反代后端</td><td><strong>不要向公网开放</strong></td></tr>
+      </tbody>
+    </table></div>
+    <p><strong>HTTPS 443 / 80</strong> 由你的 1Panel、Nginx 或 Caddy 网站反向代理负责。是否开放由现有网站配置决定，MoveCar 安装程序不会改动。云安全组无法由网站后台自动检测是否放行。</p>
+  </section>
 </div>
-<div class="card"><h2>④ 一键检查</h2><p>先核对后台状态，再用服务器上的 <code>scripts/check-portable.sh</code> 检查 STUN/TURN。真实中国大陆蜂窝网络仍需真机测试。</p><button type="button" class="outline" id="setupRefresh">刷新部署状态</button></div>
+<div id="setupWizardSteps" class="card"><div id="setupSteps" class="setup-steps" aria-label="部署步骤"></div><p id="setupStepHint" class="notice">请从第一步开始配置。</p></div>
+
+<div id="setupEditorClose" hidden class="setup-editor-top"><button type="button" id="setupCloseEdit" class="outline">← 返回配置概览</button></div>
+<div class="setup-stage" data-setup-step="0">
+  <div class="card"><h2>第一步 · 网站与 TURN 地址</h2>
+  <p>网站 HTTPS 由现有 1Panel / Nginx / Caddy 反向代理；TURN 域名仅需要 DNS A 记录指向服务器 IP，不要创建 HTTP 反向代理。</p>
+  <form id="deploymentForm">
+    <label>网站 HTTPS 地址<input id="setupSite" type="url" placeholder="https://movecar.ssxi.de" required></label>
+    <label>TURN 地址（只填域名）<input id="setupTurn" placeholder="turn.ssxi.de" required></label>
+    <button type="submit" class="primary">保存地址并继续 →</button>
+  </form>
+  <p>网站反向代理目标：<code>http://127.0.0.1:8888</code>；同 Docker 网络也可使用 <code>http://movecar:8888</code>。</p>
+  </div>
+</div>
+
+<div class="setup-stage" data-setup-step="1" hidden>
+  <div class="card"><h2>第二步 · Firebase 消息与来电</h2>
+  <p>选择 Firebase 的 <strong>Admin SDK 服务账号 JSON</strong> 上传；后台不回显私钥，APP 仍保留现有 Firebase 客户端配置。</p>
+  <label>Firebase 服务账号 JSON<input id="setupFirebaseFile" type="file" accept=".json,application/json"></label>
+  <button type="button" class="primary" id="setupFirebaseSave">保存 Firebase 并继续 →</button>
+  <p>已经导入 Firebase 的旧服务器可直接点击「下一步」。</p></div>
+</div>
+
+<div class="setup-stage" data-setup-step="2" hidden>
+  <div class="card"><h2>第三步 · TURN TLS 稳定性增强</h2>
+  <p>TURN 在 <code>3478</code> 使用 UDP/TCP；<code>turns:turn.ssxi.de:5349</code> 是网络限制较严时的 TLS 备用路径，不是一个需要 HTTP 反代的网站。</p>
+  <p><strong>优先推荐自动复用现有网站泛域名证书。</strong> 可以让安装后的宿主机助手查找当前网站证书；或填写服务器证书目录，自动同步续期。无需重新向 Let's Encrypt 申请。</p>
+  <div class="form-actions"><button type="button" class="primary" id="setupCertAuto">自动查找当前服务器证书</button></div>
+  <form id="setupCertDirForm">
+    <label>现有网站证书所在的服务器目录<input id="setupCertDirectory" placeholder="/www/sites/你的网站/ssl"></label>
+    <button type="submit" class="outline">从服务器目录自动读取并监控更新</button>
+  </form>
+  <p>也可手动上传（如果不想授权目录读取）：</p>
+  <label>完整 PEM 证书<input id="setupTlsCert" type="file" accept=".pem,.crt,.cer"></label>
+  <label>对应 PEM 私钥<input id="setupTlsKey" type="file" accept=".pem,.key"></label>
+  <div class="form-actions"><button type="button" class="outline" id="setupTlsSave">手动上传证书</button><button type="button" class="outline" id="setupTlsClear">关闭 TLS 备用</button></div>
+  <div class="notice" id="setupCertState" role="status">TURN UDP/TCP 无需证书；推荐启用 TLS 5349 提高受限网络接通机会。</div>
+  </div>
+</div>
+
+<div class="setup-stage" data-setup-step="3" hidden>
+  <div class="card setup-port-guide">
+    <h2>开放端口清单（云服务器安全组需要手动配置）</h2>
+    <p>主机防火墙会尝试自动放行。你还需要在云服务商控制台将以下端口对公网开放；网站反代后端 8888 不需要开放。</p>
+    <div class="port-table-scroll"><table class="port-table">
+      <thead><tr><th>协议</th><th>端口 / 范围</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td>UDP</td><td><code>3478</code></td><td>STUN / TURN</td></tr>
+        <tr><td>TCP</td><td><code>3478</code></td><td>TURN TCP 备用</td></tr>
+        <tr><td>UDP</td><td><code>49160–49191</code></td><td>媒体中继，32 个端口整段开放</td></tr>
+        <tr><td>TCP</td><td><code>5349</code></td><td>TURN TLS 备用，建议开放</td></tr>
+      </tbody>
+    </table></div>
+    <p>TCP 8888 是本机反向代理目标，不要添加公网入站规则。</p>
+  </div>
+  <div class="card"><h2>第四步 · 环境检测</h2>
+    <p>自动检查网站 HTTPS、TURN DNS、Firebase、TURN 鉴权分配和主机防火墙。只有必要检查合格才能进入正常后台。云服务商安全组仍需你自行开放。</p>
+    <div id="setupChecks" class="setup-checks" role="status">点击开始检查。</div>
+    <div class="form-actions"><button type="button" id="setupVerify" class="outline">重新检测</button><button type="button" id="setupFinish" class="primary" disabled>检查合格，进入后台 →</button></div>
+  </div>
+</div>
+<div id="setupWizardFooter" class="card"><div class="setup-footer"><button id="setupPrev" class="outline" type="button">← 上一步</button><span id="setupProgress">第 1 / 4 步</span><button id="setupNext" type="button" class="primary">下一步 →</button></div><p id="setupState" class="notice" role="status"></p></div>
 </section>
 <section id="view-settings" class="view" hidden><div class="page-title"><h1>基本设置</h1><p>更改后立即生效，无需重启。</p></div><form id="settingsForm" class="card"><h2>站点外观</h2><label>站点名称<input id="siteName" maxlength="40" placeholder="例如：一键联系车主" required></label><p>名称将显示在前台标题及浏览器标签页。</p><h2>访问与通知</h2><label>公网访问地址<input type="url" id="publicUrl" placeholder="https://car.example.com"></label><label>车主联系电话（可选）<input id="phoneNumber" maxlength="35"></label><label>车主微信号（供前台复制）<input id="wechatId" maxlength="60" placeholder="例如 wxid_123456"></label><p>在前台点击「微信联系」会复制此微信号。留空则按钮不可用。</p><label>通知间隔（秒）<input type="number" id="rateLimit" min="0" max="3600" value="60"></label><label>保留最近挪车记录（条）<input type="number" id="requestRetentionLimit" min="1" max="500" step="1" value="50" required></label><p>默认保留最近 50 条，可设为 1–500。超出的旧记录和关联照片会同步清理；照片链接最长有效 1 小时。</p><p id="requestRetentionUsage" role="status">当前已保留记录：读取中…</p><button type="submit" class="primary">保存基本设置</button></form>
 <div class="card branding-card"><h2>网站图标</h2><p>支持 PNG、JPEG、WebP、ICO，最大 256 KB。上传后将作为浏览器 favicon 和前台的站点图标。</p>

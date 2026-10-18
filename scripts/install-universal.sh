@@ -7,7 +7,7 @@ die(){ printf '安装失败：%s\n' "$*" >&2;exit 1; }
 for cmd in docker git curl python3 openssl;do command -v "$cmd" >/dev/null || die "未安装 $cmd；请先安装 Docker Engine、Compose V2 与基础命令";done
 docker compose version >/dev/null || die "需要 Docker Compose V2"
 DIR="${MOVECAR_DIR:-/opt/movecar}"
-BRANCH=feature/universal-setup-wizard
+BRANCH=feature/onboarding-firewall-cert-sync
 if [[ -e "$DIR" && ! -d "$DIR/.git" ]];then die "目录 $DIR 已存在且不是 Git 仓库；不会覆盖";fi
 if [[ ! -e "$DIR" ]];then
  git clone -b "$BRANCH" --single-branch https://github.com/frbico/movecar.git "$DIR"
@@ -15,9 +15,16 @@ else
  if [[ -n "$(git -C "$DIR" status --porcelain --untracked-files=no)" ]];then
    die "$DIR 存在未提交的代码修改，不会覆盖，请先备份或提交"
  fi
- git -C "$DIR" fetch origin "$BRANCH"
- git -C "$DIR" switch "$BRANCH" || git -C "$DIR" switch -c "$BRANCH" --track "origin/$BRANCH"
- git -C "$DIR" pull --ff-only origin "$BRANCH"
+ # A single-branch checkout may have fetch refspec for an older branch only.
+ # Fetch an explicit remote-tracking ref before switching; FETCH_HEAD alone
+ # does not create origin/$BRANCH (the cause of 'fatal: invalid reference').
+ git -C "$DIR" fetch origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
+ if git -C "$DIR" show-ref --verify --quiet "refs/heads/$BRANCH";then
+   git -C "$DIR" switch "$BRANCH"
+ else
+   git -C "$DIR" switch --track -c "$BRANCH" "origin/$BRANCH"
+ fi
+ git -C "$DIR" merge --ff-only "origin/$BRANCH"
 fi
 cd "$DIR"
 umask 077
@@ -78,11 +85,68 @@ for i in $(seq 1 40);do
  sleep 2
 done
 [[ "$OK" -eq 1 ]] || die 'MoveCar 未通过健康检查。检查：docker logs movecar'
-if command -v ufw >/dev/null && ufw status | grep -q 'Status: active';then
- ufw allow 3478/udp >/dev/null;ufw allow 3478/tcp >/dev/null
- ufw allow 5349/tcp >/dev/null;ufw allow 49160:49260/udp >/dev/null
- echo '已放行 UFW TURN 端口（云厂商安全组仍需单独放行）'
+# Detect and open TURN ports. Never alter external HTTPS reverse-proxy ports.
+if ! bash scripts/configure-firewall.sh;then
+ echo '警告：无法自动更新此服务器的自定义主机防火墙。向导将显示详细处理建议。' >&2
 fi
+# Optional ROOT-only certificate watcher for existing 1Panel/Nginx/Let's Encrypt files.
+# The Node web service has NO host mount, Docker socket or elevated file privileges.
+if command -v systemctl >/dev/null 2>&1 && [[ -d /run/systemd/system ]];then
+ cat >/etc/systemd/system/movecar-firewall.service <<EOF
+[Unit]
+Description=Keep MoveCar STUN/TURN host firewall ports open after server restart
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash $DIR/scripts/configure-firewall.sh
+RemainAfterExit=yes
+[Install]
+WantedBy=multi-user.target
+EOF
+ cat >/etc/systemd/system/movecar-cert-sync.service <<EOF
+[Unit]
+Description=Synchronize existing web certificates for MoveCar TURN
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 $DIR/scripts/sync-host-cert.py $DIR
+EOF
+ cat >/etc/systemd/system/movecar-cert-sync.timer <<EOF
+[Unit]
+Description=Check existing website TLS files for updates
+[Timer]
+OnBootSec=15s
+OnUnitActiveSec=1min
+Persistent=true
+[Install]
+WantedBy=timers.target
+EOF
+ cat >/etc/systemd/system/movecar-turn-health.service <<EOF
+[Unit]
+Description=Verify authenticated local TURN allocation for MoveCar wizard
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 $DIR/scripts/host-health.py $DIR
+EOF
+ cat >/etc/systemd/system/movecar-turn-health.timer <<EOF
+[Unit]
+Description=Check TURN health once a minute
+[Timer]
+OnBootSec=20s
+OnUnitActiveSec=1min
+Persistent=true
+[Install]
+WantedBy=timers.target
+EOF
+ systemctl daemon-reload
+ systemctl enable --now movecar-cert-sync.timer >/dev/null
+ systemctl enable --now movecar-turn-health.timer >/dev/null
+ systemctl enable movecar-firewall.service >/dev/null
+ echo '已启用网站证书只读同步助手（由原证书管理器继续负责签发续期）'
+else
+ echo '提醒：系统没有 systemd，后台可手动上传证书；目录自动同步需要配置 cron。'
+fi
+
 echo
 echo '✅ 安装完成。无需在安装时填写域名、Firebase 或证书。'
 echo '后台入口： http://127.0.0.1:8888/admin'

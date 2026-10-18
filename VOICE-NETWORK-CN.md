@@ -27,7 +27,7 @@
 
 - 新增 DNS-only 记录：`turn-hk.example.com` → 香港 TURN 公网 IPv4；`turn-tokyo.example.com` → 东京 TURN IPv4。
 - 不要在通常的 Cloudflare HTTP 代理（橙云）后面挂 STUN/TURN。它们不是普通 HTTPS 服务。
-- 服务器开放 **3478/udp、3478/tcp、443/tcp、49160–49260/udp**，以及供应商的云安全组相应规则。放行出口流量。可按并发规模适当扩大 UDP 中继端口范围。
+- 服务器开放 **3478/udp、3478/tcp、443/tcp、49160–49191/udp**，以及供应商的云安全组相应规则。放行出口流量。可按并发规模适当扩大 UDP 中继端口范围。
 - TLS 使用和 TURN 域名匹配的有效证书（cert / pkey）。TURN TLS 不是 HTTPS 反向代理路径，**不要**直接在 Caddy 中添加一条 HTTP `reverse_proxy` 来替代 TURN。
 - 配置 `use-auth-secret`、`static-auth-secret`，确保与主应用 `VOICE_TURN_SHARED_SECRET` 字节完全一致；两个地区 TURN 使用同一个密钥，才能接收同一批短期动态凭据。私钥不上传到仓库。
 - 参考 `deployment/coturn.conf.example`。私钥、真实域名、公网 IP 均需根据服务器修改。
