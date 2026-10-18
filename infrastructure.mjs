@@ -116,7 +116,8 @@ export function createInfrastructure({setting,save,dataDir,turnSecret=process.en
     if(!host)throw err('请填写 TURN 域名，和网站可以使用同一个 IP');
     save('public_url',url.origin);save('turn_host',host);
     const source=safeJson(sourceFile);
-    if(source&&['auto','directory'].includes(source.mode))writeCertSource(source.mode,source.directory||'');
+    // Health probe must run even when TLS is deliberately skipped.
+    writeCertSource(source?.mode||'none',source?.directory||'');
     refreshTurn();return config();
   }
   function saveFirebase(content){
@@ -194,5 +195,6 @@ export function createInfrastructure({setting,save,dataDir,turnSecret=process.en
     return {ok:true,setupComplete:true};
   }
   if(turnSecret)refreshTurn();
+  if(setting('turn_host')&&!fs.existsSync(sourceFile))writeCertSource('none');
   return {config,configure,ice,saveFirebase,saveTls,removeTls,refreshTurn,setCertSource,verify,complete};
 }
