@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import dns from 'node:dns/promises';
+import net from 'node:net';
 
 // Configuration lives in the authenticated admin console, not an installer.
 // TURN is a private server-side service; the browser only receives short-lived
@@ -48,7 +49,7 @@ export function createInfrastructure({setting,save,dataDir,turnSecret=process.en
   const configured=()=>fs.existsSync(certFile)&&fs.existsSync(keyFile);
   function tlsValidFor(host){
     if(!host||!configured())return false;
-    try {const c=new crypto.X509Certificate(fs.readFileSync(certFile));return !!c.checkHost(host)&&Date.parse(c.validTo)>Date.now()+86400000;}catch{return false;}
+    try {const c=new crypto.X509Certificate(fs.readFileSync(certFile));return !!(net.isIP(host)?c.checkIP(host):c.checkHost(host))&&Date.parse(c.validTo)>Date.now()+86400000;}catch{return false;}
   }
   function refreshTurn(){
     // No externally supplied config lines, paths or arbitrary shell commands.
@@ -76,6 +77,7 @@ export function createInfrastructure({setting,save,dataDir,turnSecret=process.en
     return tls;
   }
   function config(){
+    if(turnSecret)refreshTurn();
     const host=hostname(setting('turn_host'));
     const tls=tlsValidFor(host);
     return {
@@ -92,6 +94,7 @@ export function createInfrastructure({setting,save,dataDir,turnSecret=process.en
     };
   }
   function ice(){
+    if(turnSecret)refreshTurn();
     const host=hostname(setting('turn_host'));
     const tls=tlsValidFor(host);
     if(!host)return null;
@@ -135,7 +138,7 @@ export function createInfrastructure({setting,save,dataDir,turnSecret=process.en
     let c,k;
     try{c=new crypto.X509Certificate(cert);k=crypto.createPrivateKey(key);}
     catch{throw err('请上传有效 PEM 证书和私钥文件');}
-    if(!c.checkHost(host))throw err('证书不包含当前 TURN 域名（请检查泛域名证书覆盖范围）');
+    if(!(net.isIP(host)?c.checkIP(host):c.checkHost(host)))throw err('证书不包含当前 TURN 域名/IP（请检查泛域名证书覆盖范围）');
     const certPublic=c.publicKey.export({type:'spki',format:'der'});
     const keyPublic=crypto.createPublicKey(k).export({type:'spki',format:'der'});
     if(!certPublic.equals(keyPublic))throw err('证书与私钥不匹配');
@@ -161,7 +164,7 @@ export function createInfrastructure({setting,save,dataDir,turnSecret=process.en
     add('firebase','Firebase 服务账号',c.firebaseConfigured,'通过后台上传 Firebase Admin SDK JSON');
     if(c.turnEnabled){
       try{
-        const addresses=await dns.resolve4(c.turnHost);
+        const addresses=net.isIP(c.turnHost)?[c.turnHost]:await dns.resolve4(c.turnHost);
         const publicIp=externalIp.split('/')[0];
         const match=publicIp?addresses.includes(publicIp):addresses.length>0;
         add('dns','TURN DNS 解析',match,match?'TURN DNS 已解析到服务器':'TURN DNS 未指向本服务器公网 IPv4');
