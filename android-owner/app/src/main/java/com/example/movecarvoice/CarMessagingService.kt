@@ -52,6 +52,9 @@ class CarMessagingService : FirebaseMessagingService() {
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
         nm.createNotificationChannel(channel)
+        // Android 14+ may require the user to grant full-screen call notification
+        // permission. No background activity launch: use the OS call notification.
+        val fullScreenAllowed = Build.VERSION.SDK_INT < 34 || nm.canUseFullScreenIntent()
         val intent = Intent(this, IncomingCallActivity::class.java).putExtra("callId", callId)
         val view = PendingIntent.getActivity(this, 1, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val answer = PendingIntent.getActivity(this, 2, Intent(intent).putExtra("answer", true), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
@@ -67,7 +70,7 @@ class CarMessagingService : FirebaseMessagingService() {
             .setTimeoutAfter(35_000L)
             .setOngoing(false)
             .setContentIntent(view)
-            .setFullScreenIntent(view, true)
+            .setFullScreenIntent(view, fullScreenAllowed)
         if (Build.VERSION.SDK_INT >= 31) {
             val person = android.app.Person.Builder().setName("挪车语音呼叫").setImportant(true).build()
             builder.setStyle(Notification.CallStyle.forIncomingCall(person, decline, answer))
@@ -92,6 +95,7 @@ class CarMessagingService : FirebaseMessagingService() {
         val text = message.data["message"]?.take(1000) ?: "点击查看挪车请求"
         val view = PendingIntent.getActivity(this, 11,
             Intent(this, MainActivity::class.java).apply {
+                putExtra("openPage","requests")
                 addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)

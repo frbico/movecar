@@ -17,16 +17,16 @@ import android.widget.TextView
  * stays in its foreground service. Material-inspired surfaces and 48dp targets.
  */
 internal object OwnerUi {
-    val navy = Color.rgb(20, 41, 78)
-    val blue = Color.rgb(38, 100, 224)
-    val blueDeep = Color.rgb(16, 57, 153)
-    val canvas = Color.rgb(246, 248, 252)
-    val muted = Color.rgb(108, 122, 147)
-    val line = Color.rgb(231, 236, 246)
+    val navy = Color.rgb(17, 27, 33)
+    val blue = Color.rgb(0, 128, 105)
+    val blueDeep = Color.rgb(5, 94, 84)
+    val canvas = Color.rgb(248, 249, 250)
+    val muted = Color.rgb(101, 111, 119)
+    val line = Color.rgb(231, 234, 237)
     val white = Color.WHITE
-    val softBlue = Color.rgb(234, 241, 255)
-    val green = Color.rgb(23, 128, 92)
-    val softGreen = Color.rgb(229, 247, 238)
+    val softBlue = Color.rgb(222, 246, 235)
+    val green = Color.rgb(0, 128, 105)
+    val softGreen = Color.rgb(224, 247, 232)
     val amber = Color.rgb(164, 99, 23)
     val softAmber = Color.rgb(255, 244, 226)
     val red = Color.rgb(187, 62, 74)
@@ -44,11 +44,11 @@ internal object OwnerUi {
 
     fun gradient(context: Context): GradientDrawable =
         GradientDrawable(GradientDrawable.Orientation.TL_BR,
-            intArrayOf(blue, blueDeep)).apply { cornerRadius = dp(context, 24).toFloat() }
+            intArrayOf(blue, blueDeep)).apply { cornerRadius = dp(context, 14).toFloat() }
 
     fun pressable(context: Context, color: Int, radius: Int = 14, border: Int? = null): RippleDrawable =
         RippleDrawable(
-            ColorStateList.valueOf(Color.argb(36, 20, 60, 120)),
+            ColorStateList.valueOf(Color.argb(29, 0, 128, 105)),
             bg(color, radius, context, border),
             null
         )
@@ -72,7 +72,7 @@ internal object OwnerUi {
         return label(ctx, text, 12f, colors.second, true).apply {
             gravity = Gravity.CENTER
             background = bg(colors.first, 50, ctx)
-            setPadding(dp(ctx, 12), dp(ctx, 7), dp(ctx, 12), dp(ctx, 7))
+            setPadding(dp(ctx, 9), dp(ctx, 4), dp(ctx, 9), dp(ctx, 4))
         }
     }
 
@@ -86,9 +86,9 @@ internal object OwnerUi {
     }
 
     fun card(ctx: Context): LinearLayout = vertical(ctx).apply {
-        background = bg(white, 20, ctx, line)
-        setPadding(dp(ctx, 16), dp(ctx, 16), dp(ctx, 16), dp(ctx, 16))
-        elevation = dp(ctx, 2).toFloat()
+        background = bg(white, 12, ctx, line)
+        setPadding(dp(ctx, 12), dp(ctx, 12), dp(ctx, 12), dp(ctx, 12))
+        elevation = 0f
     }
 
     fun icon(ctx: Context, res: Int, tint: Int = blue, sizeDp: Int = 22): ImageView =

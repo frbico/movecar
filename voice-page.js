@@ -3,6 +3,57 @@
   const owner=location.pathname==='/voice/owner';
   const start=document.querySelector('#start'),hangup=document.querySelector('#hangup');
   const label=document.querySelector('#status'),timer=document.querySelector('#timer');
+  const speaker=document.querySelector('#speaker');
+  const audioNote=document.querySelector('#audioRouteNote');
+  const remote=document.querySelector('#remote');
+  let speakerOn=false;
+  async function audioOutputs(){
+    try{return (await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='audiooutput');}
+    catch{return [];}
+  }
+  async function preferReceiver(){
+    speakerOn=false;
+    speaker.setAttribute('aria-pressed','false');
+    speaker.textContent='🔈 开启免提';
+    if(typeof remote.setSinkId!=='function'){
+      audioNote.textContent='浏览器无法直接指定听筒，使用手机当前音频路由；可通过系统音频设置切换。';
+      return;
+    }
+    const devices=await audioOutputs();
+    const receiver=devices.find(d=>/earpiece|receiver|听筒/i.test(d.label));
+    const preferred=receiver?.deviceId||'communications';
+    try{
+      await remote.setSinkId(preferred);
+      audioNote.textContent='优先使用听筒 / 通信音频输出';
+    }catch{
+      audioNote.textContent='本浏览器未提供听筒路由，使用当前系统默认音频输出。';
+    }
+  }
+  async function toggleAudioRoute(){
+    if(!speakerOn){
+      const devices=await audioOutputs();
+      const output=devices.find(d=>/speaker|扬声器|免提/i.test(d.label));
+      if(typeof remote.setSinkId==='function'&&output){
+        try{
+          await remote.setSinkId(output.deviceId);
+          speakerOn=true;speaker.textContent='🔉 关闭免提';
+          speaker.setAttribute('aria-pressed','true');audioNote.textContent='当前音频输出：扬声器';
+          return;
+        }catch{}
+      }
+      if(typeof navigator.mediaDevices.selectAudioOutput==='function'){
+        try{
+          const choice=await navigator.mediaDevices.selectAudioOutput();
+          await remote.setSinkId(choice.deviceId);
+          speakerOn=true;speaker.textContent='🔉 返回听筒';
+          speaker.setAttribute('aria-pressed','true');
+          audioNote.textContent='已切换至选择的音频输出';
+          return;
+        }catch{}
+      }
+      audioNote.textContent='当前浏览器不允许网页强制开启扬声器，请从手机系统音频菜单切换。';
+    }else await preferReceiver();
+  }
   document.querySelector('#title').textContent=owner?'接听挪车语音':'呼叫车主（网络语音）';
   const defaultIce=[{urls:['stun:stun.l.google.com:19302']}];
   let callId='',auth='',pc=null,localStream=null,last=0,poller=null,closed=false;
@@ -36,7 +87,7 @@
       api(endpoint('end'),{token:auth}).catch(()=>{});
     }
     releaseMedia();
-    hangup.hidden=true;start.hidden=true;
+    hangup.hidden=true;start.hidden=true;speaker.hidden=true;
     if(message)say(message);
   }
   async function failed(reason,message){
@@ -87,7 +138,7 @@
   async function peer(){
     if(pc)return;
     pc=new RTCPeerConnection({iceServers,iceCandidatePoolSize:1});
-    pc.ontrack=e=>{document.querySelector('#remote').srcObject=e.streams[0];};
+    pc.ontrack=e=>{remote.srcObject=e.streams[0];void preferReceiver();};
     pc.onicecandidate=e=>{if(e.candidate)void signal('ice',e.candidate.toJSON());};
     pc.onconnectionstatechange=()=>{
       if(closed||!pc)return;
@@ -95,7 +146,7 @@
         connectSince=0;
         if(!inCallAt)inCallAt=Date.now();
         void showSelectedRoute();
-        say('✅ 通话中');
+        say('✅ 通话中');speaker.hidden=false;
       }else if(pc.connectionState==='failed'){
         void failed('ice_failed','语音网络连接失败');
       }else if(pc.connectionState==='disconnected'){
@@ -122,7 +173,20 @@
           return;
         }
         const messages={missed:'车主暂未接听',rejected:'车主已拒绝来电',ended:'通话已结束',failed:'连接失败'};
-        await stop(false,messages[data.status]);return;
+        await stop(false,messages[data.status]);
+        if(data.status==='ended'){
+          // Return to the parking page after a completed call; browsers
+          // generally forbid closing a tab that wasn't script-opened.
+          window.setTimeout(()=>{
+            if(location.pathname.startsWith('/voice/')){
+              let sameSite=false;
+              try{sameSite=!!document.referrer&&new URL(document.referrer).origin===location.origin;}catch{}
+              if(sameSite&&history.length>1)history.back();
+              else location.assign('/');
+            }
+          },1100);
+        }
+        return;
       }
       if(data.status==='active'&&!pc){await peer();connectSince=Date.now();}
       if(data.status==='active'&&!owner&&!offerSent){
@@ -178,7 +242,7 @@
     closed=false;retrying=false;last=0;offerSent=false;inCallAt=0;connectSince=0;pollFailures=0;
     callId='';auth='';pendingIce.length=0;pendingAnswer=null;timer.textContent='';
     document.querySelector('#diag').textContent='';
-    start.hidden=true;hangup.hidden=false;hangup.disabled=false;
+    start.hidden=true;hangup.hidden=false;speaker.hidden=true;hangup.disabled=false;
     try{
       if(owner){
         const params=new URLSearchParams(location.hash.slice(1));
@@ -207,6 +271,7 @@
     }
   }
   start.addEventListener('click',()=>void begin());
+  speaker.addEventListener('click',()=>void toggleAudioRoute());
   hangup.addEventListener('click',()=>void stop());
   window.addEventListener('pagehide',()=>{
     if(!closed&&callId&&auth){

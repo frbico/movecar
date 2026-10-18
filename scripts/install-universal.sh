@@ -7,7 +7,9 @@ die(){ printf '安装失败：%s\n' "$*" >&2;exit 1; }
 for cmd in docker git curl python3 openssl;do command -v "$cmd" >/dev/null || die "未安装 $cmd；请先安装 Docker Engine、Compose V2 与基础命令";done
 docker compose version >/dev/null || die "需要 Docker Compose V2"
 DIR="${MOVECAR_DIR:-/opt/movecar}"
-BRANCH=feature/onboarding-firewall-cert-sync
+BRANCH="${MOVECAR_BRANCH:-feature/mobile-v05-whatsapp-reliability}"
+[[ "$BRANCH" =~ ^[a-zA-Z0-9][a-zA-Z0-9/_.-]*$ && "$BRANCH" != *'..'* ]] ||
+  die '非法 Git 分支名称'
 if [[ -e "$DIR" && ! -d "$DIR/.git" ]];then die "目录 $DIR 已存在且不是 Git 仓库；不会覆盖";fi
 if [[ ! -e "$DIR" ]];then
  git clone -b "$BRANCH" --single-branch https://github.com/frbico/movecar.git "$DIR"
