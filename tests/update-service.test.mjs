@@ -13,7 +13,7 @@ const fixture=()=>{
  const fetcher=async (url)=> {
    requested.push(url);
    return {ok:true,status:200,json:async()=>url.includes('api.github.com')?
-     {object:{object:{sha:SHA2}}}:{version:'0.5.2',changes:['修复升级失败','网页后台一键更新']}};
+     {object:{sha:SHA2}}:{version:'0.5.2',changes:['修复升级失败','网页后台一键更新']}};
  };
  const service=createUpdateService({runtimeDir:dir,releasePath:path.join(dir,'release.json'),
    localSha:SHA1,fetcher});
@@ -50,7 +50,7 @@ test('no update available when the current installed commit equals remote',async
  try{
   const service=createUpdateService({
    runtimeDir:f.dir,releasePath:path.join(f.dir,'release.json'),localSha:SHA2,
-   fetcher:async (u)=>({ok:true,status:200,json:async()=>u.includes('api.github.com')?{sha:SHA2}:{version:'0.5.2'}})
+   fetcher:async (u)=>({ok:true,status:200,json:async()=>u.includes('api.github.com')?{object:{sha:SHA2}}:{version:'0.5.2'}})
   });
   assert.equal((await service.check()).available,false);
   assert.equal((await service.requestUpdate(SHA2)).ok,false);
