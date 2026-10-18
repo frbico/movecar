@@ -7,6 +7,8 @@ import android.content.pm.PackageManager
 import android.os.Bundle
 import android.view.Gravity
 import android.view.WindowManager
+import android.app.KeyguardManager
+import android.os.Build
 import android.widget.*
 import org.json.JSONObject
 
@@ -16,8 +18,18 @@ class IncomingCallActivity : Activity() {
     private var busy = false
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setShowWhenLocked(true);setTurnScreenOn(true)
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        if (Build.VERSION.SDK_INT >= 27) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        }
+        @Suppress("DEPRECATION")
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+            WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+            WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+            WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD)
+        if (Build.VERSION.SDK_INT >= 26)
+            (getSystemService(KEYGUARD_SERVICE) as? KeyguardManager)
+                ?.requestDismissKeyguard(this, null)
         callId = intent.getStringExtra("callId") ?: ""
         if (!VoiceApi.validCallId(callId)) { finish();return }
         val d=resources.displayMetrics.density
