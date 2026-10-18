@@ -83,6 +83,12 @@ export function createMobileOwner({db,setting,save,deleteSetting,inputJson,json,
       json(res,200,requestFlow.listHistory(page,size));return true;
     }
     if(action==='calls'&&req.method==='GET'){json(res,200,{items:voice.listCallHistory()});return true;}
+    if(action==='calls/clear'&&req.method==='POST'){
+      const data=await inputJson(req);
+      if(data.confirm!==true)throw fail(400,'请先确认清空全部通话记录');
+      const deleted=voice.clearCallHistory();
+      json(res,200,{ok:true,deleted});return true;
+    }
     if(action==='site-icon'&&req.method==='PUT'){
       const {data,mime}=await iconUpload(req);
       iconSave.run(data,mime,Date.now());json(res,200,{ok:true});return true;
