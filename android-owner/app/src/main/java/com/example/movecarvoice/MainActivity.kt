@@ -9,6 +9,10 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.view.WindowInsets
+import android.view.View
 import android.text.InputType
 import android.view.Gravity
 import android.widget.*
@@ -24,6 +28,14 @@ class MainActivity : Activity() {
     private var historyPage = 1
     private val homeUrl = "https://movecar.ssxi.de"
     private val iconPicker = 120
+    private val refreshHandler = Handler(Looper.getMainLooper())
+    private var loadingPath: String? = null
+    private val periodicRefresh = object : Runnable {
+        override fun run() {
+            if (!isFinishing && page != "login" && token().isNotEmpty()) refreshCurrent(false)
+            refreshHandler.postDelayed(this, 120_000)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -34,32 +46,69 @@ class MainActivity : Activity() {
     }
 
 
+    override fun onResume() {
+        super.onResume()
+        refreshHandler.removeCallbacks(periodicRefresh)
+        refreshHandler.postDelayed(periodicRefresh, 120_000)
+    }
+    override fun onPause() {
+        refreshHandler.removeCallbacks(periodicRefresh)
+        super.onPause()
+    }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.getStringExtra("openPage") == "requests" && token().isNotBlank()) {
+            OwnerCache.invalidate(this)
+            historyPage=1
+            navigate("requests")
+        }
+    }
     private fun px(value: Int) = OwnerUi.dp(this, value)
     private fun spacer(size: Int = 12) {
         root.addView(android.view.View(this), LinearLayout.LayoutParams(1, px(size)))
     }
     private fun screen(heading: String) {
-        window.statusBarColor = OwnerUi.canvas
-        window.navigationBarColor = OwnerUi.white
+        window.statusBarColor = if(Build.VERSION.SDK_INT>=35) android.graphics.Color.TRANSPARENT else OwnerUi.canvas
+        window.navigationBarColor = if(Build.VERSION.SDK_INT>=35) android.graphics.Color.TRANSPARENT else OwnerUi.white
         @Suppress("DEPRECATION")
         window.decorView.systemUiVisibility =
             android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or
             android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
 
         val frame = OwnerUi.vertical(this).apply { setBackgroundColor(OwnerUi.canvas) }
+        // Android 15 enforces edge-to-edge. The top toolbar and the bottom nav
+        // must reserve physical system-bar insets on Samsung One UI.
+        if (Build.VERSION.SDK_INT >= 35) {
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility =
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or
+                View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+            frame.setOnApplyWindowInsetsListener { v, insets ->
+                val bars=insets.getInsets(WindowInsets.Type.systemBars())
+                v.setPadding(0, bars.top, 0, bars.bottom)
+                insets
+            }
+        }
         val top = OwnerUi.horizontal(this).apply {
-            setPadding(px(20), px(16), px(20), px(12))
+            setPadding(px(16), px(8), px(16), px(8))
         }
-        val mark = OwnerUi.label(this, "M", 22f, OwnerUi.white, true).apply {
+        val mark = OwnerUi.label(this, "M", 19f, OwnerUi.white, true).apply {
             gravity = Gravity.CENTER
-            background = OwnerUi.bg(OwnerUi.blue, 15, this@MainActivity)
+            background = OwnerUi.bg(OwnerUi.blue, 13, this@MainActivity)
         }
-        top.addView(mark, LinearLayout.LayoutParams(px(46), px(46)))
-        val headingCol = OwnerUi.vertical(this).apply { setPadding(px(12), 0, 0, 0) }
+        top.addView(mark, LinearLayout.LayoutParams(px(40), px(40)))
+        val headingCol = OwnerUi.vertical(this).apply { setPadding(px(9), 0, 0, 0) }
         headingCol.addView(OwnerUi.label(this, "MOVE CAR  /  车主中心", 11f, OwnerUi.muted, true))
         headingCol.addView(OwnerUi.label(this, heading, 19f, OwnerUi.navy, true))
         top.addView(headingCol, LinearLayout.LayoutParams(0, -2, 1f))
-        if (page != "login") top.addView(OwnerUi.pill(this, "● 已登录", true))
+        if (page != "login") top.addView(OwnerUi.label(this,"↻",25f,OwnerUi.blue,true).apply {
+            gravity=Gravity.CENTER
+            setPadding(px(9),px(4),px(4),px(4))
+            isClickable=true;isFocusable=true
+            contentDescription="手动同步当前页面"
+            setOnClickListener{refreshCurrent(true);notify("已请求同步最新数据")}
+        })
         frame.addView(top)
 
         val scroll = ScrollView(this).apply {
@@ -67,7 +116,7 @@ class MainActivity : Activity() {
             clipToPadding = false
         }
         root = OwnerUi.vertical(this).apply {
-            setPadding(px(20), px(4), px(20), px(30))
+            setPadding(px(14), px(3), px(14), px(15))
         }
         scroll.addView(root, android.widget.FrameLayout.LayoutParams(-1, -2))
         frame.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -78,8 +127,8 @@ class MainActivity : Activity() {
     private fun bottomNav(): LinearLayout {
         val bar=OwnerUi.horizontal(this).apply {
             setBackgroundColor(OwnerUi.white)
-            setPadding(px(7), px(8), px(7), px(9))
-            elevation=px(12).toFloat()
+            setPadding(px(5), px(4), px(5), px(5))
+            elevation=px(1).toFloat()
         }
         val tabs=listOf(
             Triple("首页", "home", android.R.drawable.ic_menu_view),
@@ -93,9 +142,9 @@ class MainActivity : Activity() {
             val color=if(selected) OwnerUi.blue else OwnerUi.muted
             val item=OwnerUi.vertical(this).apply {
                 gravity=Gravity.CENTER
-                setPadding(px(3), px(7), px(3), px(5))
+                setPadding(px(3), px(5), px(3), px(3))
                 background=OwnerUi.pressable(this@MainActivity,
-                    if(selected)OwnerUi.softBlue else OwnerUi.white, 13)
+                    if(selected)OwnerUi.softGreen else OwnerUi.white, 10)
                 isClickable=true
                 isFocusable=true
                 contentDescription="切换到"+label
@@ -107,7 +156,7 @@ class MainActivity : Activity() {
                 gravity=Gravity.CENTER
                 setPadding(0,px(5),0,0)
             })
-            bar.addView(item,LinearLayout.LayoutParams(0,px(59),1f).apply {
+            bar.addView(item,LinearLayout.LayoutParams(0,px(52),1f).apply {
                 marginStart=px(2);marginEnd=px(2)
             })
         }
@@ -116,26 +165,26 @@ class MainActivity : Activity() {
 
     private fun title(value: String, size: Float = 18f) {
         root.addView(OwnerUi.label(this, value, size, OwnerUi.navy, true).apply {
-            setPadding(0, px(10), 0, px(6))
+            setPadding(0, px(8), 0, px(4))
         },LinearLayout.LayoutParams(-1,-2))
     }
     private fun note(value: String) {
         root.addView(OwnerUi.label(this, value, 13.5f, OwnerUi.muted).apply {
             setLineSpacing(px(2).toFloat(),1f)
-            setPadding(0, px(3), 0, px(8))
+            setPadding(0, px(2), 0, px(5))
         },LinearLayout.LayoutParams(-1,-2))
     }
     private inline fun <T> inCard(block: () -> T): T {
         val holder=OwnerUi.card(this)
         root.addView(holder,LinearLayout.LayoutParams(-1,-2).apply{
-            bottomMargin=px(13)
+            bottomMargin=px(7)
         })
         val previous=root
         root=holder
         return try{block()}finally{root=previous}
     }
     private fun section(heading:String,caption:String="") {
-        title(heading,18f)
+        title(heading,16f)
         if(caption.isNotBlank())note(caption)
     }
     private fun field(hint: String, value: String = "", password: Boolean = false): EditText {
@@ -149,11 +198,11 @@ class MainActivity : Activity() {
             setHintTextColor(OwnerUi.muted)
             background=OwnerUi.bg(OwnerUi.canvas,12,this@MainActivity,OwnerUi.line)
             setPadding(px(13),px(12),px(13),px(12))
-            minHeight=px(51)
+            minHeight=px(46)
             if(password)inputType=InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
         block.addView(edit,LinearLayout.LayoutParams(-1,-2).apply{topMargin=px(7)})
-        root.addView(block,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(15)})
+        root.addView(block,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(10)})
         return edit
     }
     private fun check(label:String,enabled:Boolean):CheckBox =
@@ -162,7 +211,7 @@ class MainActivity : Activity() {
             it.textSize=14f
             it.setTextColor(OwnerUi.navy)
             it.isChecked=enabled
-            it.minHeight=px(48)
+            it.minHeight=px(44)
             it.buttonTintList=android.content.res.ColorStateList.valueOf(OwnerUi.blue)
             root.addView(it,LinearLayout.LayoutParams(-1,-2))
         }
@@ -171,7 +220,7 @@ class MainActivity : Activity() {
         val foreground=if(primary)OwnerUi.white else if(danger)OwnerUi.red else OwnerUi.blue
         val button=OwnerUi.label(this,label,14f,foreground,true).apply {
             gravity=Gravity.CENTER
-            minHeight=px(48)
+            minHeight=px(43)
             setPadding(px(14),px(12),px(14),px(12))
             background=OwnerUi.pressable(this@MainActivity,surface,13,
                 if(primary)null else if(danger)OwnerUi.softRed else OwnerUi.line)
@@ -180,12 +229,12 @@ class MainActivity : Activity() {
             setOnClickListener{callback()}
         }
         root.addView(button,LinearLayout.LayoutParams(-1,-2).apply {
-            topMargin=px(6);bottomMargin=px(5)
+            topMargin=px(3);bottomMargin=px(3)
         })
     }
     private fun status(text:String,good:Boolean?=null) {
         root.addView(OwnerUi.pill(this,text,good),LinearLayout.LayoutParams(-2,-2).apply{
-            topMargin=px(2);bottomMargin=px(8)
+            topMargin=px(2);bottomMargin=px(5)
         })
     }
     private fun empty(heading:String,description:String){
