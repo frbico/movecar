@@ -23,7 +23,7 @@ const validFcm=x=>typeof x==='string'&&x.length>=20&&x.length<=4096&&/^[\x21-\x7
 const validToken=x=>typeof x==='string'&&/^[A-Za-z0-9_-]{43}$/.test(x);
 const readStatic=name=>fs.readFileSync(new URL(name,import.meta.url));
 
-export function createVoiceService({db,json,reply,inputJson,pairingSecret=process.env.VOICE_PAIRING_SECRET||'',serviceAccountPath=process.env.FCM_SERVICE_ACCOUNT||'',pushCall=null,turnUrls=process.env.VOICE_TURN_URLS||'',turnSecret=process.env.VOICE_TURN_SHARED_SECRET||'',stunUrls=process.env.VOICE_STUN_URLS||'',turnConfig=()=>null,allowLegacyPairing=process.env.VOICE_ALLOW_LEGACY_PAIRING==='1',now=()=>Date.now()}){
+export function createVoiceService({db,json,reply,inputJson,pairingSecret=process.env.VOICE_PAIRING_SECRET||'',serviceAccountPath=process.env.FCM_SERVICE_ACCOUNT||'',pushCall=null,turnUrls=process.env.VOICE_TURN_URLS||'',turnSecret=process.env.VOICE_TURN_SHARED_SECRET||'',stunUrls=process.env.VOICE_STUN_URLS||'',turnConfig=()=>null,callPolicy=()=>({}),getClientIp=req=>String(req.socket.remoteAddress||'unknown'),allowLegacyPairing=process.env.VOICE_ALLOW_LEGACY_PAIRING==='1',now=()=>Date.now()}){
   db.exec(`CREATE TABLE IF NOT EXISTS voice_owner_device (
     id INTEGER PRIMARY KEY CHECK(id=1), auth_digest TEXT NOT NULL,
     fcm_token TEXT NOT NULL, updated_at INTEGER NOT NULL
@@ -40,6 +40,20 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
   const enabled=pairingSecret.length>=20 && Boolean(pushCall||serviceAccountPath);
   const calls=new Map();
   const limit=new Map();
+  const resolvedPolicy=()=>{
+    const input=callPolicy()||{};
+    const numeric=(x,fallback,min,max)=>Number.isInteger(x)&&x>=min&&x<=max?x:fallback;
+    return {
+      dailyLimit:numeric(input.dailyLimit,8,0,500),
+      cooldownSeconds:numeric(input.cooldownSeconds,90,0,3600),
+      maxFastRetries:numeric(input.maxFastRetries,2,0,10),
+      testMode:input.testMode===true
+    };
+  };
+  // Deliberately never trust arbitrary X-Forwarded-For sent from the public
+  // internet. Environments with a known reverse proxy can supply a trusted
+  // getClientIp resolver after verifying the peer address in the server.
+
   let cachedAccess=null;
   function originAllowed(req){
     const given=req.headers.origin;
@@ -157,24 +171,29 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
     throw bad(403,'通话凭证无效');
   }
   function enforceRate(req,retryToken){
-    const ip=String(req.socket.remoteAddress||'unknown');
+    const ip=String(getClientIp(req));
     const r=limit.get(ip)||{since:now(),last:0,count:0,retryHash:'',retryUntil:0};
     if(now()-r.since>86400000){r.since=now();r.count=0;r.retryHash='';r.retryUntil=0;}
-    // A one-use ticket is returned only for a failed, authenticated call.
-    // It bypasses the 90-second cooldown, NOT the daily abuse limit.
-    const fast=validToken(retryToken)&&r.retryHash&&r.retryUntil>now()&&eq(sha(retryToken),r.retryHash);
-    if(r.count>=8)throw bad(429,'今日语音尝试次数过多，请稍后再试');
-    if(!fast&&now()-r.last<90000)throw bad(429,'呼叫过于频繁，请稍后再试');
+    const policy=resolvedPolicy();
+    // Single owner supports a single active call even in test/unlimited mode.
     if([...calls.values()].some(c=>['ringing','active'].includes(c.status)))throw bad(409,'车主正在通话或已有来电');
+    // A one-use authenticated failure ticket skips only the cooldown.
+    const fast=validToken(retryToken)&&r.retryHash&&r.retryUntil>now()&&eq(sha(retryToken),r.retryHash);
+    if(!policy.testMode && policy.dailyLimit>0 && r.count>=policy.dailyLimit)
+      throw bad(429,'最近 24 小时语音尝试次数达到上限（'+policy.dailyLimit+' 次），可联系车主调整后台通话规则');
+    if(!policy.testMode && !fast && policy.cooldownSeconds>0 &&
+        now()-r.last<policy.cooldownSeconds*1000)
+      throw bad(429,'呼叫间隔不足 '+policy.cooldownSeconds+' 秒，请稍后重试');
     if(fast){
       // Ticket is consumed atomically before the next FCM send.
       r.retryHash='';r.retryUntil=0;
     }
-    r.count++;r.last=now();limit.set(ip,r);
+    if(!policy.testMode)r.count++;
+    r.last=now();limit.set(ip,r);
     return {ip,depth:fast?r.pendingDepth||1:0};
   }
   function issueRetry(c){
-    if(c.retryDepth>=2||now()-c.created>120000)return null;
+    if(c.retryDepth>=resolvedPolicy().maxFastRetries||now()-c.created>120000)return null;
     const r=limit.get(c.callerIp);
     if(!r)return null;
     if(!c.retryTicket){
@@ -290,5 +309,7 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
     c.events.push({seq:++c.seq,from:who,kind,payload});
     json(res,200,{ok:true,seq:c.seq});return true;
   }
-  return {handle,cleanup,notifyOwner,registerMobileDevice,unregisterMobileDevice,revokeAllMobileDevices,isDeviceReady:()=>Boolean(getDevice.get()),listCallHistory:()=>getHistory.all(),resetFirebaseAccess:()=>{cachedAccess=null;},close:()=>clearInterval(cleanupTimer),_debug:{calls}};
+  return {handle,cleanup,notifyOwner,registerMobileDevice,unregisterMobileDevice,revokeAllMobileDevices,
+    isDeviceReady:()=>Boolean(getDevice.get()),listCallHistory:()=>getHistory.all(),
+    getCallPolicy:resolvedPolicy,resetCallRateLimits:()=>limit.clear(),resetFirebaseAccess:()=>{cachedAccess=null;},close:()=>clearInterval(cleanupTimer),_debug:{calls}};
 }
