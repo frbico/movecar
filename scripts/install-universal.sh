@@ -78,11 +78,37 @@ for i in $(seq 1 40);do
  sleep 2
 done
 [[ "$OK" -eq 1 ]] || die 'MoveCar 未通过健康检查。检查：docker logs movecar'
-if command -v ufw >/dev/null && ufw status | grep -q 'Status: active';then
- ufw allow 3478/udp >/dev/null;ufw allow 3478/tcp >/dev/null
- ufw allow 5349/tcp >/dev/null;ufw allow 49160:49191/udp >/dev/null
- echo '已放行 UFW TURN 端口（云厂商安全组仍需单独放行）'
+# Detect and open TURN ports. Never alter external HTTPS reverse-proxy ports.
+if ! bash scripts/configure-firewall.sh;then
+ echo '警告：无法自动更新此服务器的自定义主机防火墙。向导将显示详细处理建议。' >&2
 fi
+# Optional ROOT-only certificate watcher for existing 1Panel/Nginx/Let's Encrypt files.
+# The Node web service has NO host mount, Docker socket or elevated file privileges.
+if command -v systemctl >/dev/null 2>&1 && [[ -d /run/systemd/system ]];then
+ cat >/etc/systemd/system/movecar-cert-sync.service <<EOF
+[Unit]
+Description=Synchronize existing web certificates for MoveCar TURN
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 $DIR/scripts/sync-host-cert.py $DIR
+EOF
+ cat >/etc/systemd/system/movecar-cert-sync.timer <<EOF
+[Unit]
+Description=Check existing website TLS files for updates
+[Timer]
+OnBootSec=15s
+OnUnitActiveSec=1min
+Persistent=true
+[Install]
+WantedBy=timers.target
+EOF
+ systemctl daemon-reload
+ systemctl enable --now movecar-cert-sync.timer >/dev/null
+ echo '已启用网站证书只读同步助手（由原证书管理器继续负责签发续期）'
+else
+ echo '提醒：系统没有 systemd，后台可手动上传证书；目录自动同步需要配置 cron。'
+fi
+
 echo
 echo '✅ 安装完成。无需在安装时填写域名、Firebase 或证书。'
 echo '后台入口： http://127.0.0.1:8888/admin'
