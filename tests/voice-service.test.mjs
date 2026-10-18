@@ -11,6 +11,7 @@ function createHarness(options={}){
   const api=createVoiceService({db,pairingSecret:'test-voice-secret-which-is-long-and-private',
     now:()=>clock,allowLegacyPairing:true,pushCall:async (m)=>messages.push(m),
     stunUrls:options.stunUrls||'',turnUrls:options.turnUrls||'',turnSecret:options.turnSecret||'',
+    callPolicy:()=>options.policy||{},
     json:(res,status,obj)=>{res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(obj));},
     reply:(res,status,body,headers={})=>{res.writeHead(status,headers);res.end(body);},
     inputJson:async(req)=>{let b='';for await(const chunk of req)b+=chunk;if(b.length>16384)throw Error('too large');return JSON.parse(b||'{}');}
@@ -147,4 +148,45 @@ test('regional STUN and TURN UDP/TLS are issued with short-lived HMAC credential
     assert.equal(answered.status,200);
     assert.deepEqual(answered.body.iceServers[1].urls,opts.turnUrls.split(','));
   },opts);
+});
+
+test('owner policy switches to test mode immediately without redeploy and keeps single-call busy protection',async()=>{
+ const policy={dailyLimit:1,cooldownSeconds:90,maxFastRetries:2,testMode:false};
+ await withServer(async({post})=>{
+  const registered=await post('/api/voice/device/register',{
+    pairingSecret:'test-voice-secret-which-is-long-and-private',
+    fcmToken:'fcm:abc_this-is-a-pretend-token-xxxxxxxxx'});
+  assert.equal(registered.status,200);
+  const one=await post('/api/voice/start');
+  assert.equal(one.status,200);
+  assert.equal((await post('/api/voice/start')).status,409,'one active ringing call is protected');
+  assert.equal((await post('/api/voice/calls/'+one.body.callId+'/reject',{},registered.body.deviceAuth)).status,200);
+  assert.equal((await post('/api/voice/start')).status,429,'one attempt exceeded daily quota');
+  policy.testMode=true;
+  for(let n=0;n<12;n++){
+    const next=await post('/api/voice/start');
+    assert.equal(next.status,200,'test mode can be used for repetitive network checks');
+    assert.equal((await post('/api/voice/calls/'+next.body.callId+'/reject',{},registered.body.deviceAuth)).status,200);
+  }
+  policy.testMode=false;
+  policy.dailyLimit=40;policy.cooldownSeconds=0;
+  const after=await post('/api/voice/start');
+  assert.equal(after.status,200,'new policy is applied to the existing server immediately');
+ },{policy});
+});
+
+test('voice rate counters can be reset without deleting call history',async()=>{
+ const policy={dailyLimit:1,cooldownSeconds:0,maxFastRetries:2,testMode:false};
+ await withServer(async({post,api})=>{
+  const dev=await post('/api/voice/device/register',{
+    pairingSecret:'test-voice-secret-which-is-long-and-private',
+    fcmToken:'fcm:abc_this-is-a-pretend-token-xxxxxxxxx'});
+  const first=await post('/api/voice/start');
+  await post('/api/voice/calls/'+first.body.callId+'/reject',{},dev.body.deviceAuth);
+  assert.equal((await post('/api/voice/start')).status,429);
+  const history=api.listCallHistory().length;
+  api.resetCallRateLimits();
+  assert.equal((await post('/api/voice/start')).status,200);
+  assert.ok(api.listCallHistory().length>history,'reset does not erase call logs');
+ },{policy});
 });
