@@ -80,7 +80,7 @@ done
 [[ "$OK" -eq 1 ]] || die 'MoveCar 未通过健康检查。检查：docker logs movecar'
 if command -v ufw >/dev/null && ufw status | grep -q 'Status: active';then
  ufw allow 3478/udp >/dev/null;ufw allow 3478/tcp >/dev/null
- ufw allow 5349/tcp >/dev/null;ufw allow 49160:49260/udp >/dev/null
+ ufw allow 5349/tcp >/dev/null;ufw allow 49160:49191/udp >/dev/null
  echo '已放行 UFW TURN 端口（云厂商安全组仍需单独放行）'
 fi
 echo
