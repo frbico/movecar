@@ -95,6 +95,7 @@ class CarMessagingService : FirebaseMessagingService() {
         val text = message.data["message"]?.take(1000) ?: "点击查看挪车请求"
         val view = PendingIntent.getActivity(this, 11,
             Intent(this, MainActivity::class.java).apply {
+                putExtra("openPage","requests")
                 addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
