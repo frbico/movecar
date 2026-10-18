@@ -15,6 +15,7 @@ const dbPath = path.resolve(process.env.DB_PATH || './data/state.sqlite');
 const sourcePath = path.resolve(process.env.SOURCE_PATH || './upstream/movecar.js');
 const dataDir = path.dirname(dbPath);
 const isTest = process.env.NODE_ENV === 'test';
+const deploymentId=crypto.randomBytes(18).toString('hex');
 const allowTestHttp = isTest && process.env.MOVECAR_TEST_HTTP_PUSH === '1';
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw Error('Invalid port');
 if (!fs.existsSync(sourcePath)) throw Error('Upstream Worker missing. Run bash scripts/fetch-upstream.sh');
@@ -325,7 +326,7 @@ function staticFile(res,name,type) {
   const txt=fs.readFileSync(path.join(import.meta.dirname,name));
   reply(res,200,txt,{'Content-Type':type,'Content-Security-Policy':"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"});
 }
-const infrastructure=createInfrastructure({setting,save,dataDir});
+const infrastructure=createInfrastructure({setting,save,dataDir,deploymentId});
 const requestFlow=createRequestFlow({db,setting,random,hash,notifyChannels,inputJson,inputPhoto,json,reply,rateGet,ratePut,notificationAvailable:()=>voice.isDeviceReady()&&setting('notify_app_enabled','1')==='1'});
 const voice=createVoiceService({db,json,reply,inputJson,turnConfig:infrastructure.ice});
 const mobile=createMobileOwner({db,setting,save,deleteSetting:name=>delSettingStmt.run(name),inputJson,json,requestFlow,voice,notifyChannels,validateOrigin,validateBark,validateSendKey,validateSc3Key,iconUpload,iconSave,iconClear,iconGet});
@@ -346,7 +347,7 @@ const server=http.createServer(async(req,res)=>{
     const u=new URL(req.url||'/',origin);
     const route=u.pathname;
     if(!['GET','HEAD','POST','PUT'].includes(req.method))return reply(res,405,'Method not allowed');
-    if(route==='/healthz')return reply(res,200,'ok');
+    if(route==='/healthz')return reply(res,200,'ok',{'X-MoveCar-Deployment-ID':deploymentId});
     if(route==='/site-icon'){
       if(req.method!=='GET')return reply(res,405,'Method not allowed');
       const icon=iconGet.get();
