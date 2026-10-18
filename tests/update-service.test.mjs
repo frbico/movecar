@@ -13,7 +13,7 @@ const fixture=()=>{
  const fetcher=async (url)=> {
    requested.push(url);
    return {ok:true,status:200,json:async()=>url.includes('api.github.com')?
-     {sha:SHA2}:{version:'0.5.2',changes:['修复升级失败','网页后台一键更新']}};
+     {object:{object:{sha:SHA2}}}:{version:'0.5.2',changes:['修复升级失败','网页后台一键更新']}};
  };
  const service=createUpdateService({runtimeDir:dir,releasePath:path.join(dir,'release.json'),
    localSha:SHA1,fetcher});
@@ -26,7 +26,7 @@ test('checks only the pinned repository stable channel; renders safe changelog',
   assert.equal(result.current.sha,SHA1);
   assert.equal(result.latest.sha,SHA2);
   assert.equal(result.available,true);
-  assert.ok(f.requested[0].includes('frbico/movecar/commits/release/stable'));
+  assert.ok(f.requested[0].includes('frbico/movecar/git/ref/heads/release/stable'));
   assert.deepEqual(result.latest.changes,['修复升级失败','网页后台一键更新']);
  }finally{f.clean();}
 });
