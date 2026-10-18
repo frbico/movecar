@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.Gravity
 import android.widget.*
 
@@ -15,19 +16,30 @@ class VoiceActivity : Activity() {
     private lateinit var speaker: Button
     private var id = ""
     private var pendingAuth: String? = null
+    private var openedAt = SystemClock.elapsedRealtime()
+    private var callWasActive = false
     private val updateUi = object: Runnable {
         override fun run() {
+            val activeId = OngoingCallService.currentCallId
+            if (activeId != null && activeId == id) callWasActive = true
+            if (activeId == null && pendingAuth == null &&
+                (callWasActive || SystemClock.elapsedRealtime() - openedAt > 4500L)) {
+                // Server ended the call or the service has already stopped.
+                // Dismiss the call UI automatically; no extra Hang Up tap.
+                finish()
+                return
+            }
             status.text = OngoingCallService.state
             speaker.text = if (OngoingCallService.speakerEnabled) "关闭免提" else "开启免提"
-            handler.postDelayed(this,700)
+            handler.postDelayed(this,350)
         }
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val d=resources.displayMetrics.density
         fun dp(x:Int)=(x*d+0.5f).toInt()
-        window.statusBarColor=OwnerUi.blueDeep
-        window.navigationBarColor=OwnerUi.blueDeep
+        window.statusBarColor=0xFF075E54.toInt()
+        window.navigationBarColor=0xFF075E54.toInt()
         val panel=OwnerUi.vertical(this).apply{
             gravity=Gravity.CENTER
             background=OwnerUi.gradient(this@VoiceActivity)
