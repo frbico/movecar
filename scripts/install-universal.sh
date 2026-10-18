@@ -7,7 +7,7 @@ die(){ printf '安装失败：%s\n' "$*" >&2;exit 1; }
 for cmd in docker git curl python3 openssl;do command -v "$cmd" >/dev/null || die "未安装 $cmd；请先安装 Docker Engine、Compose V2 与基础命令";done
 docker compose version >/dev/null || die "需要 Docker Compose V2"
 DIR="${MOVECAR_DIR:-/opt/movecar}"
-BRANCH=feature/universal-setup-wizard
+BRANCH=feature/onboarding-firewall-cert-sync
 if [[ -e "$DIR" && ! -d "$DIR/.git" ]];then die "目录 $DIR 已存在且不是 Git 仓库；不会覆盖";fi
 if [[ ! -e "$DIR" ]];then
  git clone -b "$BRANCH" --single-branch https://github.com/frbico/movecar.git "$DIR"
