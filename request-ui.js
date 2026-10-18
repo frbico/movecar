@@ -9,39 +9,95 @@
  const successCard=success.querySelector('.success-card');
  const contactCard=success.querySelector('.action-card');
  const phone=contactCard?.querySelector('.btn-phone');
+ const retry=contactCard?.querySelector('#retryBtn');
  const originalPhoneHref=phone?.getAttribute('href')||'';
- if(phone){phone.innerHTML=phone.innerHTML.replace('直接打电话','电话联系');phone.removeAttribute('href');phone.setAttribute('aria-disabled','true');phone.style.pointerEvents='none';phone.style.opacity='.5';}
- const callHint=document.createElement('p');callHint.id='phoneCountdown';callHint.style.cssText='text-align:center;font-size:14px;color:#64748b;margin:8px 0';
- if(phone)phone.insertAdjacentElement('afterend',callHint);
- const wechatButton=document.createElement('button');
- wechatButton.id='wechatContactBtn';wechatButton.type='button';wechatButton.textContent='💬 微信联系（未配置）';wechatButton.disabled=true;
- wechatButton.style.cssText='display:block;width:100%;margin:0;padding:16px 12px;border-radius:16px;border:none;background:linear-gradient(135deg,#17b97e,#0da56e);color:white;font-size:17px;font-weight:700';
- if(phone)phone.insertAdjacentElement('beforebegin',wechatButton);
- const wechatMessage=document.createElement('p');wechatMessage.id='wechatCopyHint';wechatMessage.setAttribute('role','status');wechatMessage.style.cssText='position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap';
- wechatButton.insertAdjacentElement('afterend',wechatMessage);
- function refreshContact(){
-   if(!phone)return;
-   const remaining=startedAt?Math.max(0,60-Math.floor((Date.now()-startedAt)/1000)):60;
-   const canCall=!!startedAt&&!confirmed&&remaining===0&&!!originalPhoneHref&&originalPhoneHref!=='tel:';
-   if(canCall){phone.setAttribute('href',originalPhoneHref);phone.removeAttribute('aria-disabled');phone.style.pointerEvents='';phone.style.opacity='';}
-   else{phone.removeAttribute('href');phone.setAttribute('aria-disabled','true');phone.style.pointerEvents='none';phone.style.opacity='.5';}
-   if(startedAt&&!confirmed&&remaining>0){callHint.textContent='⏳ 车主尚未回应，'+remaining+' 秒后可直接打电话';}
-   else if(confirmed){callHint.textContent='✅ 车主已回应，无需等待';}
-   else if(canCall){callHint.textContent='📞 等待已超过 60 秒，现在可以联系车主';}
-   else{callHint.textContent='请先发送通知';}
+ let phoneAvailable=/^tel:\\+?[0-9][0-9+() -]*$/i.test(originalPhoneHref);
+ const notice=document.createElement('p');
+ notice.id='contactNotice';
+ notice.setAttribute('role','status');
+ notice.setAttribute('aria-live','polite');
+ notice.style.cssText='font-size:12px;color:#617586;text-align:center;margin:4px 0 0;min-height:0';
+ function showContactNotice(message){
+   notice.textContent=message;
+   clearTimeout(showContactNotice.timer);
+   showContactNotice.timer=setTimeout(()=>{notice.textContent='';},3200);
  }
- function beginWait(){if(!startedAt||confirmed)startedAt=Date.now();confirmed=false;refreshContact();if(!contactTimer)contactTimer=setInterval(refreshContact,1000);}
+ window.moveCarContactNotice=showContactNotice;
+ const wechatButton=document.createElement('button');
+ wechatButton.id='wechatContactBtn';
+ wechatButton.type='button';
+ wechatButton.textContent='💬 微信联系';
+ wechatButton.className='movecar-contact movecar-wechat unavailable';
+ wechatButton.setAttribute('aria-disabled','true');
+ function setUnavailable(el,notAvailable){
+   if(!el)return;
+   el.classList.toggle('unavailable',notAvailable);
+   el.setAttribute('aria-disabled',String(notAvailable));
+   if(!el.classList.contains('movecar-contact'))el.classList.add('movecar-contact');
+ }
+ if(phone){
+   phone.textContent='☎️ 电话联系';
+   phone.classList.add('movecar-phone');
+   if(!phoneAvailable)phone.removeAttribute('href');
+   phone.addEventListener('click',e=>{
+     if(!phoneAvailable){e.preventDefault();showContactNotice('车主未配置');}
+   });
+   setUnavailable(phone,!phoneAvailable);
+ }
+ function refreshContact(){setUnavailable(phone,!phoneAvailable);}
+ function beginWait(){if(!startedAt||confirmed)startedAt=Date.now();confirmed=false;}
  async function copyWechat(){
-   if(!wechatId)return;
+   if(!wechatId){showContactNotice('车主未配置');return;}
    try{
      if(navigator.clipboard?.writeText)await navigator.clipboard.writeText(wechatId);
-     else {const t=document.createElement('textarea');t.value=wechatId;t.style.position='fixed';t.style.left='-9999px';document.body.appendChild(t);t.select();if(!document.execCommand('copy'))throw Error('复制失败');t.remove();}
-     wechatMessage.textContent='已复制微信号，请添加车主微信';notifyText('已复制微信号，请添加车主微信');
-   }catch {wechatMessage.textContent='复制失败，请手动复制：'+wechatId;notifyText('复制失败，请手动复制：'+wechatId);}
+     else{
+       const text=document.createElement('textarea');text.value=wechatId;text.style.position='fixed';text.style.left='-9999px';
+       document.body.appendChild(text);text.select();if(!document.execCommand('copy'))throw Error('复制失败');text.remove();
+     }
+     showContactNotice('微信号已复制');
+   }catch{showContactNotice('复制失败，请手动复制：'+wechatId);}
  }
  wechatButton.addEventListener('click',copyWechat);
- fetch('/api/site-config',{cache:'no-store'}).then(r=>r.ok?r.json():{}).then(c=>{wechatId=c.wechatId||'';wechatButton.disabled=!wechatId;wechatButton.textContent=wechatId?'💬 微信联系':'💬 微信联系（车主未配置）';}).catch(()=>{});
- refreshContact();
+ if(contactCard){
+   // First button is retry; voice-entry.js inserts "语音通话" after retry.
+   if(retry)contactCard.append(retry);
+   contactCard.append(wechatButton);
+   if(phone)contactCard.append(phone);
+   contactCard.append(notice);
+ }
+ fetch('/api/site-config',{cache:'no-store'})
+   .then(r=>r.ok?r.json():{})
+   .then(c=>{
+     wechatId=typeof c.wechatId==='string'?c.wechatId.trim():'';
+     setUnavailable(wechatButton,!wechatId);
+   }).catch(()=>setUnavailable(wechatButton,true));
+ const cosmetic=document.createElement('style');
+ cosmetic.textContent=`
+   #successView .action-card{display:flex;flex-direction:column;gap:10px}
+   #successView .action-card .movecar-contact,#successView .action-card #retryBtn{
+     display:block;width:100%;min-height:54px;border:0;border-radius:15px;
+     margin:0;padding:13px 14px;text-align:center;
+     font-size:16px;font-weight:750;line-height:1.25;text-decoration:none;
+     cursor:pointer;box-sizing:border-box;
+   }
+   #successView .action-card #retryBtn{background:linear-gradient(110deg,#f5a20a,#df7c00);color:#fff}
+   #successView .action-card .movecar-voice{background:#087e6f;color:#fff}
+   #successView .action-card .movecar-wechat{background:#13a879;color:#fff}
+   #successView .action-card .movecar-phone{background:#e98b90;color:#fff}
+   #successView .action-card .unavailable,
+   #successView .action-card [aria-disabled="true"]{background:#e4e7e9!important;color:#88929b!important;cursor:pointer;opacity:1!important}
+   #contactNotice:empty{display:none}
+   #photoCard{margin-top:14px}
+ `;
+ document.head.appendChild(cosmetic);
+ try{
+   const recent=Number(sessionStorage.getItem('movecar-last-notified')||0);
+   if(recent&&Date.now()-recent<12*60*1000){
+     document.getElementById('mainView').style.display='none';
+     success.style.display='flex';
+     if(waiting)waiting.textContent='通知已发送，等待车主回应…';
+   }
+ }catch{}
  const notifyText=(text)=>{
    if(typeof showToast==='function')showToast(text);
    else{let status=document.getElementById('photoStatus');if(status)status.textContent=text;}
