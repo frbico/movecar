@@ -15,9 +15,16 @@ else
  if [[ -n "$(git -C "$DIR" status --porcelain --untracked-files=no)" ]];then
    die "$DIR 存在未提交的代码修改，不会覆盖，请先备份或提交"
  fi
- git -C "$DIR" fetch origin "$BRANCH"
- git -C "$DIR" switch "$BRANCH" || git -C "$DIR" switch -c "$BRANCH" --track "origin/$BRANCH"
- git -C "$DIR" pull --ff-only origin "$BRANCH"
+ # A single-branch checkout may have fetch refspec for an older branch only.
+ # Fetch an explicit remote-tracking ref before switching; FETCH_HEAD alone
+ # does not create origin/$BRANCH (the cause of 'fatal: invalid reference').
+ git -C "$DIR" fetch origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
+ if git -C "$DIR" show-ref --verify --quiet "refs/heads/$BRANCH";then
+   git -C "$DIR" switch "$BRANCH"
+ else
+   git -C "$DIR" switch --track -c "$BRANCH" "origin/$BRANCH"
+ fi
+ git -C "$DIR" merge --ff-only "origin/$BRANCH"
 fi
 cd "$DIR"
 umask 077
