@@ -34,6 +34,7 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
   const updateHistory=db.prepare('UPDATE voice_call_history SET status=?,updated_at=? WHERE call_id=?');
   const insertHistory=db.prepare('INSERT INTO voice_call_history(call_id,started_at,updated_at,status) VALUES(?,?,?,?)');
   const getHistory=db.prepare('SELECT call_id AS callId,started_at AS startedAt,updated_at AS updatedAt,status FROM voice_call_history ORDER BY started_at DESC LIMIT 100');
+  const eraseHistory=db.prepare('DELETE FROM voice_call_history');
   const getDevice=db.prepare('SELECT auth_digest,fcm_token FROM voice_owner_device WHERE id=1');
   const saveDevice=db.prepare('INSERT INTO voice_owner_device(id,auth_digest,fcm_token,updated_at) VALUES(1,?,?,?) ON CONFLICT(id) DO UPDATE SET auth_digest=excluded.auth_digest,fcm_token=excluded.fcm_token,updated_at=excluded.updated_at');
   const updateFcm=db.prepare('UPDATE voice_owner_device SET fcm_token=?,updated_at=? WHERE id=1 AND auth_digest=?');
@@ -311,5 +312,6 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
   }
   return {handle,cleanup,notifyOwner,registerMobileDevice,unregisterMobileDevice,revokeAllMobileDevices,
     isDeviceReady:()=>Boolean(getDevice.get()),listCallHistory:()=>getHistory.all(),
+    clearCallHistory:()=>eraseHistory.run().changes,
     getCallPolicy:resolvedPolicy,resetCallRateLimits:()=>limit.clear(),resetFirebaseAccess:()=>{cachedAccess=null;},close:()=>clearInterval(cleanupTimer),_debug:{calls}};
 }
