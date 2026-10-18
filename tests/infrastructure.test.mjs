@@ -79,3 +79,31 @@ test('Uploaded PEM enables TURN TLS immediately; different host removes TLS URLs
   assert.equal(f.service.removeTls().turnTlsEnabled,false);
  }finally{f.close();}
 });
+
+test('certificate source can be set from the backend without uploading a private key',()=>{
+ const f=fixture();
+ try{
+  f.service.configure({siteUrl:'https://car.example.com',turnHost:'turn.example.com'});
+  assert.equal(f.service.setCertSource({mode:'auto'}).mode,'auto');
+  const src=JSON.parse(fs.readFileSync(path.join(f.root,'runtime','cert-source.json'),'utf8'));
+  assert.equal(src.turnHost,'turn.example.com');
+  assert.equal(src.mode,'auto');
+  assert.equal(f.service.setCertSource({mode:'directory',directory:'/www/sites/car/ssl'}).mode,'directory');
+  assert.equal(f.service.config().certificateDirectory,'/www/sites/car/ssl');
+  assert.throws(()=>f.service.setCertSource({mode:'directory',directory:'../../etc/ssl'}));
+  assert.throws(()=>f.service.setCertSource({mode:'directory',directory:'/www/ssl\naccess=1'}));
+ }finally{f.close();}
+});
+test('first-login wizard cannot complete without required website/Firebase/TURN health',async()=>{
+ const f=fixture();
+ try{
+  const state=await f.service.verify();
+  assert.equal(state.ready,false);
+  assert.ok(state.checks.find(x=>x.key==='firebase'&&!x.ok));
+  await assert.rejects(()=>f.service.complete(),/必需项尚未通过/);
+  assert.equal(f.service.config().setupComplete,false);
+  const state2=f.service.configure({siteUrl:'https://car.example.com',turnHost:'8.8.8.8'});
+  assert.equal(state2.turnHost,'8.8.8.8');
+  assert.equal(f.service.ice().stunUrls,'stun:8.8.8.8:3478');
+ }finally{f.close();}
+});
