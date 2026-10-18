@@ -242,6 +242,37 @@ class MainActivity : Activity() {
     }
     private fun notify(message: String) { Toast.makeText(this,message,Toast.LENGTH_LONG).show() }
     private fun base() = VoiceApi.base(this).ifBlank { homeUrl }
+    private fun fetchPage(path: String, force: Boolean = false, render: (JSONObject)->Unit) {
+        val cached=OwnerCache.get(this,path)
+        if(cached!=null)render(cached)
+        else if(!force)note("首次加载中，数据将保存到本机…")
+        if(!force && OwnerCache.fresh(this,path))return
+        if(loadingPath==path)return
+        loadingPath=path
+        api(path){ data ->
+            loadingPath=null
+            OwnerCache.put(this,path,data)
+            render(data)
+        }
+    }
+    private fun refreshCurrent(force: Boolean) {
+        when(page) {
+            "requests" -> loadRequests(force)
+            "calls" -> fetchPage("/api/mobile/calls",force){if(page=="calls")calls(it)}
+            "home","channels","settings","account" -> {
+                val current=page
+                fetchPage("/api/mobile/config",force){if(page==current)renderConfig(current,it)}
+            }
+        }
+    }
+    private fun renderConfig(destination:String,data:JSONObject) {
+        when(destination){
+            "home"->home(data)
+            "channels"->channels(data)
+            "settings"->settings(data)
+            "account"->account(data)
+        }
+    }
     private fun token() = VoiceApi.mobileAuth(this)
     private fun api(path:String, body:JSONObject?=null, done:(JSONObject)->Unit) {
         val host=base();val bearer=token()
@@ -251,7 +282,10 @@ class MainActivity : Activity() {
                 else VoiceApi.post(host,path,body,bearer)
             }
             runOnUiThread {
-                result.onSuccess(done).onFailure {
+                result.onSuccess {
+                    if(body!=null)OwnerCache.invalidate(this)
+                    done(it)
+                }.onFailure {
                     notify("操作失败："+(it.message ?: "网络异常"))
                     if(it.message?.contains("登录已过期")==true) { VoiceApi.prefs(this).edit().remove("mobileAuth").remove("auth").apply();loginPage() }
                 }
@@ -324,6 +358,7 @@ class MainActivity : Activity() {
                             .remove("auth")
                             .apply()
                         password.text.clear()
+                        OwnerCache.invalidate(this)
                         notify("后台登录成功，正在绑定消息推送")
                         navigate("home")
                         bindPushAfterLogin(url, bearer)
@@ -403,15 +438,7 @@ class MainActivity : Activity() {
             else->"车主中心"
         }
         screen(heading)
-        inCard{ note("正在同步车主数据…") }
-        when(next) {
-            "home" -> api("/api/mobile/config"){if(page==next)home(it)}
-            "requests" -> loadRequests()
-            "calls" -> api("/api/mobile/calls"){if(page==next)calls(it)}
-            "channels" -> api("/api/mobile/config"){if(page==next)channels(it)}
-            "settings" -> api("/api/mobile/config"){if(page==next)settings(it)}
-            "account" -> api("/api/mobile/config"){if(page==next)account(it)}
-        }
+        refreshCurrent(false)
     }
     private fun home(config:JSONObject) {
         shell("概览")
@@ -486,9 +513,9 @@ class MainActivity : Activity() {
             }
         }
     }
-    private fun loadRequests(){
+    private fun loadRequests(force:Boolean=false){
         val requestedPage=historyPage
-        api("/api/mobile/requests?page="+requestedPage+"&size=20"){result->
+        fetchPage("/api/mobile/requests?page="+requestedPage+"&size=20",force){result->
             if(page!="requests"||historyPage!=requestedPage)return@api
             shell("挪车请求")
             val total=result.optInt("total")
@@ -750,6 +777,7 @@ class MainActivity : Activity() {
         }
     }
     private fun clearLogin(){
+        OwnerCache.invalidate(this)
         VoiceApi.prefs(this).edit().remove("mobileAuth").remove("auth").apply()
         loginPage()
     }
