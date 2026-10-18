@@ -517,7 +517,7 @@ class MainActivity : Activity() {
     }
     private fun compactControl(text:String, color:Int=OwnerUi.blue, task:()->Unit):TextView =
         OwnerUi.label(this,text,12.5f,color,true).apply {
-            setPadding(px(7),px(9),px(7),px(9))
+            setPadding(px(7),px(7),px(7),px(7))
             gravity=Gravity.CENTER
             isClickable=true;isFocusable=true
             background=OwnerUi.pressable(this@MainActivity,OwnerUi.white,7)
@@ -546,18 +546,18 @@ class MainActivity : Activity() {
                     val state=item.optString("status")
                     val label=when(state){"waiting"->"待处理";"confirmed"->"已确认";"expired"->"已过期";else->state}
                     val itemRow=OwnerUi.vertical(this@MainActivity).apply {
-                        setPadding(px(0),px(11),px(0),px(10))
+                        setPadding(px(0),px(5),px(0),px(5))
                     }
                     val header=OwnerUi.horizontal(this@MainActivity)
                     header.addView(OwnerUi.label(this@MainActivity,
-                        formattedTime(item.optLong("createdAt")),12f,OwnerUi.muted),
+                        formattedTime(item.optLong("createdAt")),11.5f,OwnerUi.muted),
                         LinearLayout.LayoutParams(0,-2,1f))
                     header.addView(OwnerUi.pill(this@MainActivity,label,
                         if(state=="confirmed")true else if(state=="waiting")false else null))
                     itemRow.addView(header)
                     val message=OwnerUi.label(this@MainActivity,
-                        item.optString("message").ifBlank{"有人请求挪车"},14.5f,OwnerUi.navy,true).apply {
-                            setPadding(0,px(5),0,px(2));maxLines=3;ellipsize=android.text.TextUtils.TruncateAt.END
+                        item.optString("message").ifBlank{"有人请求挪车"},13.5f,OwnerUi.navy,true).apply {
+                            setPadding(0,px(3),0,px(1));maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END
                         }
                     itemRow.addView(message)
                     val actions=OwnerUi.horizontal(this@MainActivity)
@@ -577,7 +577,14 @@ class MainActivity : Activity() {
                             api("/api/mobile/requests/delete",JSONObject().put("id",id)){loadRequests(true)}
                         }
                     })
+                    actions.visibility=View.GONE
                     itemRow.addView(actions)
+                    itemRow.isClickable=true
+                    itemRow.isFocusable=true
+                    itemRow.contentDescription="查看挪车请求详细操作"
+                    itemRow.setOnClickListener {
+                        actions.visibility=if(actions.visibility==View.VISIBLE)View.GONE else View.VISIBLE
+                    }
                     root.addView(itemRow)
                 }
             }
@@ -604,7 +611,21 @@ class MainActivity : Activity() {
     private fun calls(result:JSONObject){
         shell("来电记录")
         val items=result.optJSONArray("items")
-        note("匿名来电历史 · 共 "+(items?.length()?:0)+" 条　　右上角 ↻ 同步")
+        val header=OwnerUi.horizontal(this).apply {
+            gravity=Gravity.CENTER_VERTICAL
+            setPadding(0,px(1),0,px(7))
+        }
+        header.addView(OwnerUi.label(this,"共 "+(items?.length()?:0)+" 条通话记录",12.5f,OwnerUi.muted),
+            LinearLayout.LayoutParams(0,-2,1f))
+        header.addView(compactControl("清空",OwnerUi.red){
+            confirm("确定清空全部通话记录吗？此操作无法撤销。"){
+                api("/api/mobile/calls/clear",JSONObject().put("confirm",true)){
+                    notify("通话记录已清空")
+                    refreshCurrent(true)
+                }
+            }
+        })
+        root.addView(header)
         if(items==null||items.length()==0){
             empty("暂无通话记录","接收到的语音来电会显示在这里。")
             return
@@ -619,13 +640,13 @@ class MainActivity : Activity() {
                 }
                 val problem=raw=="missed"||raw=="rejected"||raw=="failed"
                 val row=OwnerUi.horizontal(this@MainActivity).apply {
-                    setPadding(px(3),px(10),px(2),px(10))
+                    setPadding(px(3),px(7),px(2),px(7))
                 }
                 val icon=OwnerUi.label(this@MainActivity,if(problem)"↙" else "↗",
                     24f,if(problem)OwnerUi.red else OwnerUi.green,true).apply{gravity=Gravity.CENTER}
                 row.addView(icon,LinearLayout.LayoutParams(px(40),px(40)))
                 val info=OwnerUi.vertical(this@MainActivity)
-                info.addView(OwnerUi.label(this@MainActivity,"匿名网络语音",14.5f,OwnerUi.navy,true))
+                info.addView(OwnerUi.label(this@MainActivity,"语音来电",14.5f,OwnerUi.navy,true))
                 info.addView(OwnerUi.label(this@MainActivity,
                     formattedTime(item.optLong("startedAt")),12f,OwnerUi.muted))
                 row.addView(info,LinearLayout.LayoutParams(0,-2,1f))
