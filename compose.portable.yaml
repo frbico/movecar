@@ -8,6 +8,7 @@ services:
     environment:
       MOVECAR_RUNTIME_DIR: /app/runtime
       TURN_EXTERNAL_IP: '${TURN_EXTERNAL_IP:-}'
+      MOVECAR_COMMIT_SHA: '${MOVECAR_COMMIT_SHA:-}'
     volumes:
       - ./data/turn:/app/runtime
 

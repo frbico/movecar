@@ -76,6 +76,17 @@ test('one-click bootstrap, admin login, two channels, secure owner action and pe
     assert.equal(JSON.stringify(infraState).includes('VOICE_TURN_SHARED_SECRET'),false);
     const badFirebase=await admin('/api/admin/deployment/firebase',{json:'{"project_id":"invalid"}'});
     assert.equal(badFirebase.status,400);
+    // Only a signed-in admin with a valid origin/CSRF token can request an update.
+    assert.equal((await call('/api/admin/update/status')).status,401);
+    assert.equal((await call('/api/admin/update/start',{method:'POST',headers:{Cookie:adminCookie},body:'{}'})).status,403);
+    const updateStatus=await call('/api/admin/update/status',{headers:{Cookie:adminCookie}});
+    assert.equal(updateStatus.status,200);
+    const version=(await updateStatus.json()).version;
+    assert.ok(version);
+    const emptyPassword=await admin('/api/admin/update/start',{sha:'a'.repeat(40),password:''});
+    assert.equal(emptyPassword.status,400);
+    const badPassword=await admin('/api/admin/update/start',{sha:'a'.repeat(40),password:'incorrect'});
+    assert.equal(badPassword.status,403);
     const before=await call('/api/admin/config',{headers:{Cookie:adminCookie}});
     assert.equal((await before.json()).serverchanConfigured,false);
     assert.equal((await call('/api/admin/settings',{method:'POST',headers:{Cookie:adminCookie},body:'{}'})).status,403);

@@ -9,6 +9,7 @@ import { createRequestFlow } from './request-flow.mjs';
 import { createVoiceService } from './voice-service.mjs';
 import { createMobileOwner } from './mobile-owner.mjs';
 import { createInfrastructure } from './infrastructure.mjs';
+import { createUpdateService } from './update-service.mjs';
 
 const port = Number(process.env.PORT || 8888);
 const dbPath = path.resolve(process.env.DB_PATH || './data/state.sqlite');
@@ -327,6 +328,7 @@ function staticFile(res,name,type) {
   reply(res,200,txt,{'Content-Type':type,'Content-Security-Policy':"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"});
 }
 const infrastructure=createInfrastructure({setting,save,dataDir,deploymentId});
+const updater=createUpdateService();
 const requestFlow=createRequestFlow({db,setting,random,hash,notifyChannels,inputJson,inputPhoto,json,reply,rateGet,ratePut,notificationAvailable:()=>voice.isDeviceReady()&&setting('notify_app_enabled','1')==='1'});
 const voice=createVoiceService({db,json,reply,inputJson,turnConfig:infrastructure.ice,
   callPolicy:()=>({
@@ -402,6 +404,8 @@ const server=http.createServer(async(req,res)=>{
         if(!Number.isInteger(page)||page<1||page>9999||!Number.isInteger(size)||size<1||size>100)return json(res,400,{error:'分页参数无效'});
         return json(res,200,requestFlow.listHistory(page,size));
       }
+      if(route==='/api/admin/update/status'&&req.method==='GET')
+        return json(res,200,updater.status());
       if(!['POST','PUT'].includes(req.method)||!checkCsrf(req,auth.csrf))return json(res,403,{error:'请求未通过验证'});
       if(route==='/api/admin/deployment/cert-source'&&req.method==='POST'){
         if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});
@@ -433,6 +437,21 @@ const server=http.createServer(async(req,res)=>{
       if(route==='/api/admin/deployment/tls/clear'&&req.method==='POST'){
         if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});
         return json(res,200,infrastructure.removeTls());
+      }
+      if(route==='/api/admin/update/check'&&req.method==='POST'){
+        if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});
+        await inputJson(req);
+        return json(res,200,await updater.check());
+      }
+      if(route==='/api/admin/update/start'&&req.method==='POST'){
+        if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});
+        const data=await inputJson(req);
+        if(typeof data.password!=='string'||data.password.length>200||!data.password)
+          return json(res,400,{error:'请输入当前管理员密码确认升级'});
+        const digest=crypto.scryptSync(data.password,setting('admin_salt'),64).toString('hex');
+        if(!constantEq(digest,setting('admin_hash')))
+          return json(res,403,{error:'管理员密码错误，升级已取消'});
+        return json(res,200,await updater.requestUpdate(data.sha));
       }
       if(route==='/api/admin/voice-policy'&&req.method==='POST'){
          if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});

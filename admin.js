@@ -3,7 +3,7 @@ const $=id=>document.getElementById(id);let csrf='',view='overview',timer,histor
 function toast(t,error=false){const el=$('toast');el.textContent=t;el.classList.toggle('error',error);el.classList.add('show');clearTimeout(timer);timer=setTimeout(()=>el.classList.remove('show'),4600)}
 async function api(path,data){const get=data===undefined;const r=await fetch(path,{method:get?'GET':'POST',credentials:'same-origin',headers:get?{}:{'Content-Type':'application/json','X-CSRF-Token':csrf},...(get?{}:{body:JSON.stringify(data)})});const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'HTTP '+r.status);return j}
 function loginView(){$('appShell').hidden=true;$('loginView').hidden=false;csrf=''}
-function switchView(next){if(setupLocked&&next!=='setup'){next='setup';toast('请先完成首次部署检测');}view=next;document.querySelectorAll('.view').forEach(x=>x.hidden=x.id!=='view-'+next);document.querySelectorAll('[data-view]').forEach(x=>{x.classList.toggle('active',x.dataset.view===next);if(x.dataset.view===next)x.setAttribute('aria-current','page');else x.removeAttribute('aria-current')});$('pageName').textContent={overview:'控制台',channels:'通知渠道',settings:'基本设置',setup:'部署与迁移',history:'挪车记录',security:'账户安全'}[next];if(next==='history')void loadHistory();if(next==='setup')void deploymentStatus();}
+function switchView(next){if(setupLocked&&next!=='setup'){next='setup';toast('请先完成首次部署检测');}view=next;document.querySelectorAll('.view').forEach(x=>x.hidden=x.id!=='view-'+next);document.querySelectorAll('[data-view]').forEach(x=>{x.classList.toggle('active',x.dataset.view===next);if(x.dataset.view===next)x.setAttribute('aria-current','page');else x.removeAttribute('aria-current')});$('pageName').textContent={overview:'控制台',channels:'通知渠道',settings:'基本设置',setup:'部署与迁移',history:'挪车记录',security:'账户安全',updates:'版本更新'}[next];if(next==='history')void loadHistory();if(next==='setup')void deploymentStatus();if(next==='updates')void refreshUpdater();}
 function base(){return{publicUrl:$('publicUrl').value.trim(),phoneNumber:$('phoneNumber').value.trim(),rateLimitSeconds:Number($('rateLimit').value),requestRetentionLimit:Number($('requestRetentionLimit').value),siteName:$('siteName').value.trim(),wechatId:$('wechatId').value.trim()}}
 async function panel(){const s=await api('/api/admin/session');csrf=s.csrf;const c=await api('/api/admin/config');$('voiceDailyLimit').value=c.voicePolicy?.dailyLimit??8;
 $('voiceCooldown').value=c.voicePolicy?.cooldownSeconds??90;
@@ -318,3 +318,67 @@ $('resetVoiceCounters').onclick=async()=>{
   toast('已清除测试次数，可马上继续拨打');
  }catch(e){toast(e.message,true);}finally{btn.disabled=false;}
 };
+
+let latestUpdateSha='';
+let updatePolling=null;
+function shortSha(sha){return sha?String(sha).slice(0,12):'等待首次安装版本识别'}
+async function refreshUpdater(){
+  if(view!=='updates')return;
+  try{
+    const u=await api('/api/admin/update/status');
+    $('updateCurrentVersion').textContent='MoveCar '+u.version;
+    $('updateCurrentSha').textContent='运行版本：'+shortSha(u.sha);
+    const h=u.host||{};
+    const state={idle:'等待更新',running:'正在备份并部署，请保持页面打开',rollback:'新版本有问题，正在恢复旧版本',success:'更新完成',error:'更新失败',not_configured:'首次安装后将自动启用一键升级助手'}[h.state]||'等待状态';
+    $('updateStatus').textContent=state+'。'+(h.message||'');
+    if(h.state==='running'||h.state==='rollback'){
+      $('updateStart').disabled=true;
+    }else if(h.state==='success' && h.targetSha && h.targetSha===u.sha){
+      $('updateStart').disabled=false;
+      if(latestUpdateSha===u.sha) {
+        latestUpdateSha='';
+        $('updateConfirmArea').hidden=true;
+        toast('升级成功，最新版本已启用');
+      }
+    }else $('updateStart').disabled=false;
+  }catch(e){$('updateStatus').textContent='获取升级状态失败：'+e.message;}
+}
+$('updateCheck').onclick=async()=>{
+ const btn=$('updateCheck');btn.disabled=true;
+ try{
+  const u=await api('/api/admin/update/check',{});
+  latestUpdateSha=u.latest.sha;
+  $('updateCurrentVersion').textContent='MoveCar '+u.current.version;
+  $('updateCurrentSha').textContent='运行版本：'+shortSha(u.current.sha);
+  $('updateLatestVersion').textContent='MoveCar '+u.latest.version;
+  $('updateLatestSha').textContent='发布版本：'+shortSha(u.latest.sha);
+  const changes=$('updateChanges');changes.replaceChildren();
+  for(const item of u.latest.changes||[]){
+    const li=document.createElement('li');li.textContent=item;changes.appendChild(li);
+  }
+  if(!changes.childElementCount){
+    const li=document.createElement('li');li.textContent='最新稳定版已发布，可从官方变更记录了解详情';changes.appendChild(li);
+  }
+  $('updateReleaseCard').hidden=false;
+  $('updateConfirmArea').hidden=!u.available&&!u.needsVersionDetection;
+  if(!u.available&&!u.needsVersionDetection)toast('已经是最新稳定版本');
+  else toast('检查成功：有可用的稳定版更新');
+  await refreshUpdater();
+ }catch(e){toast('检查失败：'+e.message,true)}
+ finally{btn.disabled=false;}
+};
+$('updateRefresh').onclick=()=>void refreshUpdater();
+$('updateStart').onclick=async()=>{
+ if(!latestUpdateSha){toast('请先点击检查更新',true);return;}
+ const password=$('updatePassword').value;
+ if(!password){toast('需要当前管理员密码确认',true);return;}
+ if(!confirm('确定从官方稳定版升级？过程将备份数据库和旧程序，并短暂重启 MoveCar（现有通话可能中断）。'))return;
+ const btn=$('updateStart');btn.disabled=true;
+ try{
+  const r=await api('/api/admin/update/start',{sha:latestUpdateSha,password});
+  $('updatePassword').value='';
+  $('updateStatus').textContent=r.message||'已提交升级任务';
+  toast('更新任务已提交，请等待服务器完成备份和健康检查');
+ }catch(e){btn.disabled=false;toast('无法启动更新：'+e.message,true)}
+};
+updatePolling=setInterval(()=>{if(view==='updates')void refreshUpdater()},5000);

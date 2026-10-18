@@ -7,7 +7,7 @@ die(){ printf '安装失败：%s\n' "$*" >&2;exit 1; }
 for cmd in docker git curl python3 openssl;do command -v "$cmd" >/dev/null || die "未安装 $cmd；请先安装 Docker Engine、Compose V2 与基础命令";done
 docker compose version >/dev/null || die "需要 Docker Compose V2"
 DIR="${MOVECAR_DIR:-/opt/movecar}"
-BRANCH="${MOVECAR_BRANCH:-feature/call-permissions-voice-limits}"
+BRANCH="${MOVECAR_BRANCH:-release/stable}"
 [[ "$BRANCH" =~ ^[a-zA-Z0-9][a-zA-Z0-9/_.-]*$ && "$BRANCH" != *'..'* ]] ||
   die '非法 Git 分支名称'
 if [[ -e "$DIR" && ! -d "$DIR/.git" ]];then die "目录 $DIR 已存在且不是 Git 仓库；不会覆盖";fi
@@ -56,6 +56,12 @@ else
 fi
 cd "$DIR"
 umask 077
+head_sha="$(git -C "$DIR" rev-parse HEAD)"
+if grep -q '^MOVECAR_COMMIT_SHA=' .env 2>/dev/null;then
+  sed -i "s/^MOVECAR_COMMIT_SHA=.*/MOVECAR_COMMIT_SHA=$head_sha/" .env
+else
+  echo "MOVECAR_COMMIT_SHA=$head_sha" >> .env
+fi
 mkdir -p data/turn data/turn/tls
 # Coturn and Node run as UID 1000 (host-network STUN/TURN does not require root).
 chown -R 1000:1000 data/turn
@@ -176,6 +182,7 @@ else
 fi
 
 echo
+bash scripts/host-updater.sh install
 echo '✅ 安装完成。无需在安装时填写域名、Firebase 或证书。'
 echo '后台入口： http://127.0.0.1:8888/admin'
 echo '公网 HTTPS 反代目标（主机代理）：http://127.0.0.1:8888'
