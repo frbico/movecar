@@ -42,7 +42,7 @@ class MainActivity : Activity() {
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 10)
         }
-        if (VoiceApi.mobileAuth(this).isEmpty()) loginPage() else navigate("home")
+        if (VoiceApi.mobileAuth(this).isEmpty()) loginPage() else navigate(if(intent.getStringExtra("openPage")=="requests")"requests" else "home")
     }
 
 
@@ -751,11 +751,26 @@ class MainActivity : Activity() {
         section("账户及更多")
         inCard{
             action("管理员账号与安全"){navigate("account")}
+            if(Build.VERSION.SDK_INT>=34){
+                val notifications=getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
+                val allowed=notifications.canUseFullScreenIntent()
+                status(if(allowed)"✓ 锁屏来电全屏权限已允许" else "锁屏亮屏权限需要开启",allowed)
+                if(!allowed)action("开启锁屏来电亮屏权限"){
+                    try{
+                        val settingsIntent=Intent("android.settings.MANAGE_APP_USE_FULL_SCREEN_INTENT")
+                            .setData(Uri.parse("package:"+packageName))
+                        startActivity(settingsIntent)
+                    }catch(_:Exception){
+                        startActivity(Intent("android.settings.APPLICATION_DETAILS_SETTINGS")
+                            .setData(Uri.parse("package:"+packageName)))
+                    }
+                }
+            }
             action("打开网页管理后台 ↗"){browse(base()+"/admin")}
             action("更换服务器或域名"){confirm("切换后将返回登录界面，请输入新服务器 HTTPS 域名，使用管理员账号重新登录。原服务器数据不会删除。"){
                 clearLogin()
             }}
-            note("MoveCar Owner v0.4.2 · 更换服务器不需要重新安装 APK")
+            note("MoveCar Owner v0.5 · 缓存优先、后台定时刷新和锁屏通话")
         }
     }
     private fun account(config:JSONObject){
