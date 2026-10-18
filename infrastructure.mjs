@@ -21,7 +21,7 @@ function atomicFile(file,contents,mode=0o600){
 }
 export function createInfrastructure({setting,save,dataDir,turnSecret=process.env.VOICE_TURN_SHARED_SECRET||'',
   externalIp=process.env.TURN_EXTERNAL_IP||'',runtimeDir=process.env.MOVECAR_RUNTIME_DIR||path.join(dataDir,'turn-runtime'),
-  firebaseFile=process.env.FCM_SERVICE_ACCOUNT||path.join(dataDir,'firebase-service-account.json')}){
+  firebaseFile=process.env.FCM_SERVICE_ACCOUNT||path.join(dataDir,'firebase-service-account.json'),deploymentId=''}){
   fs.mkdirSync(runtimeDir,{recursive:true,mode:0o700});
   const tlsDir=path.join(runtimeDir,'tls');
   fs.mkdirSync(tlsDir,{recursive:true,mode:0o700});
@@ -175,8 +175,9 @@ export function createInfrastructure({setting,save,dataDir,turnSecret=process.en
     if(c.publicUrl){
       try{
         const response=await fetch(c.publicUrl+'/healthz',{signal:AbortSignal.timeout(6500),redirect:'error'});
-        add('https','网站公网 HTTPS',response.ok&&(await response.text()).trim()==='ok',
-          '检查域名解析、反向代理和网站 HTTPS 是否已生效');
+        add('https','网站公网 HTTPS',response.ok&&(await response.text()).trim()==='ok'&&
+          (!deploymentId||response.headers.get('x-movecar-deployment-id')===deploymentId),
+          'HTTPS 必须反代到当前这台 MoveCar 服务器，不能仍指向旧东京服务器');
       }catch{add('https','网站公网 HTTPS',false,'服务器暂时无法经 HTTPS 访问站点 /healthz（部分 VPS 可能不支持公网回环）');}
     }
     const health=c.turnHealth;
