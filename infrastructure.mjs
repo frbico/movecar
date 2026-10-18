@@ -40,7 +40,7 @@ export function createInfrastructure({setting,save,dataDir,turnSecret=process.en
   function setCertSource({mode,directory}){
     if(!['auto','directory','upload'].includes(mode))throw err('证书来源方式无效');
     if(mode==='directory'&&(typeof directory!=='string'||!directory.startsWith('/')||
-      directory.length>1024||directory.includes('\\0')||/[\\r\\n]/.test(directory)))
+      directory.length>1024||[...directory].some(ch=>ch.charCodeAt(0)<32)))
       throw err('请输入服务器上的绝对证书目录，不能填写文件内容');
     writeCertSource(mode,mode==='directory'?directory.trim():'');
     return {ok:true,mode,manualUpload:mode==='upload',message:mode==='upload'?'请从浏览器上传 PEM 文件':'正在由宿主机安全检查证书目录，请稍后刷新状态'};
