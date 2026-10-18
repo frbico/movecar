@@ -328,7 +328,14 @@ function staticFile(res,name,type) {
 }
 const infrastructure=createInfrastructure({setting,save,dataDir,deploymentId});
 const requestFlow=createRequestFlow({db,setting,random,hash,notifyChannels,inputJson,inputPhoto,json,reply,rateGet,ratePut,notificationAvailable:()=>voice.isDeviceReady()&&setting('notify_app_enabled','1')==='1'});
-const voice=createVoiceService({db,json,reply,inputJson,turnConfig:infrastructure.ice});
+const voice=createVoiceService({db,json,reply,inputJson,turnConfig:infrastructure.ice,
+  callPolicy:()=>({
+    dailyLimit:Number(setting('voice_daily_limit','8')),
+    cooldownSeconds:Number(setting('voice_cooldown_seconds','90')),
+    maxFastRetries:Number(setting('voice_fast_retries','2')),
+    testMode:setting('voice_test_mode','0')==='1'
+  })
+});
 const mobile=createMobileOwner({db,setting,save,deleteSetting:name=>delSettingStmt.run(name),inputJson,json,requestFlow,voice,notifyChannels,validateOrigin,validateBark,validateSendKey,validateSc3Key,iconUpload,iconSave,iconClear,iconGet});
 const failStats=new Map();
 setInterval(()=>{
@@ -389,7 +396,7 @@ const server=http.createServer(async(req,res)=>{
         return json(res,200,infrastructure.config());
       if(route==='/api/admin/deployment/verify'&&req.method==='GET')
         return json(res,200,await infrastructure.verify());
-      if(route==='/api/admin/config'&&req.method==='GET')return json(res,200,{publicUrl:setting('public_url'),phoneNumber:setting('phone_number'),rateLimitSeconds:Number(setting('rate_limit_seconds','60')),requestRetentionLimit:requestFlow.retentionLimit(),requestCount:requestFlow.count(),siteName:setting('site_name','呼叫车主挪车'),wechatId:setting('wechat_id'),adminUsername:setting('admin_username','admin'),appConfigured:voice.isDeviceReady(),appEnabled:setting('notify_app_enabled','1')==='1',barkEnabled:setting('notify_bark_enabled','1')==='1',sc3Enabled:setting('notify_sc3_enabled','1')==='1',serverchanEnabled:setting('notify_serverchan_enabled','1')==='1',siteIconConfigured:!!iconGet.get(),siteIconUpdatedAt:iconGet.get()?.updated_at||null,barkConfigured:!!setting('bark_url'),serverchanConfigured:!!setting('serverchan_sendkey'),sc3Configured:!!setting('sc3_sendkey')});
+      if(route==='/api/admin/config'&&req.method==='GET')return json(res,200,{voicePolicy:voice.getCallPolicy(),publicUrl:setting('public_url'),phoneNumber:setting('phone_number'),rateLimitSeconds:Number(setting('rate_limit_seconds','60')),requestRetentionLimit:requestFlow.retentionLimit(),requestCount:requestFlow.count(),siteName:setting('site_name','呼叫车主挪车'),wechatId:setting('wechat_id'),adminUsername:setting('admin_username','admin'),appConfigured:voice.isDeviceReady(),appEnabled:setting('notify_app_enabled','1')==='1',barkEnabled:setting('notify_bark_enabled','1')==='1',sc3Enabled:setting('notify_sc3_enabled','1')==='1',serverchanEnabled:setting('notify_serverchan_enabled','1')==='1',siteIconConfigured:!!iconGet.get(),siteIconUpdatedAt:iconGet.get()?.updated_at||null,barkConfigured:!!setting('bark_url'),serverchanConfigured:!!setting('serverchan_sendkey'),sc3Configured:!!setting('sc3_sendkey')});
       if(route==='/api/admin/requests'&&req.method==='GET'){
         const page=Number(u.searchParams.get('page')||'1'),size=Number(u.searchParams.get('size')||'20');
         if(!Number.isInteger(page)||page<1||page>9999||!Number.isInteger(size)||size<1||size>100)return json(res,400,{error:'分页参数无效'});
@@ -427,7 +434,31 @@ const server=http.createServer(async(req,res)=>{
         if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});
         return json(res,200,infrastructure.removeTls());
       }
-      if(route==='/api/admin/requests/delete'&&req.method==='POST'){
+      if(route==='/api/admin/voice-policy'&&req.method==='POST'){
+         if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});
+         const policy=await inputJson(req);
+         for(const [name,min,max] of [
+           ['dailyLimit',0,500],['cooldownSeconds',0,3600],['maxFastRetries',0,10]
+         ]){
+           if(!Number.isInteger(policy[name])||policy[name]<min||policy[name]>max)
+             return json(res,400,{error:name+' 必须在 '+min+'–'+max+' 之间'});
+         }
+         if(typeof policy.testMode!=='boolean')return json(res,400,{error:'测试模式格式不正确'});
+         if(policy.testMode!==true && policy.dailyLimit===0 && policy.cooldownSeconds===0)
+           return json(res,400,{error:'正式模式不能同时取消次数及间隔限制；请启用测试模式进行调试'});
+         save('voice_daily_limit',policy.dailyLimit);
+         save('voice_cooldown_seconds',policy.cooldownSeconds);
+         save('voice_fast_retries',policy.maxFastRetries);
+         save('voice_test_mode',policy.testMode?'1':'0');
+         return json(res,200,{ok:true,voicePolicy:voice.getCallPolicy()});
+       }
+       if(route==='/api/admin/voice-policy/reset'&&req.method==='POST'){
+         if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});
+         await inputJson(req);
+         voice.resetCallRateLimits();
+         return json(res,200,{ok:true});
+       }
+       if(route==='/api/admin/requests/delete'&&req.method==='POST'){
         const data=await inputJson(req);
         if(typeof data.id!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(data.id))return json(res,400,{error:'请求编号无效'});
         return json(res,200,{ok:true,deleted:requestFlow.deleteHistory(data.id)});
