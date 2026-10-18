@@ -37,7 +37,7 @@ export function createInfrastructure({setting,save,dataDir,turnSecret=process.en
     const lines=[
       'fingerprint','use-auth-secret','static-auth-secret='+turnSecret,
       'realm=movecar','server-name=movecar','listening-port=3478','tls-listening-port=5349',
-      'min-port=49160','max-port=49260','no-cli','no-loopback-peers','no-multicast-peers',
+      'min-port=49160','max-port=49191','no-cli','no-loopback-peers','no-multicast-peers',
       'stale-nonce=600','user-quota=12','total-quota=100',
       'denied-peer-ip=10.0.0.0-10.255.255.255',
       'denied-peer-ip=172.16.0.0-172.31.255.255',
@@ -66,7 +66,7 @@ export function createInfrastructure({setting,save,dataDir,turnSecret=process.en
       proxyTargets:['http://127.0.0.1:8888','http://movecar:8888'],
       websiteProxyRequired:true,
       nextSteps:!host?['在 DNS 中为 TURN 域名添加直连 A 记录','在后台填写 TURN 域名']:
-        ['确认域名已指向服务器公网 IP','开放 3478 UDP/TCP、49160-49260 UDP、5349 TCP（若启用 TLS）']
+        ['确认域名已指向服务器公网 IP','开放 3478 UDP/TCP、49160-49191 UDP、5349 TCP（若启用 TLS）']
     };
   }
   function ice(){
