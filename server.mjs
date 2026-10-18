@@ -386,6 +386,8 @@ const server=http.createServer(async(req,res)=>{
       if(route==='/api/admin/session'&&req.method==='GET')return json(res,200,{csrf:auth.csrf});
       if(route==='/api/admin/deployment'&&req.method==='GET')
         return json(res,200,infrastructure.config());
+      if(route==='/api/admin/deployment/verify'&&req.method==='GET')
+        return json(res,200,await infrastructure.verify());
       if(route==='/api/admin/config'&&req.method==='GET')return json(res,200,{publicUrl:setting('public_url'),phoneNumber:setting('phone_number'),rateLimitSeconds:Number(setting('rate_limit_seconds','60')),requestRetentionLimit:requestFlow.retentionLimit(),requestCount:requestFlow.count(),siteName:setting('site_name','呼叫车主挪车'),wechatId:setting('wechat_id'),adminUsername:setting('admin_username','admin'),appConfigured:voice.isDeviceReady(),appEnabled:setting('notify_app_enabled','1')==='1',barkEnabled:setting('notify_bark_enabled','1')==='1',sc3Enabled:setting('notify_sc3_enabled','1')==='1',serverchanEnabled:setting('notify_serverchan_enabled','1')==='1',siteIconConfigured:!!iconGet.get(),siteIconUpdatedAt:iconGet.get()?.updated_at||null,barkConfigured:!!setting('bark_url'),serverchanConfigured:!!setting('serverchan_sendkey'),sc3Configured:!!setting('sc3_sendkey')});
       if(route==='/api/admin/requests'&&req.method==='GET'){
         const page=Number(u.searchParams.get('page')||'1'),size=Number(u.searchParams.get('size')||'20');
@@ -393,6 +395,16 @@ const server=http.createServer(async(req,res)=>{
         return json(res,200,requestFlow.listHistory(page,size));
       }
       if(!['POST','PUT'].includes(req.method)||!checkCsrf(req,auth.csrf))return json(res,403,{error:'请求未通过验证'});
+      if(route==='/api/admin/deployment/cert-source'&&req.method==='POST'){
+        if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});
+        const data=await inputJson(req);
+        return json(res,200,infrastructure.setCertSource(data));
+      }
+      if(route==='/api/admin/deployment/complete'&&req.method==='POST'){
+        if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});
+        await inputJson(req);
+        return json(res,200,await infrastructure.complete());
+      }
       if(route==='/api/admin/deployment/config'&&req.method==='POST'){
         if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});
         const data=await inputJson(req);
