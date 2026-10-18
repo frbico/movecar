@@ -94,16 +94,17 @@ class MainActivity : Activity() {
             }
         }
         val top = OwnerUi.horizontal(this).apply {
-            setPadding(px(16), px(8), px(16), px(8))
+            setPadding(px(16), px(9), px(16), px(9))
+            setBackgroundColor(OwnerUi.white)
         }
-        val mark = OwnerUi.label(this, "M", 19f, OwnerUi.white, true).apply {
+        val mark = OwnerUi.label(this, "🚙", 23f, OwnerUi.white, true).apply {
             gravity = Gravity.CENTER
-            background = OwnerUi.bg(OwnerUi.blue, 13, this@MainActivity)
+            background = OwnerUi.gradient(this@MainActivity)
         }
         top.addView(mark, LinearLayout.LayoutParams(px(40), px(40)))
         val headingCol = OwnerUi.vertical(this).apply { setPadding(px(9), 0, 0, 0) }
-        headingCol.addView(OwnerUi.label(this, "MOVE CAR  /  车主中心", 11f, OwnerUi.muted, true))
-        headingCol.addView(OwnerUi.label(this, heading, 19f, OwnerUi.navy, true))
+        headingCol.addView(OwnerUi.label(this, "MOVE CAR · 车主中心", 10.5f, OwnerUi.blueDeep, true))
+        headingCol.addView(OwnerUi.label(this, heading, 20f, OwnerUi.navy, true))
         top.addView(headingCol, LinearLayout.LayoutParams(0, -2, 1f))
         if (page != "login") top.addView(OwnerUi.label(this,"↻",25f,OwnerUi.blue,true).apply {
             gravity=Gravity.CENTER
@@ -167,7 +168,7 @@ class MainActivity : Activity() {
     }
 
     private fun title(value: String, size: Float = 18f) {
-        root.addView(OwnerUi.label(this, value, size, OwnerUi.navy, true).apply {
+        root.addView(OwnerUi.label(this, value, size, OwnerUi.blueDeep, true).apply {
             setPadding(0, px(8), 0, px(4))
         },LinearLayout.LayoutParams(-1,-2))
     }
@@ -187,7 +188,7 @@ class MainActivity : Activity() {
         return try{block()}finally{root=previous}
     }
     private fun section(heading:String,caption:String="") {
-        title(heading,16f)
+        title(heading,17f)
         if(caption.isNotBlank())note(caption)
     }
     private fun field(hint: String, value: String = "", password: Boolean = false): EditText {
@@ -453,15 +454,18 @@ class MainActivity : Activity() {
         val app=channel.getJSONObject("app")
         val paired=app.optBoolean("configured")&&app.optBoolean("enabled")
         val banner=OwnerUi.vertical(this).apply {
-            background=OwnerUi.bg(OwnerUi.white,12,this@MainActivity,OwnerUi.line)
-            setPadding(px(15),px(16),px(15),px(13))
+            background=OwnerUi.bg(OwnerUi.white,16,this@MainActivity,OwnerUi.line)
+            setPadding(px(17),px(15),px(17),px(13))
         }
-        banner.addView(OwnerUi.label(this,config.optString("siteName","MoveCar"),
-            19f,OwnerUi.navy,true))
+        val brand=OwnerUi.horizontal(this)
+        brand.addView(OwnerUi.label(this,"🚙",27f,OwnerUi.blueDeep,true))
+        brand.addView(OwnerUi.label(this,config.optString("siteName","呼叫车主挪车"),
+            20f,OwnerUi.navy,true).apply {setPadding(px(9),0,0,0)})
+        banner.addView(brand)
         banner.addView(OwnerUi.label(this,
-            if(paired)"● 已连接 · 新请求将推送到手机" else "● 推送暂未绑定，请检查通知设置",
-            12f,if(paired)OwnerUi.green else OwnerUi.amber).apply{
-            setPadding(0,px(6),0,px(8))
+            if(paired)"● 推送已连接" else "● 推送未绑定 · 请检查通知设置",
+            12.5f,if(paired)OwnerUi.green else OwnerUi.amber).apply{
+            setPadding(0,px(7),0,px(8))
         })
         val stats=OwnerUi.horizontal(this)
         stats.addView(OwnerUi.label(this,
@@ -491,15 +495,15 @@ class MainActivity : Activity() {
         root.addView(grid1,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(7)})
         val grid2=OwnerUi.horizontal(this)
         grid2.addView(shortcut("测试通知","确认推送已送达",android.R.drawable.ic_dialog_email){testChannel("app")},
-            LinearLayout.LayoutParams(0,px(136),1f).apply{marginEnd=px(7)})
+            LinearLayout.LayoutParams(0,px(90),1f).apply{marginEnd=px(7)})
         grid2.addView(shortcut("渠道设置","选择推送方式",android.R.drawable.ic_menu_manage){navigate("channels")},
-            LinearLayout.LayoutParams(0,px(136),1f).apply{marginStart=px(7)})
+            LinearLayout.LayoutParams(0,px(90),1f).apply{marginStart=px(7)})
         root.addView(grid2,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(9)})
 
-        section("连接状态")
+        section("连接与同步")
         inCard {
             status(if(paired)"● FCM 消息推送已启用" else "● FCM 推送尚未就绪",paired)
-            note("账号："+config.optString("username","admin"))
+            note("账号  ·  "+config.optString("username","admin"))
             note("网站："+base())
             note("设备推送："+if(app.optBoolean("configured"))"已绑定" else "尚未绑定")
             action("重新绑定推送") {syncFcm()}
@@ -517,7 +521,7 @@ class MainActivity : Activity() {
     }
     private fun compactControl(text:String, color:Int=OwnerUi.blue, task:()->Unit):TextView =
         OwnerUi.label(this,text,12.5f,color,true).apply {
-            setPadding(px(7),px(9),px(7),px(9))
+            setPadding(px(7),px(7),px(7),px(7))
             gravity=Gravity.CENTER
             isClickable=true;isFocusable=true
             background=OwnerUi.pressable(this@MainActivity,OwnerUi.white,7)
@@ -546,18 +550,18 @@ class MainActivity : Activity() {
                     val state=item.optString("status")
                     val label=when(state){"waiting"->"待处理";"confirmed"->"已确认";"expired"->"已过期";else->state}
                     val itemRow=OwnerUi.vertical(this@MainActivity).apply {
-                        setPadding(px(0),px(11),px(0),px(10))
+                        setPadding(px(0),px(5),px(0),px(5))
                     }
                     val header=OwnerUi.horizontal(this@MainActivity)
                     header.addView(OwnerUi.label(this@MainActivity,
-                        formattedTime(item.optLong("createdAt")),12f,OwnerUi.muted),
+                        formattedTime(item.optLong("createdAt")),11.5f,OwnerUi.muted),
                         LinearLayout.LayoutParams(0,-2,1f))
                     header.addView(OwnerUi.pill(this@MainActivity,label,
                         if(state=="confirmed")true else if(state=="waiting")false else null))
                     itemRow.addView(header)
                     val message=OwnerUi.label(this@MainActivity,
-                        item.optString("message").ifBlank{"有人请求挪车"},14.5f,OwnerUi.navy,true).apply {
-                            setPadding(0,px(5),0,px(2));maxLines=3;ellipsize=android.text.TextUtils.TruncateAt.END
+                        item.optString("message").ifBlank{"有人请求挪车"},13.5f,OwnerUi.navy,true).apply {
+                            setPadding(0,px(3),0,px(1));maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END
                         }
                     itemRow.addView(message)
                     val actions=OwnerUi.horizontal(this@MainActivity)
@@ -577,7 +581,14 @@ class MainActivity : Activity() {
                             api("/api/mobile/requests/delete",JSONObject().put("id",id)){loadRequests(true)}
                         }
                     })
+                    actions.visibility=View.GONE
                     itemRow.addView(actions)
+                    itemRow.isClickable=true
+                    itemRow.isFocusable=true
+                    itemRow.contentDescription="查看挪车请求详细操作"
+                    itemRow.setOnClickListener {
+                        actions.visibility=if(actions.visibility==View.VISIBLE)View.GONE else View.VISIBLE
+                    }
                     root.addView(itemRow)
                 }
             }
@@ -604,7 +615,21 @@ class MainActivity : Activity() {
     private fun calls(result:JSONObject){
         shell("来电记录")
         val items=result.optJSONArray("items")
-        note("匿名来电历史 · 共 "+(items?.length()?:0)+" 条　　右上角 ↻ 同步")
+        val header=OwnerUi.horizontal(this).apply {
+            gravity=Gravity.CENTER_VERTICAL
+            setPadding(0,px(1),0,px(7))
+        }
+        header.addView(OwnerUi.label(this,"共 "+(items?.length()?:0)+" 条通话记录",12.5f,OwnerUi.muted),
+            LinearLayout.LayoutParams(0,-2,1f))
+        header.addView(compactControl("清空",OwnerUi.red){
+            confirm("确定清空全部通话记录吗？此操作无法撤销。"){
+                api("/api/mobile/calls/clear",JSONObject().put("confirm",true)){
+                    notify("通话记录已清空")
+                    refreshCurrent(true)
+                }
+            }
+        })
+        root.addView(header)
         if(items==null||items.length()==0){
             empty("暂无通话记录","接收到的语音来电会显示在这里。")
             return
@@ -619,13 +644,13 @@ class MainActivity : Activity() {
                 }
                 val problem=raw=="missed"||raw=="rejected"||raw=="failed"
                 val row=OwnerUi.horizontal(this@MainActivity).apply {
-                    setPadding(px(3),px(10),px(2),px(10))
+                    setPadding(px(3),px(7),px(2),px(7))
                 }
                 val icon=OwnerUi.label(this@MainActivity,if(problem)"↙" else "↗",
                     24f,if(problem)OwnerUi.red else OwnerUi.green,true).apply{gravity=Gravity.CENTER}
                 row.addView(icon,LinearLayout.LayoutParams(px(40),px(40)))
                 val info=OwnerUi.vertical(this@MainActivity)
-                info.addView(OwnerUi.label(this@MainActivity,"匿名网络语音",14.5f,OwnerUi.navy,true))
+                info.addView(OwnerUi.label(this@MainActivity,"语音来电",14.5f,OwnerUi.navy,true))
                 info.addView(OwnerUi.label(this@MainActivity,
                     formattedTime(item.optLong("startedAt")),12f,OwnerUi.muted))
                 row.addView(info,LinearLayout.LayoutParams(0,-2,1f))
@@ -872,7 +897,7 @@ class MainActivity : Activity() {
             action("更换服务器或域名"){confirm("切换后将返回登录界面，请输入新服务器 HTTPS 域名，使用管理员账号重新登录。原服务器数据不会删除。"){
                 clearLogin()
             }}
-            note("MoveCar Owner v0.5.1 · 锁屏来电诊断与语音次数设置")
+            note("MoveCar Owner v0.6 · 蓝绿界面与紧凑记录 · 自动同步")
         }
     }
     private fun account(config:JSONObject){

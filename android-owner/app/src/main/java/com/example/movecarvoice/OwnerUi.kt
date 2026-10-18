@@ -17,15 +17,15 @@ import android.widget.TextView
  * stays in its foreground service. Material-inspired surfaces and 48dp targets.
  */
 internal object OwnerUi {
-    val navy = Color.rgb(17, 27, 33)
-    val blue = Color.rgb(0, 128, 105)
-    val blueDeep = Color.rgb(5, 94, 84)
-    val canvas = Color.rgb(248, 249, 250)
-    val muted = Color.rgb(101, 111, 119)
-    val line = Color.rgb(231, 234, 237)
+    val navy = Color.rgb(21, 43, 61)
+    val blue = Color.rgb(17, 154, 219)
+    val blueDeep = Color.rgb(7, 122, 110)
+    val canvas = Color.rgb(233, 247, 253)
+    val muted = Color.rgb(104, 126, 140)
+    val line = Color.rgb(219, 236, 244)
     val white = Color.WHITE
-    val softBlue = Color.rgb(222, 246, 235)
-    val green = Color.rgb(0, 128, 105)
+    val softBlue = Color.rgb(216, 244, 253)
+    val green = Color.rgb(10, 132, 111)
     val softGreen = Color.rgb(224, 247, 232)
     val amber = Color.rgb(164, 99, 23)
     val softAmber = Color.rgb(255, 244, 226)
@@ -44,7 +44,7 @@ internal object OwnerUi {
 
     fun gradient(context: Context): GradientDrawable =
         GradientDrawable(GradientDrawable.Orientation.TL_BR,
-            intArrayOf(blue, blueDeep)).apply { cornerRadius = dp(context, 14).toFloat() }
+            intArrayOf(Color.rgb(18, 156, 229), Color.rgb(110, 197, 193))).apply { cornerRadius = dp(context, 14).toFloat() }
 
     fun pressable(context: Context, color: Int, radius: Int = 14, border: Int? = null): RippleDrawable =
         RippleDrawable(
@@ -60,7 +60,7 @@ internal object OwnerUi {
             textSize = size
             setTextColor(color)
             includeFontPadding = true
-            if (weight) typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            if (weight) typeface = Typeface.create("sans-serif", Typeface.BOLD)
         }
 
     fun pill(ctx: Context, text: String, good: Boolean? = null): TextView {
@@ -87,7 +87,7 @@ internal object OwnerUi {
 
     fun card(ctx: Context): LinearLayout = vertical(ctx).apply {
         background = bg(white, 12, ctx, line)
-        setPadding(dp(ctx, 12), dp(ctx, 12), dp(ctx, 12), dp(ctx, 12))
+        setPadding(dp(ctx, 12), dp(ctx, 10), dp(ctx, 12), dp(ctx, 10))
         elevation = 0f
     }
 

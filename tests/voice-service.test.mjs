@@ -190,3 +190,21 @@ test('voice rate counters can be reset without deleting call history',async()=>{
   assert.ok(api.listCallHistory().length>history,'reset does not erase call logs');
  },{policy});
 });
+
+test('server call-history clear is permanent and does not revoke active call services',async()=>withServer(async({post,api})=>{
+  const token=await post('/api/voice/device/register',{
+    pairingSecret:'test-voice-secret-which-is-long-and-private',
+    fcmToken:'fcm:abc_this-is-a-pretend-token-xxxxxxxxx'
+  });
+  assert.equal(token.status,200);
+  const call=await post('/api/voice/start');
+  assert.equal(call.status,200);
+  assert.equal(api.listCallHistory().length,1);
+  assert.equal(api.clearCallHistory(),1);
+  assert.equal(api.listCallHistory().length,0);
+  // Clearing the database history must not interfere with the live in-memory
+  // call state. Its reject/hangup flow must continue to work safely.
+  const reject=await post('/api/voice/calls/'+call.body.callId+'/reject',{},token.body.deviceAuth);
+  assert.equal(reject.status,200);
+  assert.equal(api.listCallHistory().length,0);
+}));
