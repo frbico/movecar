@@ -297,12 +297,14 @@ class MainActivity : Activity() {
         page = "login"
         screen("安全登录")
         val welcome=OwnerUi.vertical(this).apply {
-            background=OwnerUi.gradient(this@MainActivity)
-            setPadding(px(22),px(25),px(22),px(25))
+            background=OwnerUi.bg(OwnerUi.white,12,this@MainActivity,OwnerUi.line)
+            setPadding(px(18),px(18),px(18),px(18))
         }
-        welcome.addView(OwnerUi.label(this,"安心联系，随时挪车",23f,OwnerUi.white,true))
-        welcome.addView(OwnerUi.label(this,"一站式管理通知、匿名来电与挪车请求",13f,0xFFDBEAFE.toInt()))
-        root.addView(welcome,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(20)})
+        welcome.addView(OwnerUi.label(this,"安心联系，随时挪车",21f,OwnerUi.navy,true))
+        welcome.addView(OwnerUi.label(this,"消息通知、匿名语音与挪车记录",13f,OwnerUi.muted).apply {
+            setPadding(0,px(6),0,0)
+        })
+        root.addView(welcome,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(12)})
         section("欢迎回来","使用与网页版后台相同的管理员账号。")
         val site = field("HTTPS 服务器地址", base())
         val username = field("管理员账号", VoiceApi.username(this))
