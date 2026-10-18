@@ -172,3 +172,17 @@ if (( update_rc == 0 ));then
   [[ "$good" == 1 ]] || update_rc=1
 fi
 set -e
+if ((update_rc != 0));then
+  status rollback '新版本启动或健康检查失败，尝试恢复旧程序…' "$PREVIOUS" "$TARGET"
+  git -C "$ROOT" switch -C release/stable "$PREVIOUS" || true
+  if [[ -f "$ARCHIVE/dot-env" ]];then cp -p "$ARCHIVE/dot-env" "$ROOT/.env";fi
+  bash scripts/fetch-upstream.sh || true
+  "${COMPOSE[@]}" up -d --build movecar coturn || true
+  rm -f "$REQUEST"
+  status error "更新失败，已尝试回退。备份位于 $ARCHIVE，请查看日志" "$PREVIOUS" "$TARGET"
+  exit 1
+fi
+rm -f "$REQUEST"
+status success '升级成功，容器健康检查通过；数据和旧代码已备份' "$TARGET" "$TARGET"
+install_timer
+echo "MoveCar updated: $PREVIOUS -> $TARGET. Backup: $ARCHIVE"
