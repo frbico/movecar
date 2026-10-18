@@ -98,7 +98,7 @@ test('ICE failure returns one-use fast-retry tickets, with bounded abuse protect
       assert.equal((await post('/api/voice/start')).status,429,'ordinary attempt still rate-limited');
       const retry=await post('/api/voice/start',{retryToken:ticket});
       assert.equal(retry.status,200,'fast retry accepted immediately after ICE failure');
-      assert.equal((await post('/api/voice/start',{retryToken:ticket})).status,429,'ticket cannot be used again');
+      assert.equal((await post('/api/voice/start',{retryToken:ticket})).status,409,'a still-active retried call must return busy');
       start=retry;
     }else{
       assert.equal(ended.body.retryToken,undefined,'max two fast retries');
