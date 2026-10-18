@@ -46,6 +46,17 @@ export function createInfrastructure({setting,save,dataDir,turnSecret=process.en
     return {ok:true,mode,manualUpload:mode==='upload',message:mode==='upload'?'请从浏览器上传 PEM 文件':'正在由宿主机安全检查证书目录，请稍后刷新状态'};
   }
   const firebaseExists=()=>fs.existsSync(firebaseFile)&&fs.statSync(firebaseFile).size>0;
+  const firebaseProject=()=>{
+    try{
+      if(!firebaseExists())return '';
+      const value=JSON.parse(fs.readFileSync(firebaseFile,'utf8')).project_id;
+      return typeof value==='string'?value:'';
+    }catch{return '';}
+  };
+  const certificateExpiry=()=>{
+    try{return configured()?new crypto.X509Certificate(fs.readFileSync(certFile)).validTo:'';}
+    catch{return '';}
+  };
   const configured=()=>fs.existsSync(certFile)&&fs.existsSync(keyFile);
   function tlsValidFor(host){
     if(!host||!configured())return false;
@@ -83,7 +94,9 @@ export function createInfrastructure({setting,save,dataDir,turnSecret=process.en
     return {
       publicUrl:setting('public_url'),turnHost:host,
       setupComplete:setting('setup_completed')==='1'&&setting('setup_verified_host')===externalIp,
+      onboardingFinished:setting('setup_finished_once')==='1'||setting('setup_completed')==='1',
       certificateSource:sourceMode(),certificateDirectory:safeJson(sourceFile)?.directory||'',
+      certificateExpiresAt:certificateExpiry(),firebaseProjectId:firebaseProject(),
       certificateCheck:safeJson(certStatusFile),firewall:safeJson(firewallFile),turnHealth:safeJson(healthFile),
       firebaseConfigured:firebaseExists(),turnEnabled:!!host,
       turnTlsEnabled:tls,turnUdpPort:3478,turnTlsPort:5349,
@@ -114,7 +127,10 @@ export function createInfrastructure({setting,save,dataDir,turnSecret=process.en
     }catch{throw err('网站必须填写 HTTPS 根地址，例如 https://movecar.example.com');}
     const host=hostname(turnHost);
     if(!host)throw err('请填写 TURN 域名，和网站可以使用同一个 IP');
-    if(setting('public_url')!==url.origin||setting('turn_host')!==host)save('setup_completed','0');
+    if(setting('public_url')!==url.origin||setting('turn_host')!==host){
+      if(setting('setup_completed')==='1')save('setup_finished_once','1');
+      save('setup_completed','0');
+    }
     save('public_url',url.origin);save('turn_host',host);
     const source=safeJson(sourceFile);
     // Health probe must run even when TLS is deliberately skipped.
@@ -195,6 +211,7 @@ export function createInfrastructure({setting,save,dataDir,turnSecret=process.en
     if(!report.ready)throw err('必需项尚未通过检查，暂时不能完成首次部署');
     save('setup_verified_host',externalIp);
     save('setup_completed','1');
+    save('setup_finished_once','1');
     return {ok:true,setupComplete:true};
   }
   if(turnSecret)refreshTurn();
