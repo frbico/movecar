@@ -74,6 +74,15 @@ exec 9>"$RUNTIME/.upgrade.lock"
 flock -n 9 || { echo 'Already upgrading';exit 0; }
 PREVIOUS="$(git -C "$ROOT" rev-parse HEAD)"
 TARGET=''
+UPDATE_FINALIZED=0
+record_failure(){
+  local rc="$?"
+  if ((rc != 0 && UPDATE_FINALIZED == 0));then
+    if [[ "$MODE" == service ]];then rm -f "$REQUEST";fi
+    status error '自动升级中断；原始数据未删除。请检查服务器日志及 root 备份目录。' "$PREVIOUS" "$TARGET" || true
+  fi
+}
+trap record_failure EXIT
 if [[ "$MODE" == service ]];then
   [[ -s "$REQUEST" ]] || exit 0
   TARGET="$(python3 - "$REQUEST" <<'PY'
@@ -88,6 +97,7 @@ PY
   if [[ ! "$TARGET" =~ ^[0-9a-f]{40}$ ]];then
     rm -f "$REQUEST"
     status error '无效或过期的升级任务，请重新检查更新' "$PREVIOUS" ''
+    UPDATE_FINALIZED=1
     exit 1
   fi
 fi
@@ -97,12 +107,14 @@ LATEST="$(git ls-remote https://github.com/frbico/movecar.git refs/heads/release
 if [[ "$MODE" == service && "$LATEST" != "$TARGET" ]];then
   rm -f "$REQUEST"
   status error '有更新的发布版本，请重新检查并确认' "$PREVIOUS" "$LATEST"
+  UPDATE_FINALIZED=1
   exit 1
 fi
 TARGET="$LATEST"
 if [[ "$PREVIOUS" == "$TARGET" ]];then
   rm -f "$REQUEST"
   status success '已经是最新版本' "$PREVIOUS" "$TARGET"
+  UPDATE_FINALIZED=1
   exit 0
 fi
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)-$$"
@@ -180,9 +192,11 @@ if ((update_rc != 0));then
   "${COMPOSE[@]}" up -d --build movecar coturn || true
   rm -f "$REQUEST"
   status error "更新失败，已尝试回退。备份位于 $ARCHIVE，请查看日志" "$PREVIOUS" "$TARGET"
+  UPDATE_FINALIZED=1
   exit 1
 fi
 rm -f "$REQUEST"
 status success '升级成功，容器健康检查通过；数据和旧代码已备份' "$TARGET" "$TARGET"
 install_timer
+UPDATE_FINALIZED=1
 echo "MoveCar updated: $PREVIOUS -> $TARGET. Backup: $ARCHIVE"
