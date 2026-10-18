@@ -86,7 +86,7 @@ test('native owner sign-in, authentication, notifications, records, and account 
     assert.equal(confirmationId,'A'.repeat(43));
     assert.equal((await call('requests/delete',{id:'A'.repeat(43)},token)).status,200);
     assert.equal(deletedId,'A'.repeat(43));
-    assert.equal((await call('calls',undefined,token)).data.items[0].status,'ended');
+    assert.deepEqual((await call('calls',undefined,token)).data.items,[],'clearing history persists across other settings updates');
     assert.equal((await call('settings',{siteName:'My MoveCar',publicUrl:'https://car.example.com',phoneNumber:'',wechatId:'',rateLimitSeconds:10,requestRetentionLimit:75},token)).status,200);
     assert.equal(settings.get('site_name'),'My MoveCar');
     assert.equal((await call('account',{newUsername:'owner01',currentPassword:'wrong'},token)).status,403);
