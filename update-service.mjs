@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 
 const REPOSITORY='frbico/movecar';
 const CHANNEL='release/stable';
-const COMMIT_URL='https://api.github.com/repos/'+REPOSITORY+'/commits/'+CHANNEL;
+const COMMIT_URL='https://api.github.com/repos/'+REPOSITORY+'/git/ref/heads/'+CHANNEL;
 const safeRead=(file)=>{
   try {const stat=fs.statSync(file);if(stat.size>20000)return null;
     return JSON.parse(fs.readFileSync(file,'utf8'));}catch{return null;}
@@ -36,7 +36,7 @@ export function createUpdateService({
     });}catch{throw err('无法连接 GitHub 检查更新，请稍后重试',503);}
     if(!response.ok)throw err('GitHub 更新检查失败：HTTP '+response.status,503);
     const item=await response.json();
-    const sha=item?.sha;
+    const sha=item?.object?.sha;
     if(!hashRegex.test(sha||''))throw err('GitHub 返回的版本信息不正确',503);
     const raw='https://raw.githubusercontent.com/'+REPOSITORY+'/'+sha+'/release.json';
     let notes={};
