@@ -82,7 +82,7 @@ export function createInfrastructure({setting,save,dataDir,turnSecret=process.en
     const tls=tlsValidFor(host);
     return {
       publicUrl:setting('public_url'),turnHost:host,
-      setupComplete:setting('setup_completed')==='1',
+      setupComplete:setting('setup_completed')==='1'&&setting('setup_verified_host')===externalIp,
       certificateSource:sourceMode(),certificateDirectory:safeJson(sourceFile)?.directory||'',
       certificateCheck:safeJson(certStatusFile),firewall:safeJson(firewallFile),turnHealth:safeJson(healthFile),
       firebaseConfigured:firebaseExists(),turnEnabled:!!host,
@@ -114,6 +114,7 @@ export function createInfrastructure({setting,save,dataDir,turnSecret=process.en
     }catch{throw err('网站必须填写 HTTPS 根地址，例如 https://movecar.example.com');}
     const host=hostname(turnHost);
     if(!host)throw err('请填写 TURN 域名，和网站可以使用同一个 IP');
+    if(setting('public_url')!==url.origin||setting('turn_host')!==host)save('setup_completed','0');
     save('public_url',url.origin);save('turn_host',host);
     const source=safeJson(sourceFile);
     // Health probe must run even when TLS is deliberately skipped.
@@ -191,6 +192,7 @@ export function createInfrastructure({setting,save,dataDir,turnSecret=process.en
   async function complete(){
     const report=await verify();
     if(!report.ready)throw err('必需项尚未通过检查，暂时不能完成首次部署');
+    save('setup_verified_host',externalIp);
     save('setup_completed','1');
     return {ok:true,setupComplete:true};
   }
