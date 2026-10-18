@@ -404,6 +404,8 @@ const server=http.createServer(async(req,res)=>{
         if(!Number.isInteger(page)||page<1||page>9999||!Number.isInteger(size)||size<1||size>100)return json(res,400,{error:'分页参数无效'});
         return json(res,200,requestFlow.listHistory(page,size));
       }
+      if(route==='/api/admin/update/status'&&req.method==='GET')
+        return json(res,200,updater.status());
       if(!['POST','PUT'].includes(req.method)||!checkCsrf(req,auth.csrf))return json(res,403,{error:'请求未通过验证'});
       if(route==='/api/admin/deployment/cert-source'&&req.method==='POST'){
         if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});
@@ -436,8 +438,6 @@ const server=http.createServer(async(req,res)=>{
         if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});
         return json(res,200,infrastructure.removeTls());
       }
-      if(route==='/api/admin/update/status'&&req.method==='GET')
-        return json(res,200,updater.status());
       if(route==='/api/admin/update/check'&&req.method==='POST'){
         if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});
         await inputJson(req);
