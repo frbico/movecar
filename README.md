@@ -204,7 +204,7 @@ Android CI 产出的占位 Firebase APK **不能用于实际来电**；需为仓
 **不绑定 1Panel、香港服务器、东京服务器、Nginx 或 Caddy。** 服务器只需安装 Docker/Compose、Git、Curl、Python3、OpenSSL；所有非基础信息都进入登录后的「部署与迁移」后台向导。
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/frbico/movecar/feature/universal-setup-wizard/scripts/install-universal.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/frbico/movecar/feature/onboarding-firewall-cert-sync/scripts/install-universal.sh | sudo bash
 ```
 
 自动下载/更新 MoveCar、生成独立 TURN 密钥、启动 MoveCar + coturn、将 Web 管理后端仅绑定到本机 127.0.0.1:8888，防止裸露公网。系统检测到 1Panel 的 Docker 网络时自动接入，但**没有 1Panel 也完全可以安装**。
