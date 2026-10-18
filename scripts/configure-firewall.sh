@@ -47,6 +47,7 @@ fd,tmp=tempfile.mkstemp(prefix='.firewall-',dir=os.path.dirname(p))
 try:
  with os.fdopen(fd,'w') as f:json.dump(x,f)
  os.chmod(tmp,0o600)
+ os.chown(tmp,1000,1000)
  os.replace(tmp,p)
 finally:
  if os.path.exists(tmp):os.unlink(tmp)
