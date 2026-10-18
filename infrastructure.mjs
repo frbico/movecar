@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import dns from 'node:dns/promises';
 
 // Configuration lives in the authenticated admin console, not an installer.
 // TURN is a private server-side service; the browser only receives short-lived
@@ -25,6 +26,24 @@ export function createInfrastructure({setting,save,dataDir,turnSecret=process.en
   fs.mkdirSync(tlsDir,{recursive:true,mode:0o700});
   const certFile=path.join(tlsDir,'fullchain.pem'),keyFile=path.join(tlsDir,'privkey.pem');
   const conf=path.join(runtimeDir,'turnserver.conf');
+  const sourceFile=path.join(runtimeDir,'cert-source.json');
+  const certStatusFile=path.join(runtimeDir,'cert-sync-status.json');
+  const healthFile=path.join(runtimeDir,'host-health-status.json');
+  const firewallFile=path.join(runtimeDir,'firewall-status.json');
+  const safeJson=file=>{try{return JSON.parse(fs.readFileSync(file,'utf8'));}catch{return null;}};
+  const sourceMode=()=>safeJson(sourceFile)?.mode||'none';
+  function writeCertSource(mode,directory=''){
+    const turnHost=hostname(setting('turn_host'));
+    atomicFile(sourceFile,JSON.stringify({mode,directory,turnHost}),0o600);
+  }
+  function setCertSource({mode,directory}){
+    if(!['auto','directory','upload'].includes(mode))throw err('证书来源方式无效');
+    if(mode==='directory'&&(typeof directory!=='string'||!directory.startsWith('/')||
+      directory.length>1024||directory.includes('\\0')||/[\\r\\n]/.test(directory)))
+      throw err('请输入服务器上的绝对证书目录，不能填写文件内容');
+    writeCertSource(mode,mode==='directory'?directory.trim():'');
+    return {ok:true,mode,manualUpload:mode==='upload',message:mode==='upload'?'请从浏览器上传 PEM 文件':'正在由宿主机安全检查证书目录，请稍后刷新状态'};
+  }
   const firebaseExists=()=>fs.existsSync(firebaseFile)&&fs.statSync(firebaseFile).size>0;
   const configured=()=>fs.existsSync(certFile)&&fs.existsSync(keyFile);
   function tlsValidFor(host){
@@ -61,6 +80,9 @@ export function createInfrastructure({setting,save,dataDir,turnSecret=process.en
     const tls=tlsValidFor(host);
     return {
       publicUrl:setting('public_url'),turnHost:host,
+      setupComplete:setting('setup_completed')==='1',
+      certificateSource:sourceMode(),certificateDirectory:safeJson(sourceFile)?.directory||'',
+      certificateCheck:safeJson(certStatusFile),firewall:safeJson(firewallFile),turnHealth:safeJson(healthFile),
       firebaseConfigured:firebaseExists(),turnEnabled:!!host,
       turnTlsEnabled:tls,turnUdpPort:3478,turnTlsPort:5349,
       proxyTargets:['http://127.0.0.1:8888','http://movecar:8888'],
@@ -90,6 +112,8 @@ export function createInfrastructure({setting,save,dataDir,turnSecret=process.en
     const host=hostname(turnHost);
     if(!host)throw err('请填写 TURN 域名，和网站可以使用同一个 IP');
     save('public_url',url.origin);save('turn_host',host);
+    const source=safeJson(sourceFile);
+    if(source&&['auto','directory'].includes(source.mode))writeCertSource(source.mode,source.directory||'');
     refreshTurn();return config();
   }
   function saveFirebase(content){
@@ -119,13 +143,53 @@ export function createInfrastructure({setting,save,dataDir,turnSecret=process.en
     if(!Number.isFinite(expiry)||expiry<Date.now()+86400000)throw err('证书已过期或即将在 24 小时内过期');
     atomicFile(certFile,cert,0o600);
     atomicFile(keyFile,key,0o600);
+    writeCertSource('upload');
     refreshTurn();
     return {ok:true,turnTlsEnabled:true,expiresAt:c.validTo};
   }
   function removeTls(){
     for(const p of [certFile,keyFile])try{fs.unlinkSync(p);}catch(e){if(e.code!=='ENOENT')throw e;}
+    writeCertSource('upload');
     refreshTurn();return {ok:true,turnTlsEnabled:false};
   }
+  async function verify(){
+    const c=config();
+    const checks=[];
+    const add=(key,label,ok,message,required=true)=>checks.push({key,label,ok:!!ok,message,required});
+    add('url','HTTPS 网站地址',!!c.publicUrl,'先在上一步填写网站 HTTPS 地址');
+    add('turnHost','TURN 地址',c.turnEnabled,'先填写 TURN 域名');
+    add('firebase','Firebase 服务账号',c.firebaseConfigured,'通过后台上传 Firebase Admin SDK JSON');
+    if(c.turnEnabled){
+      try{
+        const addresses=await dns.resolve4(c.turnHost);
+        const publicIp=externalIp.split('/')[0];
+        const match=publicIp?addresses.includes(publicIp):addresses.length>0;
+        add('dns','TURN DNS 解析',match,match?'TURN DNS 已解析到服务器':'TURN DNS 未指向本服务器公网 IPv4');
+      }catch{add('dns','TURN DNS 解析',false,'TURN 域名解析失败或尚未生效');}
+    }
+    if(c.publicUrl){
+      try{
+        const response=await fetch(c.publicUrl+'/healthz',{signal:AbortSignal.timeout(6500),redirect:'error'});
+        add('https','网站公网 HTTPS',response.ok&&(await response.text()).trim()==='ok',
+          '检查域名解析、反向代理和网站 HTTPS 是否已生效');
+      }catch{add('https','网站公网 HTTPS',false,'服务器暂时无法经 HTTPS 访问站点 /healthz（部分 VPS 可能不支持公网回环）');}
+    }
+    const health=c.turnHealth;
+    const live=health&&health.turnHost===c.turnHost&&Date.now()-health.checkedAt<180000;
+    add('turn','本机 TURN 鉴权分配',live&&health.ok,health?.message||'后台检测进程尚未完成，请检查安装程序或刷新');
+    const fw=c.firewall;
+    add('firewall','主机防火墙',fw?.automatic!==false,fw?.message||'未检测到主机防火墙状态；云厂商端口仍需手动放行',false);
+    add('tls','TURN TLS 备用通道',c.turnTlsEnabled,
+      '推荐复用现有网站的泛域名证书，以提高受限网络的接通机会',false);
+    const pass=checks.filter(item=>item.required).every(item=>item.ok);
+    return {ready:pass,checks,config:c,externalCloudFirewallVerified:false};
+  }
+  async function complete(){
+    const report=await verify();
+    if(!report.ready)throw err('必需项尚未通过检查，暂时不能完成首次部署');
+    save('setup_completed','1');
+    return {ok:true,setupComplete:true};
+  }
   if(turnSecret)refreshTurn();
-  return {config,configure,ice,saveFirebase,saveTls,removeTls,refreshTurn};
+  return {config,configure,ice,saveFirebase,saveTls,removeTls,refreshTurn,setCertSource,verify,complete};
 }
