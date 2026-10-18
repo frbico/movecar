@@ -16,3 +16,17 @@
 .branding-card{max-width:850px}
 .branding-card input[type=file]{margin:10px 0 18px;max-width:100%;font-size:12px}
 @media(max-width:760px){.history-table{min-width:580px}.history-heading{align-items:flex-start}.history-actions{width:100%}.history-page{justify-content:center}}
+
+/* First-run onboarding: compact steps, readable progress, and no backend access
+ * until the authenticated deployment validation confirms required checks. */
+[hidden]{display:none!important}
+.setup-steps{display:flex;flex-wrap:wrap;gap:8px}
+.setup-step{display:inline-flex;padding:10px 14px;border:1px solid #dde6ee;border-radius:12px;background:#f6f8fb;color:#64748b;font-size:12px;font-weight:650}
+.setup-step.active{background:#e8f0ff;border-color:#93b4fb;color:#255dcc}
+.setup-step.done{color:#15803d;border-color:#bbefcd;background:#effcf5}
+.setup-stage .card{border-color:#dce5f0}
+.setup-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.setup-checks p{padding:11px 13px;margin:7px 0;background:#f6f8fc;border-radius:10px;line-height:1.6;font-size:14px}
+.setup-ok{color:#168343}
+.setup-bad{color:#c83b38}
+@media(max-width:700px){.setup-steps{display:grid;grid-template-columns:1fr 1fr}.setup-step{padding:8px;font-size:11px}.setup-footer button{min-width:95px}}
