@@ -52,7 +52,11 @@ class CarMessagingService : FirebaseMessagingService() {
         }
         val view = PendingIntent.getActivity(context, if(testing)21 else 1, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val answer = PendingIntent.getActivity(context, if(testing)22 else 2, Intent(intent).putExtra("answer", true), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val decline = PendingIntent.getBroadcast(context, if(testing)23 else 3, Intent(context, CallActionReceiver::class.java).putExtra("callId", callId), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val decline = if(testing)
+            PendingIntent.getActivity(context,23,Intent(intent).putExtra("dismissTest",true),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        else PendingIntent.getBroadcast(context,3,Intent(context,CallActionReceiver::class.java)
+            .putExtra("callId",callId),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val builder = Notification.Builder(context, CHANNEL)
             .setSmallIcon(android.R.drawable.sym_action_call)
             .setContentTitle(if(testing)"锁屏来电显示测试" else "有人请求挪车")
