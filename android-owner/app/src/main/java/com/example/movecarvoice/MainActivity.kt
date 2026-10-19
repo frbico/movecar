@@ -53,6 +53,10 @@ class MainActivity : Activity() {
         super.onResume()
         refreshHandler.removeCallbacks(periodicRefresh)
         refreshHandler.postDelayed(periodicRefresh, 120_000)
+        // Returning from Samsung notification/full-screen settings must
+        // re-read actual OS grants instead of displaying cached checkmarks.
+        if (page=="settings" && token().isNotBlank())
+            refreshHandler.post { if(page=="settings")refreshCurrent(false) }
     }
     override fun onPause() {
         refreshHandler.removeCallbacks(periodicRefresh)
@@ -931,7 +935,7 @@ class MainActivity : Activity() {
             action("更换服务器或域名"){confirm("切换后将返回登录界面，请输入新服务器 HTTPS 域名，使用管理员账号重新登录。原服务器数据不会删除。"){
                 clearLogin()
             }}
-            note("MoveCar Owner v0.6 · 蓝绿界面与紧凑记录 · 自动同步")
+            note("MoveCar Owner v0.6.1 · 锁屏来电诊断与弱网恢复")
         }
     }
     private fun account(config:JSONObject){
