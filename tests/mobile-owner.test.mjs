@@ -25,6 +25,7 @@ test('native owner sign-in, authentication, notifications, records, and account 
       testMode:settings.get('voice_test_mode')==='1'};},
     resetCallRateLimits(){return true;},
     listCallHistory(){return callHistory;},
+    listQuality(){return [{callId:'call',peer:'caller',reportedAt:123,phase:'connected',route:'turn-udp',rttMs:140,reconnects:0,reason:''}];},
     clearCallHistory(){const count=callHistory.length;callHistory=[];return count;}
   };
   const flow={
@@ -58,6 +59,10 @@ test('native owner sign-in, authentication, notifications, records, and account 
     assert.equal(login.status,200);assert.ok(login.data.deviceAuth);const token=login.data.token;
     const config=await call('config',undefined,token);
     assert.equal(config.status,200);assert.equal(config.data.channels.app.configured,true);
+    const quality=await call('voice/quality',undefined,token);
+    assert.equal(quality.status,200);
+    assert.equal(quality.data.items[0].route,'turn-udp');
+    assert.equal((await call('voice/quality')).status,401);
     const initialCalls=await call('calls',undefined,token);
     assert.equal(initialCalls.data.items.length,1);
     assert.equal((await call('calls/clear',{},token)).status,400,'requires explicit confirmation');
