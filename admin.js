@@ -309,6 +309,35 @@ $('saveVoicePolicy').onclick=async()=>{
   toast('通话规则已立即生效，已经达到旧上限的测试也可继续使用新配置');
  }catch(e){toast(e.message,true);}finally{btn.disabled=false;}
 };
+async function refreshCallQuality(){
+ const tbody=$('callQualityRows');tbody.replaceChildren();
+ try{
+  const result=await api('/api/admin/voice/quality');
+  if(!result.items?.length){
+   const tr=document.createElement('tr'),td=document.createElement('td');
+   td.colSpan=6;td.textContent='暂无通话网络诊断';tr.append(td);tbody.append(tr);return;
+  }
+  const routes={direct:'直连','turn-udp':'TURN UDP','turn-tcp':'TURN TCP','turn-tls':'TURN TLS',unknown:'未知'};
+  const phases={connecting:'连接中',connected:'已接通',reconnecting:'正在恢复',recovered:'恢复成功',failed:'连接失败',ended:'已结束'};
+  for(const item of result.items){
+   const tr=document.createElement('tr');
+   const cells=[
+    new Date(item.reportedAt).toLocaleString('zh-CN'),
+    item.peer==='owner'?'车主 APP':'路人网页',
+    routes[item.route]||'未知',
+    item.rttMs==null?'—':item.rttMs+' ms',
+    String(item.reconnects),
+    phases[item.phase]||item.phase
+   ];
+   for(const t of cells){const td=document.createElement('td');td.textContent=t;tr.append(td);}
+   tbody.append(tr);
+  }
+ }catch(e){
+  const tr=document.createElement('tr'),td=document.createElement('td');
+  td.colSpan=6;td.textContent='读取失败：'+e.message;tr.append(td);tbody.append(tr);
+ }
+}
+$('refreshCallQuality').onclick=()=>void refreshCallQuality();
 $('resetVoiceCounters').onclick=async()=>{
  if(!confirm('清除当前服务器内存中的通话次数和冷却记录？这不会删除通话记录。'))return;
  const btn=$('resetVoiceCounters');btn.disabled=true;

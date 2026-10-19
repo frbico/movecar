@@ -14,6 +14,8 @@
   let callId='',auth='',pc=null,localStream=null,last=0,poller=null,closed=false;
   let offerSent=false,inCallAt=0,connectSince=0,retryTicket='',retrying=false;
   let iceServers=defaultIce,pollFailures=0;
+  let connectedOnce=false,reconnectAttempts=0,lastIceRestart=0,restartInFlight=false;
+  let pendingOffer=null,lastQualityReport=0,qualityInFlight=false;
   const pendingIce=[];
   let pendingAnswer=null;
   const say=s=>{label.textContent=s;};
@@ -29,6 +31,57 @@
     try{await api(endpoint('signal'),{token:auth,kind,payload});return true;}
     catch(e){if(!closed)say('网络信令不稳定：'+e.message);return false;}
   }
+  async function sendQuality(phase,reason=''){
+    if(!callId||!auth||!pc||qualityInFlight)return;
+    qualityInFlight=true;
+    lastQualityReport=Date.now();
+    try{
+      const stats=await pc.getStats();
+      let pair=null;
+      for(const entry of stats.values()){
+        if(entry.type==='transport'&&entry.selectedCandidatePairId){
+          pair=stats.get(entry.selectedCandidatePairId);
+          if(pair)break;
+        }
+      }
+      if(!pair)for(const entry of stats.values()){
+        if(entry.type==='candidate-pair'&&entry.state==='succeeded'&&
+           (entry.selected||entry.nominated)){pair=entry;break;}
+      }
+      const local=pair?stats.get(pair.localCandidateId):null;
+      const remoteCandidate=pair?stats.get(pair.remoteCandidateId):null;
+      const relay=local?.candidateType==='relay'||remoteCandidate?.candidateType==='relay';
+      const protocol=(local?.relayProtocol||remoteCandidate?.relayProtocol||local?.protocol||'udp').toLowerCase();
+      const route=relay?(protocol==='tls'?'turn-tls':protocol==='tcp'?'turn-tcp':'turn-udp'):'direct';
+      const rtt=pair?.currentRoundTripTime;
+      const rttMs=Number.isFinite(rtt)?Math.max(0,Math.min(30000,Math.round(rtt*1000))):null;
+      await api(endpoint('diagnostic'),{
+        token:auth,phase,route:pair?route:'unknown',rttMs,
+        reconnects:reconnectAttempts,reason
+      });
+    }catch{/* Diagnostics never block real-time audio or expose ICE addresses. */}
+    finally{qualityInFlight=false;}
+  }
+  async function restartIce(){
+    if(restartInFlight||!pc||closed||reconnectAttempts>=2||
+       !pc.remoteDescription||pc.signalingState!=='stable'||
+       Date.now()-lastIceRestart<7000)return false;
+    restartInFlight=true;
+    reconnectAttempts++;
+    lastIceRestart=Date.now();
+    try{
+      const offer=await pc.createOffer({iceRestart:true});
+      await pc.setLocalDescription(offer);
+      pendingOffer={type:offer.type,sdp:offer.sdp};
+      say('网络不稳定，正在恢复语音…');
+      void sendQuality('reconnecting','ice_restart');
+      if(await signal('offer',pendingOffer))pendingOffer=null;
+      return true;
+    }catch(e){
+      say('正在等待网络恢复…');
+      return false;
+    }finally{restartInFlight=false;}
+  }
   function releaseMedia(){
     if(pc){try{pc.close();}catch{}pc=null;}
     localStream?.getTracks().forEach(t=>t.stop());localStream=null;
@@ -41,6 +94,7 @@
     if(sendEnd&&callId&&auth){
       api(endpoint('end'),{token:auth}).catch(()=>{});
     }
+    if(inCallAt)void sendQuality('ended');
     releaseMedia();
     hangup.hidden=true;start.hidden=true;
     if(message)say(message);
@@ -80,12 +134,14 @@
       if(pc.connectionState==='connected'){
         connectSince=0;
         if(!inCallAt)inCallAt=Date.now();
+        if(!connectedOnce || reconnectAttempts>0)void sendQuality(
+          reconnectAttempts>0?'recovered':'connected');
+        connectedOnce=true;
         say('通话中');
-      }else if(pc.connectionState==='failed'){
-        void failed('ice_failed','语音网络连接失败');
-      }else if(pc.connectionState==='disconnected'){
+      }else if(['failed','disconnected'].includes(pc.connectionState)){
         say('网络中断，尝试恢复中…');
         if(!connectSince)connectSince=Date.now();
+        if(!owner&&pc.connectionState==='failed')void restartIce();
       }
     };
     localStream.getTracks().forEach(t=>pc.addTrack(t,localStream));
@@ -138,16 +194,27 @@
           else pendingIce.push(event.payload);
         }
       }
+      if(pendingOffer&&!owner&&!restartInFlight){
+        if(await signal('offer',pendingOffer))pendingOffer=null;
+      }
       if(pendingAnswer){
         if(await signal('answer',pendingAnswer))pendingAnswer=null;
       }
       if(pc?.remoteDescription&&pendingIce.length){
         for(const candidate of pendingIce.splice(0))await pc.addIceCandidate(candidate);
       }
-      if(connectSince&&Date.now()-connectSince>30000&&pc?.connectionState!=='connected'){
-        await failed('connect_timeout','30 秒内未能建立音频连接');
-        return;
+      if(connectSince&&pc?.connectionState!=='connected'){
+        const elapsed=Date.now()-connectSince;
+        if(!owner&&pc?.remoteDescription&&elapsed>6500&&reconnectAttempts<2)
+          await restartIce();
+        if(elapsed>(connectedOnce?35000:39000)){
+          void sendQuality('failed',connectedOnce?'ice_failed':'connect_timeout');
+          await failed(connectedOnce?'ice_failed':'connect_timeout','语音连接未能恢复');
+          return;
+        }
       }
+      if(inCallAt&&Date.now()-lastQualityReport>18000)
+        void sendQuality('connected');
       if(inCallAt)timer.textContent='已通话 '+Math.floor((Date.now()-inCallAt)/1000)+' 秒';
     }catch(e){
       if(!closed){
@@ -160,6 +227,7 @@
   }
   async function begin(){
     closed=false;retrying=false;last=0;offerSent=false;inCallAt=0;connectSince=0;pollFailures=0;
+    connectedOnce=false;reconnectAttempts=0;lastIceRestart=0;restartInFlight=false;pendingOffer=null;lastQualityReport=0;qualityInFlight=false;
     callId='';auth='';pendingIce.length=0;pendingAnswer=null;timer.textContent='';
     start.hidden=true;hangup.hidden=false;hangup.disabled=false;
     try{

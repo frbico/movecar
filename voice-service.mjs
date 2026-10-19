@@ -35,6 +35,26 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
   const insertHistory=db.prepare('INSERT INTO voice_call_history(call_id,started_at,updated_at,status) VALUES(?,?,?,?)');
   const getHistory=db.prepare('SELECT call_id AS callId,started_at AS startedAt,updated_at AS updatedAt,status FROM voice_call_history ORDER BY started_at DESC LIMIT 100');
   const eraseHistory=db.prepare('DELETE FROM voice_call_history');
+  // Bounded, privacy-preserving quality diagnostics: no IP addresses,
+  // SDP, ICE candidates, media content or phone numbers are persisted.
+  db.exec(`CREATE TABLE IF NOT EXISTS voice_call_quality(
+    call_id TEXT NOT NULL,peer TEXT NOT NULL,reported_at INTEGER NOT NULL,
+    phase TEXT NOT NULL,route TEXT NOT NULL,rtt_ms INTEGER,
+    reconnects INTEGER NOT NULL,reason TEXT NOT NULL,
+    PRIMARY KEY(call_id,peer)
+  );`);
+  const writeQuality=db.prepare(`INSERT INTO voice_call_quality
+    (call_id,peer,reported_at,phase,route,rtt_ms,reconnects,reason)
+    VALUES (?,?,?,?,?,?,?,?)
+    ON CONFLICT(call_id,peer) DO UPDATE SET reported_at=excluded.reported_at,
+    phase=excluded.phase,route=excluded.route,rtt_ms=excluded.rtt_ms,
+    reconnects=excluded.reconnects,reason=excluded.reason`);
+  const readQuality=db.prepare(`SELECT q.call_id AS callId,q.peer,q.reported_at AS reportedAt,
+    q.phase,q.route,q.rtt_ms AS rttMs,q.reconnects,q.reason,
+    COALESCE(h.status,'deleted') AS status FROM voice_call_quality q
+    LEFT JOIN voice_call_history h ON h.call_id=q.call_id
+    ORDER BY q.reported_at DESC LIMIT 60`);
+  const clearQuality=db.prepare('DELETE FROM voice_call_quality');
   const getDevice=db.prepare('SELECT auth_digest,fcm_token FROM voice_owner_device WHERE id=1');
   const saveDevice=db.prepare('INSERT INTO voice_owner_device(id,auth_digest,fcm_token,updated_at) VALUES(1,?,?,?) ON CONFLICT(id) DO UPDATE SET auth_digest=excluded.auth_digest,fcm_token=excluded.fcm_token,updated_at=excluded.updated_at');
   const updateFcm=db.prepare('UPDATE voice_owner_device SET fcm_token=?,updated_at=? WHERE id=1 AND auth_digest=?');
@@ -82,6 +102,8 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
       if(now()>c.created+15*60*1000)calls.delete(k);
     }
     for(const [ip,r] of limit)if(now()>r.since+86400000)limit.delete(ip);
+    db.prepare('DELETE FROM voice_call_quality WHERE reported_at<?')
+      .run(now()-30*86400000);
   }
   const cleanupTimer=setInterval(cleanup,10000);cleanupTimer.unref?.();
   function iceServers(){
@@ -266,7 +288,7 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
       }
       json(res,200,{callId,token:callerToken,expiresIn:35,iceServers:iceServers()});return true;
     }
-    const match=route.match(/^\/api\/voice\/calls\/([A-Za-z0-9_-]{24})\/(answer|reject|events|signal|end|retry)$/);
+    const match=route.match(/^\/api\/voice\/calls\/([A-Za-z0-9_-]{24})\/(answer|reject|events|signal|end|retry|diagnostic)$/);
     if(!match)throw bad(404,'接口不存在');
     const c=getCall(match[1]),action=match[2];
     if(action==='answer'||action==='reject'){
@@ -277,6 +299,22 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
       json(res,200,{ok:true,ownerToken,iceServers:iceServers()});return true;
     }
     const who=role(c,data.token);
+    if(action==='diagnostic'){
+      const allowedPhase=['connecting','connected','reconnecting','recovered','failed','ended'];
+      const allowedRoute=['unknown','direct','turn-udp','turn-tcp','turn-tls'];
+      if(!allowedPhase.includes(data.phase)||!allowedRoute.includes(data.route)||
+         !Number.isInteger(data.reconnects)||data.reconnects<0||data.reconnects>15||
+         !(data.rttMs===null||data.rttMs===undefined||
+           Number.isInteger(data.rttMs)&&data.rttMs>=0&&data.rttMs<=30000)||
+         typeof data.reason!=='string'||data.reason.length>64||
+         !/^[a-z0-9_ -]*$/.test(data.reason))
+         throw bad(400,'通话诊断数据无效');
+      // Keep only the latest two records per call (caller/owner). Unknown
+      // user-supplied SDP, ICE addresses and connection IPs never reach SQLite.
+      writeQuality.run(c.id,who,now(),data.phase,data.route,
+        data.rttMs??null,data.reconnects,data.reason);
+      json(res,200,{ok:true});return true;
+    }
     if(action==='events'){
       const after=Number(data.after??0);
       if(!Number.isSafeInteger(after)||after<0)throw bad(400,'事件序号无效');
@@ -312,6 +350,11 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
   }
   return {handle,cleanup,notifyOwner,registerMobileDevice,unregisterMobileDevice,revokeAllMobileDevices,
     isDeviceReady:()=>Boolean(getDevice.get()),listCallHistory:()=>getHistory.all(),
-    clearCallHistory:()=>eraseHistory.run().changes,
+    clearCallHistory:()=>{
+      const count=eraseHistory.run().changes;
+      clearQuality.run();
+      return count;
+    },
+    listQuality:()=>readQuality.all(),
     getCallPolicy:resolvedPolicy,resetCallRateLimits:()=>limit.clear(),resetFirebaseAccess:()=>{cachedAccess=null;},close:()=>clearInterval(cleanupTimer),_debug:{calls}};
 }

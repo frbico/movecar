@@ -13,8 +13,9 @@ import org.json.JSONObject
 
 class CarMessagingService : FirebaseMessagingService() {
     companion object {
-        const val CHANNEL = "movecar_voice_calls_v2"
+        const val CHANNEL = "movecar_voice_calls_v3"
         const val NOTIFICATION_ID = 1001
+        const val TEST_NOTIFICATION_ID = 1003
         fun ensureIncomingCallChannel(context: android.content.Context) {
             val nm=context.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as NotificationManager
             nm.createNotificationChannel(NotificationChannel(
@@ -26,6 +27,77 @@ class CarMessagingService : FirebaseMessagingService() {
                     AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE).build())
                 lockscreenVisibility=Notification.VISIBILITY_PUBLIC
             })
+        }
+        fun postIncomingNotification(context:android.content.Context,callId:String,testing:Boolean=false) {
+        val nm = context.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as NotificationManager
+        ensureIncomingCallChannel(context)
+        // Android notification-channel importance is immutable. Never override
+        // a user-disabled channel, but do expose its state in the APP settings.
+        // Android 14+ may require the user to grant full-screen call notification
+        // permission. No background activity launch: use the OS call notification.
+        val fullScreenAllowed = Build.VERSION.SDK_INT < 34 || nm.canUseFullScreenIntent()
+        context.getSharedPreferences("movecar_call_health",android.content.Context.MODE_PRIVATE)
+            .edit().putLong("lastReceivedAt",System.currentTimeMillis())
+            .putBoolean("lastFullScreenAllowed",fullScreenAllowed)
+            .putBoolean("lastNotificationsEnabled",nm.areNotificationsEnabled())
+            .putInt("lastChannelImportance",nm.getNotificationChannel(CHANNEL)?.importance?:0)
+            .apply()
+        Log.i("MoveCarIncoming","Posted "+(if(testing)"test" else "FCM")+
+            " incoming call; fullScreen="+fullScreenAllowed)
+        val intent = Intent(context, IncomingCallActivity::class.java).apply {
+            action = "com.example.movecarvoice.INCOMING_VOICE"
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            putExtra("callId", callId)
+            putExtra("testIncoming",testing)
+        }
+        val view = PendingIntent.getActivity(context, if(testing)21 else 1, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val answer = PendingIntent.getActivity(context, if(testing)22 else 2, Intent(intent).putExtra("answer", true), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val decline = if(testing)
+            PendingIntent.getActivity(context,23,Intent(intent).putExtra("dismissTest",true),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        else PendingIntent.getBroadcast(context,3,Intent(context,CallActionReceiver::class.java)
+            .putExtra("callId",callId),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val builder = Notification.Builder(context, CHANNEL)
+            .setSmallIcon(android.R.drawable.sym_action_call)
+            .setContentTitle(if(testing)"锁屏来电显示测试" else "有人请求挪车")
+            .setContentText(if(testing)"仅测试来电界面和屏幕唤醒" else "扫码者正在呼叫车主，点击接听")
+            .setCategory(Notification.CATEGORY_CALL)
+            .setPriority(Notification.PRIORITY_HIGH)
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            // Clear a missed-call notification automatically; the server stops ringing at 35s.
+            .setTimeoutAfter(if(testing) 20_000L else 35_000L)
+            .setOngoing(false)
+            .setContentIntent(view)
+            .setFullScreenIntent(view, true)
+            .setWhen(System.currentTimeMillis())
+            .setShowWhen(true)
+        if (Build.VERSION.SDK_INT >= 31) {
+            val person = android.app.Person.Builder().setName("挪车语音呼叫").setImportant(true).build()
+            builder.setStyle(Notification.CallStyle.forIncomingCall(person, decline, answer))
+        } else {
+            builder.addAction(Notification.Action.Builder(android.R.drawable.ic_menu_close_clear_cancel, "拒绝", decline).build())
+            builder.addAction(Notification.Action.Builder(android.R.drawable.sym_action_call, "接听", answer).build())
+        }
+        try {
+            nm.notify(if(testing) TEST_NOTIFICATION_ID else NOTIFICATION_ID, builder.build())
+            // Strictly gated by the user's full-screen call entitlement; a
+            // short timeout gives Samsung/One UI a chance to wake the display
+            // before Android starts the full-screen incoming-call Activity.
+            if (fullScreenAllowed && nm.areNotificationsEnabled() &&
+                nm.getNotificationChannel(CHANNEL)?.importance == NotificationManager.IMPORTANCE_HIGH) {
+                val power = context.getSystemService(android.content.Context.POWER_SERVICE) as PowerManager
+                if (!power.isInteractive) {
+                    @Suppress("DEPRECATION")
+                    val wake = power.newWakeLock(
+                        PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                        "MoveCar:IncomingCallScreen")
+                    // Never hold it for the entire ringing interval.
+                    wake.acquire(3500L)
+                }
+            }
+        } catch (e: SecurityException) {
+            Log.w("MoveCarCalls","Notification or wake-up permission denied",e)
+        }
         }
         fun cancel(context: android.content.Context) {
             (context.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(NOTIFICATION_ID)
@@ -58,62 +130,7 @@ class CarMessagingService : FirebaseMessagingService() {
         if (message.data["type"] != "incoming_call") return
         val callId = message.data["callId"] ?: return
         if (!VoiceApi.validCallId(callId) || VoiceApi.auth(this).isBlank()) return
-        val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        ensureIncomingCallChannel(this)
-        // Android notification-channel importance is immutable. Never override
-        // a user-disabled channel, but do expose its state in the APP settings.
-        // Android 14+ may require the user to grant full-screen call notification
-        // permission. No background activity launch: use the OS call notification.
-        val fullScreenAllowed = Build.VERSION.SDK_INT < 34 || nm.canUseFullScreenIntent()
-        val intent = Intent(this, IncomingCallActivity::class.java).apply {
-            action = "com.example.movecarvoice.INCOMING_VOICE"
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            putExtra("callId", callId)
-        }
-        val view = PendingIntent.getActivity(this, 1, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val answer = PendingIntent.getActivity(this, 2, Intent(intent).putExtra("answer", true), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val decline = PendingIntent.getBroadcast(this, 3, Intent(this, CallActionReceiver::class.java).putExtra("callId", callId), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val builder = Notification.Builder(this, CHANNEL)
-            .setSmallIcon(android.R.drawable.sym_action_call)
-            .setContentTitle("有人请求挪车")
-            .setContentText("扫码者正在呼叫车主，点击接听")
-            .setCategory(Notification.CATEGORY_CALL)
-            .setPriority(Notification.PRIORITY_HIGH)
-            .setVisibility(Notification.VISIBILITY_PUBLIC)
-            // Clear a missed-call notification automatically; the server stops ringing at 35s.
-            .setTimeoutAfter(35_000L)
-            .setOngoing(false)
-            .setContentIntent(view)
-            .setFullScreenIntent(view, fullScreenAllowed)
-            .setWhen(System.currentTimeMillis())
-            .setShowWhen(true)
-        if (Build.VERSION.SDK_INT >= 31) {
-            val person = android.app.Person.Builder().setName("挪车语音呼叫").setImportant(true).build()
-            builder.setStyle(Notification.CallStyle.forIncomingCall(person, decline, answer))
-        } else {
-            builder.addAction(Notification.Action.Builder(android.R.drawable.ic_menu_close_clear_cancel, "拒绝", decline).build())
-            builder.addAction(Notification.Action.Builder(android.R.drawable.sym_action_call, "接听", answer).build())
-        }
-        try {
-            nm.notify(NOTIFICATION_ID, builder.build())
-            // Strictly gated by the user's full-screen call entitlement; a
-            // short timeout gives Samsung/One UI a chance to wake the display
-            // before Android starts the full-screen incoming-call Activity.
-            if (fullScreenAllowed && nm.areNotificationsEnabled() &&
-                nm.getNotificationChannel(CHANNEL)?.importance == NotificationManager.IMPORTANCE_HIGH) {
-                val power = getSystemService(POWER_SERVICE) as PowerManager
-                if (!power.isInteractive) {
-                    @Suppress("DEPRECATION")
-                    val wake = power.newWakeLock(
-                        PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
-                        "MoveCar:IncomingCallScreen")
-                    // Never hold it for the entire ringing interval.
-                    wake.acquire(3500L)
-                }
-            }
-        } catch (e: SecurityException) {
-            Log.w("MoveCarCalls","Notification or wake-up permission denied",e)
-        }
+        postIncomingNotification(this,callId)
     }
     private fun showParkingAlert(message: RemoteMessage) {
         if (VoiceApi.mobileAuth(this).isBlank()) return

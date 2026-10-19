@@ -163,6 +163,14 @@
 <button id="saveVoicePolicy" type="button" class="primary">保存通话规则</button>
 <button id="resetVoiceCounters" type="button" class="outline">清除目前测试次数</button>
 </div><p id="voicePolicyStatus" role="status" class="muted"></p>
+</section>
+<section class="card" id="callQualityCard">
+ <div class="managed-card-head"><h2>📶 通话网络诊断</h2><button id="refreshCallQuality" type="button" class="outline">刷新记录</button></div>
+ <p>仅车主后台可见。记录最近的连接类型、往返延迟及重连情况，不收集通话内容、电话号码或 ICE 候选地址。</p>
+ <div class="port-table-scroll"><table class="port-table">
+  <thead><tr><th>检测时间</th><th>报告端</th><th>连接路径</th><th>RTT</th><th>重连</th><th>状态</th></tr></thead>
+  <tbody id="callQualityRows"><tr><td colspan="6">点击刷新查看最近记录</td></tr></tbody>
+ </table></div>
 </section></section>
 <section id="view-updates" class="view" hidden>
 <div class="page-title"><h1>版本更新</h1><p>统一检查与升级 MoveCar，保留现有账号、Firebase、TURN 和挪车记录。以后新版本从这里更新，无需反复 SSH。</p></div>

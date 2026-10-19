@@ -13,6 +13,7 @@ import org.json.JSONObject
 
 class IncomingCallActivity : Activity() {
     private var callId = ""
+    private var testIncoming = false
     private lateinit var state: TextView
     private var busy = false
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -25,8 +26,16 @@ class IncomingCallActivity : Activity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
             WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
             WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON)
+        testIncoming=intent.getBooleanExtra("testIncoming",false)
         callId = intent.getStringExtra("callId") ?: ""
-        if (!VoiceApi.validCallId(callId)) { finish();return }
+        if (!testIncoming && !VoiceApi.validCallId(callId)) { finish();return }
+        if(testIncoming && intent.getBooleanExtra("dismissTest",false)){
+            (getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager)
+                .cancel(CarMessagingService.TEST_NOTIFICATION_ID)
+            finish();return
+        }
+        getSharedPreferences("movecar_call_health",MODE_PRIVATE).edit()
+            .putLong("lastUiOpenedAt",System.currentTimeMillis()).apply()
         val d=resources.displayMetrics.density
         fun dp(x:Int)=(x*d+0.5f).toInt()
         window.statusBarColor=OwnerUi.blueDeep
@@ -47,17 +56,17 @@ class IncomingCallActivity : Activity() {
             gravity=Gravity.CENTER_HORIZONTAL
             bottomMargin=dp(32)
         })
-        state=OwnerUi.label(this,"有人请求你挪车",25f,OwnerUi.white,true).apply{
+        state=OwnerUi.label(this,if(testIncoming)"测试：来电界面已显示" else "有人请求你挪车",25f,OwnerUi.white,true).apply{
             gravity=Gravity.CENTER
         }
         panel.addView(state)
-        panel.addView(OwnerUi.label(this,"匿名网络语音来电 · 不显示手机号",14f,0xFFDEE9FF.toInt()).apply{
+        panel.addView(OwnerUi.label(this,if(testIncoming)"可关闭此界面，测试不会真的呼叫" else "匿名网络语音来电 · 不显示手机号",14f,0xFFDEE9FF.toInt()).apply{
             gravity=Gravity.CENTER
             setPadding(0,dp(12),0,dp(52))
         })
         val buttons=OwnerUi.horizontal(this)
         val accept=Button(this).apply{
-            text="接听"
+            text=if(testIncoming)"完成测试" else "接听"
             isAllCaps=false
             textSize=18f
             setTextColor(OwnerUi.white)
@@ -65,7 +74,7 @@ class IncomingCallActivity : Activity() {
             minHeight=dp(64)
         }
         val reject=Button(this).apply{
-            text="拒绝"
+            text=if(testIncoming)"关闭" else "拒绝"
             isAllCaps=false
             textSize=18f
             setTextColor(OwnerUi.white)
@@ -78,6 +87,12 @@ class IncomingCallActivity : Activity() {
         setContentView(panel)
         accept.setOnClickListener { accept() }
         reject.setOnClickListener {
+            if(testIncoming){
+                (getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager)
+                    .cancel(CarMessagingService.TEST_NOTIFICATION_ID)
+                finish()
+                return@setOnClickListener
+            }
             if (busy) return@setOnClickListener
             busy=true;CarMessagingService.cancel(this)
             Thread { runCatching { VoiceApi.post(VoiceApi.base(this),"/api/voice/calls/$callId/reject",JSONObject(),VoiceApi.auth(this)) };runOnUiThread{finish()} }.start()
@@ -85,6 +100,12 @@ class IncomingCallActivity : Activity() {
         if (intent.getBooleanExtra("answer",false)) accept()
     }
     private fun accept() {
+        if(testIncoming){
+            (getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager)
+                .cancel(CarMessagingService.TEST_NOTIFICATION_ID)
+            finish()
+            return
+        }
         if (busy) return
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 42);return

@@ -53,6 +53,10 @@ class MainActivity : Activity() {
         super.onResume()
         refreshHandler.removeCallbacks(periodicRefresh)
         refreshHandler.postDelayed(periodicRefresh, 120_000)
+        // Returning from Samsung notification/full-screen settings must
+        // re-read actual OS grants instead of displaying cached checkmarks.
+        if (page=="settings" && token().isNotBlank())
+            refreshHandler.post { if(page=="settings")refreshCurrent(false) }
     }
     override fun onPause() {
         refreshHandler.removeCallbacks(periodicRefresh)
@@ -766,7 +770,22 @@ class MainActivity : Activity() {
             action("打开系统电池优化设置（检查后台限制）"){
                 startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
             }
-            note("受系统权限、免打扰和省电策略影响，无法通过应用程序强制绕过用户关闭的锁屏提醒。")
+            val recent=getSharedPreferences("movecar_call_health",MODE_PRIVATE)
+            val received=recent.getLong("lastReceivedAt",0L)
+            val uiOpened=recent.getLong("lastUiOpenedAt",0L)
+            if(received>0)note("最近收到来电通知："+
+                formattedTime(received)+" · "+
+                (if(uiOpened>=received)"已显示来电界面" else "未观察到来电界面打开"))
+            else note("尚未记录到来电通知。若听不到铃声，请检查 FCM/VPN。")
+            action("7 秒后模拟锁屏来电（现在按电源键锁屏）",primary=true){
+                CarMessagingService.ensureIncomingCallChannel(this)
+                notify("请立即锁屏，7 秒后模拟来电，不会发起真实通话")
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    CarMessagingService.postIncomingNotification(applicationContext,"",testing=true)
+                },7000L)
+            }
+            note("模拟来电不使用 FCM 或香港服务器。若模拟也不亮屏，问题在三星通知/全屏权限；若模拟正常但真实来电不亮，则继续检查 FCM 到达后的流程。")
+            note("受系统权限、免打扰和省电策略影响，无法强制绕过用户关闭的锁屏提醒。")
         }
     }
 
@@ -790,6 +809,25 @@ class MainActivity : Activity() {
     private fun settings(config:JSONObject){
         shell("设置")
         showCallPermissionStatus()
+        action("查看最近 60 条通话网络诊断") {
+            api("/api/mobile/voice/quality") { response ->
+                val items=response.optJSONArray("items")
+                val summary=(0 until (items?.length()?:0)).joinToString("\n") { idx ->
+                    val item=items!!.getJSONObject(idx)
+                    val at=formattedTime(item.optLong("reportedAt"))
+                    val route=when(item.optString("route")){
+                        "direct"->"直连";"turn-udp"->"TURN UDP";"turn-tcp"->"TURN TCP";
+                        "turn-tls"->"TURN TLS";else->"待确认"
+                    }
+                    val rtt=if(item.isNull("rttMs"))"—" else item.optInt("rttMs").toString()+" ms"
+                    "$at · $route · RTT $rtt · 重连${item.optInt("reconnects")} · ${item.optString("phase")}"
+                }
+                AlertDialog.Builder(this)
+                    .setTitle("通话网络质量（仅车主可见）")
+                    .setMessage(summary.ifBlank{"目前没有通话诊断记录"})
+                    .setPositiveButton("关闭",null).show()
+            }
+        }
         section("网站信息","更改后同时应用于扫码网页和车主 APP。")
         val fields=inCard{
             val site=field("站点名称",config.optString("siteName"))
@@ -897,7 +935,7 @@ class MainActivity : Activity() {
             action("更换服务器或域名"){confirm("切换后将返回登录界面，请输入新服务器 HTTPS 域名，使用管理员账号重新登录。原服务器数据不会删除。"){
                 clearLogin()
             }}
-            note("MoveCar Owner v0.6 · 蓝绿界面与紧凑记录 · 自动同步")
+            note("MoveCar Owner v0.6.1 · 锁屏来电诊断与弱网恢复")
         }
     }
     private fun account(config:JSONObject){

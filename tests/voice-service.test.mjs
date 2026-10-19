@@ -208,3 +208,31 @@ test('server call-history clear is permanent and does not revoke active call ser
   assert.equal(reject.status,200);
   assert.equal(api.listCallHistory().length,0);
 }));
+
+test('authenticated call diagnostics record only bounded quality fields, reject untrusted data and clear with history',async()=>withServer(async({post,api})=>{
+  const reg=await post('/api/voice/device/register',{
+    pairingSecret:'test-voice-secret-which-is-long-and-private',
+    fcmToken:'fcm:abc_this-is-a-pretend-token-xxxxxxxxx'});
+  const start=await post('/api/voice/start');
+  const prefix='/api/voice/calls/'+start.body.callId+'/';
+  const answer=await post(prefix+'answer',{},reg.body.deviceAuth);
+  assert.equal(answer.status,200);
+  const data={token:start.body.token,phase:'connected',route:'turn-udp',
+    rttMs:140,reconnects:0,reason:''};
+  assert.equal((await post(prefix+'diagnostic',data)).status,200);
+  assert.equal((await post(prefix+'diagnostic',{...data,token:'invalid'})).status,403);
+  assert.equal((await post(prefix+'diagnostic',{...data,reason:'candidate 192.168.1.1'})).status,400);
+  assert.equal((await post(prefix+'diagnostic',{...data,rttMs:-1})).status,400);
+  const reconnected={token:answer.body.ownerToken,phase:'recovered',route:'unknown',
+    rttMs:null,reconnects:2,reason:''};
+  assert.equal((await post(prefix+'diagnostic',reconnected)).status,200);
+  let quality=api.listQuality();
+  assert.equal(quality.length,2);
+  assert.equal(quality.find(x=>x.peer==='caller').rttMs,140);
+  assert.equal(quality.find(x=>x.peer==='owner').reconnects,2);
+  assert.equal((await post(prefix+'signal',{token:start.body.token,kind:'offer',payload:{type:'offer',sdp:'v=0'}})).status,200);
+  assert.equal((await post(prefix+'signal',{token:start.body.token,kind:'offer',payload:{type:'offer',sdp:'v=0\\r\\nrestart'}})).status,200,
+    'caller can request a second SDP negotiation for ICE restart');
+  api.clearCallHistory();
+  assert.deepEqual(api.listQuality(),[]);
+}));
