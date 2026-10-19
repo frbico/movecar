@@ -15,7 +15,7 @@
   let offerSent=false,inCallAt=0,connectSince=0,retryTicket='',retrying=false;
   let iceServers=defaultIce,pollFailures=0;
   let connectedOnce=false,reconnectAttempts=0,lastIceRestart=0,restartInFlight=false;
-  let pendingOffer=null,lastQualityReport=0;
+  let pendingOffer=null,lastQualityReport=0,qualityInFlight=false;
   const pendingIce=[];
   let pendingAnswer=null;
   const say=s=>{label.textContent=s;};
@@ -32,7 +32,9 @@
     catch(e){if(!closed)say('网络信令不稳定：'+e.message);return false;}
   }
   async function sendQuality(phase,reason=''){
-    if(!callId||!auth||!pc)return;
+    if(!callId||!auth||!pc||qualityInFlight)return;
+    qualityInFlight=true;
+    lastQualityReport=Date.now();
     try{
       const stats=await pc.getStats();
       let pair=null;
@@ -47,8 +49,9 @@
            (entry.selected||entry.nominated)){pair=entry;break;}
       }
       const local=pair?stats.get(pair.localCandidateId):null;
-      const relay=local?.candidateType==='relay';
-      const protocol=(local?.relayProtocol||local?.protocol||'udp').toLowerCase();
+      const remoteCandidate=pair?stats.get(pair.remoteCandidateId):null;
+      const relay=local?.candidateType==='relay'||remoteCandidate?.candidateType==='relay';
+      const protocol=(local?.relayProtocol||remoteCandidate?.relayProtocol||local?.protocol||'udp').toLowerCase();
       const route=relay?(protocol==='tls'?'turn-tls':protocol==='tcp'?'turn-tcp':'turn-udp'):'direct';
       const rtt=pair?.currentRoundTripTime;
       const rttMs=Number.isFinite(rtt)?Math.max(0,Math.min(30000,Math.round(rtt*1000))):null;
@@ -56,8 +59,8 @@
         token:auth,phase,route:pair?route:'unknown',rttMs,
         reconnects:reconnectAttempts,reason
       });
-      lastQualityReport=Date.now();
     }catch{/* Diagnostics never block real-time audio or expose ICE addresses. */}
+    finally{qualityInFlight=false;}
   }
   async function restartIce(){
     if(restartInFlight||!pc||closed||reconnectAttempts>=2||
@@ -224,7 +227,7 @@
   }
   async function begin(){
     closed=false;retrying=false;last=0;offerSent=false;inCallAt=0;connectSince=0;pollFailures=0;
-    connectedOnce=false;reconnectAttempts=0;lastIceRestart=0;restartInFlight=false;pendingOffer=null;lastQualityReport=0;
+    connectedOnce=false;reconnectAttempts=0;lastIceRestart=0;restartInFlight=false;pendingOffer=null;lastQualityReport=0;qualityInFlight=false;
     callId='';auth='';pendingIce.length=0;pendingAnswer=null;timer.textContent='';
     start.hidden=true;hangup.hidden=false;hangup.disabled=false;
     try{
