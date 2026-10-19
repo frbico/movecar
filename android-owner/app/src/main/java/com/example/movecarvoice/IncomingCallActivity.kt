@@ -29,6 +29,11 @@ class IncomingCallActivity : Activity() {
         testIncoming=intent.getBooleanExtra("testIncoming",false)
         callId = intent.getStringExtra("callId") ?: ""
         if (!testIncoming && !VoiceApi.validCallId(callId)) { finish();return }
+        if(testIncoming && intent.getBooleanExtra("dismissTest",false)){
+            (getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager)
+                .cancel(CarMessagingService.TEST_NOTIFICATION_ID)
+            finish();return
+        }
         getSharedPreferences("movecar_call_health",MODE_PRIVATE).edit()
             .putLong("lastUiOpenedAt",System.currentTimeMillis()).apply()
         val d=resources.displayMetrics.density
