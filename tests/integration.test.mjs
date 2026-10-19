@@ -87,6 +87,10 @@ test('one-click bootstrap, admin login, two channels, secure owner action and pe
     assert.equal(emptyPassword.status,400);
     const badPassword=await admin('/api/admin/update/start',{sha:'a'.repeat(40),password:'incorrect'});
     assert.equal(badPassword.status,403);
+    assert.equal((await call('/api/admin/voice/quality')).status,401);
+    const voiceQuality=await call('/api/admin/voice/quality',{headers:{Cookie:adminCookie}});
+    assert.equal(voiceQuality.status,200);
+    assert.deepEqual((await voiceQuality.json()).items,[]);
     const before=await call('/api/admin/config',{headers:{Cookie:adminCookie}});
     assert.equal((await before.json()).serverchanConfigured,false);
     assert.equal((await call('/api/admin/settings',{method:'POST',headers:{Cookie:adminCookie},body:'{}'})).status,403);
