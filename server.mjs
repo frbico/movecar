@@ -399,6 +399,8 @@ const server=http.createServer(async(req,res)=>{
       if(route==='/api/admin/deployment/verify'&&req.method==='GET')
         return json(res,200,await infrastructure.verify());
       if(route==='/api/admin/config'&&req.method==='GET')return json(res,200,{voicePolicy:voice.getCallPolicy(),publicUrl:setting('public_url'),phoneNumber:setting('phone_number'),rateLimitSeconds:Number(setting('rate_limit_seconds','60')),requestRetentionLimit:requestFlow.retentionLimit(),requestCount:requestFlow.count(),siteName:setting('site_name','呼叫车主挪车'),wechatId:setting('wechat_id'),adminUsername:setting('admin_username','admin'),appConfigured:voice.isDeviceReady(),appEnabled:setting('notify_app_enabled','1')==='1',barkEnabled:setting('notify_bark_enabled','1')==='1',sc3Enabled:setting('notify_sc3_enabled','1')==='1',serverchanEnabled:setting('notify_serverchan_enabled','1')==='1',siteIconConfigured:!!iconGet.get(),siteIconUpdatedAt:iconGet.get()?.updated_at||null,barkConfigured:!!setting('bark_url'),serverchanConfigured:!!setting('serverchan_sendkey'),sc3Configured:!!setting('sc3_sendkey')});
+      if(route==='/api/admin/voice/quality'&&req.method==='GET')
+        return json(res,200,{items:voice.listQuality()});
       if(route==='/api/admin/requests'&&req.method==='GET'){
         const page=Number(u.searchParams.get('page')||'1'),size=Number(u.searchParams.get('size')||'20');
         if(!Number.isInteger(page)||page<1||page>9999||!Number.isInteger(size)||size<1||size>100)return json(res,400,{error:'分页参数无效'});
