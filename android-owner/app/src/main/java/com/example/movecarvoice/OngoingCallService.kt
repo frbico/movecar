@@ -57,6 +57,9 @@ class OngoingCallService : Service() {
     // The polling worker retries them instead of silently losing the answer.
     private val queuedSignals = ArrayDeque<Pair<String, JSONObject>>()
     private var answered = false
+    private var reconnects = 0
+    private var disconnectionEpoch = 0L
+    private var lastQualityAt = 0L
 
     override fun onBind(intent: Intent?) = null
 
@@ -192,15 +195,24 @@ class OngoingCallService : Service() {
                     PeerConnection.IceConnectionState.FAILED -> "ICE 连接失败，准备结束并允许重拨"
                     else -> state
                 }
-                if (s == PeerConnection.IceConnectionState.FAILED) {
-                    // Allow transient network changes to recover before failing.
+                if (s == PeerConnection.IceConnectionState.CONNECTED ||
+                    s == PeerConnection.IceConnectionState.COMPLETED) {
+                    disconnectionEpoch = 0L
+                    worker.execute { reportQuality(if(reconnects>0)"recovered" else "connected") }
+                } else if (s == PeerConnection.IceConnectionState.DISCONNECTED ||
+                           s == PeerConnection.IceConnectionState.FAILED) {
+                    // Caller owns the SDP offer and ICE restart. Let its
+                    // bounded ICE restart complete before ending the call.
+                    val epoch=System.currentTimeMillis()
+                    disconnectionEpoch=epoch
                     worker.schedule({
-                        if (!stopped &&
-                            peer?.iceConnectionState() == PeerConnection.IceConnectionState.FAILED) {
-                            Log.w("MoveCarVoice","ICE remained failed; release failed call")
-                            finishCall(true, "ice_failed")
+                        if (!stopped && disconnectionEpoch==epoch &&
+                            peer?.iceConnectionState() != PeerConnection.IceConnectionState.CONNECTED &&
+                            peer?.iceConnectionState() != PeerConnection.IceConnectionState.COMPLETED) {
+                            reportQuality("failed","ice_failed")
+                            finishCall(true,"ice_failed")
                         }
-                    },4,TimeUnit.SECONDS)
+                    },35,TimeUnit.SECONDS)
                 }
             }
             override fun onIceConnectionReceivingChange(receiving: Boolean) {}
@@ -224,6 +236,19 @@ class OngoingCallService : Service() {
         peer!!.addTrack(localTrack,listOf("movecar-owner-stream"))
     }
 
+    private fun reportQuality(phase:String,reason:String="") {
+        if (stopped || callId.isBlank() || token.isBlank())return
+        val stamp=System.currentTimeMillis()
+        if (phase=="connected" && stamp-lastQualityAt<10000)return
+        lastQualityAt=stamp
+        runCatching {
+            VoiceApi.post(base,endpoint("diagnostic"),JSONObject()
+                .put("token",token).put("phase",phase)
+                .put("route","unknown").put("rttMs",JSONObject.NULL)
+                .put("reconnects",reconnects.coerceIn(0,15))
+                .put("reason",reason))
+        }.onFailure { Log.d("MoveCarVoice","Call quality report deferred") }
+    }
     private fun endpoint(action: String) = "/api/voice/calls/$callId/$action"
     private fun sendSignal(kind: String, payload: JSONObject) {
         if (stopped) return
@@ -269,7 +294,9 @@ class OngoingCallService : Service() {
                 seq = maxOf(seq,e.getLong("seq"))
                 val payload = e.getJSONObject("payload")
                 when(e.getString("kind")) {
-                    "offer" -> if (!answered) receiveOffer(payload)
+                    // New offers on an active session are ICE restarts. Do not
+                    // discard them simply because we already answered once.
+                    "offer" -> receiveOffer(payload)
                     "ice" -> receiveIce(payload)
                 }
             }
@@ -310,9 +337,13 @@ class OngoingCallService : Service() {
 
     private fun receiveOffer(payload: JSONObject) {
         val connection = peer ?: return
-        answered = true
+        if (answered) {
+            reconnects=(reconnects+1).coerceAtMost(15)
+            state="正在恢复语音…"
+        }
         connection.setRemoteDescription(object: SimpleSdpObserver() {
             override fun onSetSuccess() {
+                answered=true
                 worker.execute {
                     earlyCandidates.forEach { connection.addIceCandidate(it) }
                     earlyCandidates.clear()
