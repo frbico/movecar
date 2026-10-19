@@ -28,7 +28,7 @@ class CarMessagingService : FirebaseMessagingService() {
                 lockscreenVisibility=Notification.VISIBILITY_PUBLIC
             })
         }
-        fun postIncomingNotification(context:android.content.Context,callId:String,testing:Boolean=false){
+        fun postIncomingNotification(context:android.content.Context,callId:String,testing:Boolean=false) {
         val nm = context.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as NotificationManager
         ensureIncomingCallChannel(context)
         // Android notification-channel importance is immutable. Never override
@@ -36,25 +36,24 @@ class CarMessagingService : FirebaseMessagingService() {
         // Android 14+ may require the user to grant full-screen call notification
         // permission. No background activity launch: use the OS call notification.
         val fullScreenAllowed = Build.VERSION.SDK_INT < 34 || nm.canUseFullScreenIntent()
-        // Store only permission and delivery timestamps (never call credentials)
-        // to distinguish "FCM did not arrive" from "Android blocked the UI".
         context.getSharedPreferences("movecar_call_health",android.content.Context.MODE_PRIVATE)
             .edit().putLong("lastReceivedAt",System.currentTimeMillis())
             .putBoolean("lastFullScreenAllowed",fullScreenAllowed)
             .putBoolean("lastNotificationsEnabled",nm.areNotificationsEnabled())
             .putInt("lastChannelImportance",nm.getNotificationChannel(CHANNEL)?.importance?:0)
             .apply()
-        Log.i("MoveCarIncoming","Incoming ${if(testing) "local test" else "FCM"} notification; fullScreen=$fullScreenAllowed")
+        Log.i("MoveCarIncoming","Posted "+(if(testing)"test" else "FCM")+
+            " incoming call; fullScreen="+fullScreenAllowed)
         val intent = Intent(context, IncomingCallActivity::class.java).apply {
             action = "com.example.movecarvoice.INCOMING_VOICE"
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             putExtra("callId", callId)
             putExtra("testIncoming",testing)
         }
-        val view = PendingIntent.getActivity(context, if(testing) 21 else 1, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val answer = PendingIntent.getActivity(context, if(testing) 22 else 2, Intent(intent).putExtra("answer", true), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val decline = PendingIntent.getBroadcast(context, if(testing) 23 else 3, Intent(context, CallActionReceiver::class.java).putExtra("callId", callId), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val builder = Notification.Builder(this, CHANNEL)
+        val view = PendingIntent.getActivity(context, if(testing)21 else 1, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val answer = PendingIntent.getActivity(context, if(testing)22 else 2, Intent(intent).putExtra("answer", true), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val decline = PendingIntent.getBroadcast(context, if(testing)23 else 3, Intent(context, CallActionReceiver::class.java).putExtra("callId", callId), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val builder = Notification.Builder(context, CHANNEL)
             .setSmallIcon(android.R.drawable.sym_action_call)
             .setContentTitle(if(testing)"锁屏来电显示测试" else "有人请求挪车")
             .setContentText(if(testing)"仅测试来电界面和屏幕唤醒" else "扫码者正在呼叫车主，点击接听")
@@ -126,8 +125,8 @@ class CarMessagingService : FirebaseMessagingService() {
         }
         if (message.data["type"] != "incoming_call") return
         val callId = message.data["callId"] ?: return
-        if (!VoiceApi.validCallId(cal        postIncomingNotification(this,callId)ion or wake-up permission denied",e)
-        }
+        if (!VoiceApi.validCallId(callId) || VoiceApi.auth(this).isBlank()) return
+        postIncomingNotification(this,callId)
     }
     private fun showParkingAlert(message: RemoteMessage) {
         if (VoiceApi.mobileAuth(this).isBlank()) return
