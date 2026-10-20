@@ -134,8 +134,9 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
         if(!setting('bark_url')&&!setting('serverchan_sendkey')&&!setting('sc3_sendkey'))
           return json(res,503,{error:'车主尚未配置推送渠道'}),true;
         const addr=req.socket.remoteAddress||'unknown',now=Date.now(),seconds=Number(setting('rate_limit_seconds','60'));
-        if(seconds>0&&(rateGet.get(addr)?.until??0)>now)
-          return json(res,429,{error:'发送过于频繁，请稍后再试'}),true;
+        const rateUntil=rateGet.get(addr)?.until??0;
+        if(seconds>0&&rateUntil>now)
+          return json(res,429,{error:'发送过于频繁，请稍后再试'},{'Retry-After':String(Math.ceil((rateUntil-now)/1000))}),true;
         const body=await inputJson(req);
         if(typeof body.message!=='string'||body.message.length>200)return json(res,400,{error:'留言最长为 200 字'}),true;
         const id=random(),pollToken=random(),photoToken=random(),ownerToken=ownerTokenFor(id);

@@ -4,21 +4,90 @@
  const notify=document.getElementById('notifyBtn');
  const success=document.getElementById('successView');
  if(!notify||!success)return;
+ // The visitor first sees the notify action; communication options follow a successful send.
+ const main=document.getElementById('mainView');
  const waiting=document.getElementById('waitingText');
  let current=null,photo=null,objectUrl=null,pollTimer=null,contactTimer=null,startedAt=0,confirmed=false,wechatId='';
  const successCard=success.querySelector('.success-card');
- const contactCard=success.querySelector('.action-card');
- const phone=contactCard?.querySelector('.btn-phone');
+ const actions=success.querySelector('.action-card');
+ const phone=actions?.querySelector('.btn-phone');
  const originalPhoneHref=phone?.getAttribute('href')||'';
- if(phone){phone.innerHTML=phone.innerHTML.replace('直接打电话','电话联系');phone.removeAttribute('href');phone.setAttribute('aria-disabled','true');phone.style.pointerEvents='none';phone.style.opacity='.5';}
- const callHint=document.createElement('p');callHint.id='phoneCountdown';callHint.style.cssText='text-align:center;font-size:14px;color:#64748b;margin:8px 0';
- if(phone)phone.insertAdjacentElement('afterend',callHint);
+ const retry=document.getElementById('retryBtn');
+ const visibleText=element=>(element.textContent||'').replace(/\s+/g,' ').trim();
+ const contactControls=[...document.querySelectorAll('button,a')];
+ const voice=contactControls.find(element=>element!==retry&&/(?:网络语音呼叫车主|语音通话)/.test(visibleText(element))&&!/音频输出设置/.test(visibleText(element)));
+ // Remove a broken, nonfunctional settings control from the visitor interface.
+ for(const element of contactControls){
+   if(/音频输出设置/.test(visibleText(element)))element.remove();
+   else if(/呼叫车主[（(]网络语音[）)]/.test(visibleText(element))&&element!==voice)
+     element.textContent=visibleText(element).replace(/呼叫车主[（(]网络语音[）)]/g,'呼叫车主');
+ }
+ if(main){
+   for(const element of main.querySelectorAll('button,a')){
+     if(element===notify||notify.contains(element)||element===voice)continue;
+     if(/(?:语音通话|网络语音|呼叫车主)/.test(visibleText(element)))
+       element.style.display='none';
+   }
+ }
+ const voiceButton=voice||document.createElement('button');
+ if(voiceButton){
+   voiceButton.textContent='语音通话';
+   voiceButton.hidden=false;
+   if(voice){
+     voiceButton.style.display='';
+   }else{
+     // Upstream has no WebRTC call endpoint. Do not create a fake working call action.
+     voiceButton.id='voiceUnavailableBtn';
+     voiceButton.type='button';
+     voiceButton.disabled=true;
+     voiceButton.title='网络语音服务尚未接入';
+     voiceButton.setAttribute('aria-label','语音通话，暂不可用');
+     voiceButton.style.cssText='display:block;width:100%;padding:16px 12px;border-radius:16px;border:1px solid #cbd5e1;background:#e2e8f0;color:#64748b;font-size:17px;font-weight:700;cursor:not-allowed';
+   }
+ }
+ if(phone){
+   phone.innerHTML=phone.innerHTML.replace('直接打电话','电话联系');
+   phone.removeAttribute('href');
+   phone.setAttribute('aria-disabled','true');
+   phone.style.pointerEvents='none';
+   phone.style.opacity='.5';
+ }
+ const callHint=document.createElement('p');
+ callHint.id='phoneCountdown';
+ callHint.style.cssText='text-align:center;font-size:14px;color:#64748b;margin:8px 0';
  const wechatButton=document.createElement('button');
- wechatButton.id='wechatContactBtn';wechatButton.type='button';wechatButton.textContent='💬 微信联系（未配置）';wechatButton.disabled=true;
+ wechatButton.id='wechatContactBtn';
+ wechatButton.type='button';
+ wechatButton.textContent='💬 微信联系（未配置）';
+ wechatButton.disabled=true;
  wechatButton.style.cssText='display:block;width:100%;margin:0;padding:16px 12px;border-radius:16px;border:none;background:linear-gradient(135deg,#17b97e,#0da56e);color:white;font-size:17px;font-weight:700';
- if(phone)phone.insertAdjacentElement('beforebegin',wechatButton);
- const wechatMessage=document.createElement('p');wechatMessage.id='wechatCopyHint';wechatMessage.setAttribute('role','status');wechatMessage.style.cssText='position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap';
- wechatButton.insertAdjacentElement('afterend',wechatMessage);
+ const wechatMessage=document.createElement('p');
+ wechatMessage.id='wechatCopyHint';
+ wechatMessage.setAttribute('role','status');
+ wechatMessage.style.cssText='position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap';
+ if(actions){
+   if(retry)actions.appendChild(retry);
+   actions.appendChild(voiceButton);
+   actions.appendChild(wechatButton);
+   if(phone)actions.appendChild(phone);
+   if(phone)actions.appendChild(callHint);
+   actions.appendChild(wechatMessage);
+ }
+ async function copyWechat(){
+   if(!wechatId)return;
+   try{
+     if(navigator.clipboard?.writeText)await navigator.clipboard.writeText(wechatId);
+     else {const t=document.createElement('textarea');t.value=wechatId;t.style.position='fixed';t.style.left='-9999px';document.body.appendChild(t);t.select();if(!document.execCommand('copy'))throw Error('复制失败');t.remove();}
+     wechatMessage.textContent='已复制微信号，请添加车主微信';notifyText('已复制微信号，请添加车主微信');
+   }catch {wechatMessage.textContent='复制失败，请手动复制：'+wechatId;notifyText('复制失败，请手动复制：'+wechatId);}
+ }
+ wechatButton.addEventListener('click',copyWechat);
+ fetch('/api/site-config',{cache:'no-store'}).then(r=>r.ok?r.json():{}).then(config=>{
+   wechatId=config.wechatId||'';
+   wechatButton.disabled=!wechatId;
+   wechatButton.textContent=wechatId?'💬 微信联系':'💬 微信联系（车主未配置）';
+ }).catch(()=>{});
+ refreshContact();
  function refreshContact(){
    if(!phone)return;
    const remaining=startedAt?Math.max(0,60-Math.floor((Date.now()-startedAt)/1000)):60;
@@ -30,25 +99,14 @@
    else if(canCall){callHint.textContent='📞 等待已超过 60 秒，现在可以联系车主';}
    else{callHint.textContent='请先发送通知';}
  }
- function beginWait(){if(!startedAt||confirmed)startedAt=Date.now();confirmed=false;refreshContact();if(!contactTimer)contactTimer=setInterval(refreshContact,1000);}
- async function copyWechat(){
-   if(!wechatId)return;
-   try{
-     if(navigator.clipboard?.writeText)await navigator.clipboard.writeText(wechatId);
-     else {const t=document.createElement('textarea');t.value=wechatId;t.style.position='fixed';t.style.left='-9999px';document.body.appendChild(t);t.select();if(!document.execCommand('copy'))throw Error('复制失败');t.remove();}
-     wechatMessage.textContent='已复制微信号，请添加车主微信';notifyText('已复制微信号，请添加车主微信');
-   }catch {wechatMessage.textContent='复制失败，请手动复制：'+wechatId;notifyText('复制失败，请手动复制：'+wechatId);}
- }
- wechatButton.addEventListener('click',copyWechat);
- fetch('/api/site-config',{cache:'no-store'}).then(r=>r.ok?r.json():{}).then(c=>{wechatId=c.wechatId||'';wechatButton.disabled=!wechatId;wechatButton.textContent=wechatId?'💬 微信联系':'💬 微信联系（车主未配置）';}).catch(()=>{});
- refreshContact();
+ function beginWait(){startedAt=Date.now();confirmed=false;refreshContact();if(!contactTimer)contactTimer=setInterval(refreshContact,1000);}
  const notifyText=(text)=>{
    if(typeof showToast==='function')showToast(text);
    else{let status=document.getElementById('photoStatus');if(status)status.textContent=text;}
  };
  const htmlText=async(response)=>{
    const data=await response.json().catch(()=>({}));
-   if(!response.ok)throw Error(data.error||'发送失败，请重试');
+   if(!response.ok){const seconds=Number(response.headers?.get?.('Retry-After'));throw Error(response.status===429&&Number.isFinite(seconds)&&seconds>0?'操作过于频繁，请 '+Math.ceil(seconds)+' 秒后再试':(data.error||'发送失败，请重试'));}
    return data;
  };
  function showSuccess(){
