@@ -10,8 +10,27 @@ android {
         applicationId = "com.example.movecarvoice"
         minSdk = 26
         targetSdk = 35
-        versionCode = 14
-        versionName = "0.7.2"
+        versionCode = 15
+        versionName = "0.8.0"
+    }
+    // Release builds use a persistent keystore supplied via Actions secrets.
+    // Local debug builds do not need it; we never publish debug-signed APKs.
+    val signingKeyFile = System.getenv("MOVECAR_SIGNING_KEYSTORE_FILE")
+    if (!signingKeyFile.isNullOrBlank()) {
+        signingConfigs {
+            create("distribution") {
+                storeFile = file(signingKeyFile)
+                storePassword = System.getenv("MOVECAR_SIGNING_STORE_PASSWORD")
+                keyAlias = System.getenv("MOVECAR_SIGNING_KEY_ALIAS")
+                keyPassword = System.getenv("MOVECAR_SIGNING_KEY_PASSWORD")
+            }
+        }
+        buildTypes {
+            getByName("release") {
+                signingConfig = signingConfigs.getByName("distribution")
+                isDebuggable = false
+            }
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
