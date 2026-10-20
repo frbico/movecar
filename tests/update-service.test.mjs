@@ -100,3 +100,18 @@ test('atomic pending-job creation refuses a concurrent file instead of replacing
   assert.equal(JSON.parse(fs.readFileSync(target,'utf8')).existing,true);
  }finally{fs.linkSync=originalLink;f.clean();}
 });
+
+test('new host heartbeats allow updates; an offline helper blocks them safely',async()=>{
+ const f=fixture();
+ try{
+  const file=path.join(f.dir,'update-status.json');
+  const old={state:'success',updatedAt:Date.now()-300000,lastHeartbeatAt:Date.now()-180000};
+  fs.writeFileSync(file,JSON.stringify(old));
+  assert.equal(f.service.status().host.state,'offline');
+  await assert.rejects(()=>f.service.requestUpdate(SHA2),e=>e.status===503&&/离线/.test(e.message));
+  assert.equal(fs.existsSync(path.join(f.dir,'update-request.json')),false);
+  fs.writeFileSync(file,JSON.stringify({...old,lastHeartbeatAt:Date.now()}));
+  assert.equal(f.service.status().host.state,'success');
+  assert.equal((await f.service.requestUpdate(SHA2)).ok,true);
+ }finally{f.clean();}
+});
