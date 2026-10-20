@@ -40,6 +40,13 @@ export function createUpdateService({
         message:'更新任务超过 20 分钟仍未处理，请检查主机更新服务及日志',
         targetSha:pending.sha,queuedAt:pending.createdAt}};
     }
+    // Older host agents do not write a heartbeat; remain compatible during
+    // their one-time upgrade. New agents expose a real liveness timestamp.
+    if(Number.isSafeInteger(host.lastHeartbeatAt)&&
+       Date.now()-host.lastHeartbeatAt>120000 &&
+       !['running','rollback'].includes(host.state))
+      return {...version(),host:{...host,state:'offline',
+        message:'主机更新助手超过 2 分钟没有心跳，请检查 systemd timer'}};
     return {...version(),host};
   };
   async function check(){
@@ -76,6 +83,7 @@ export function createUpdateService({
     if(localSha===sha)return {ok:false,message:'当前已经是最新版'};
     if(!fs.existsSync(runtimeDir))throw err('更新任务目录尚未配置，请先安装后台升级助手',503);
     if(!safeRead(statusFile))throw err('宿主机更新助手尚未安装，请先在服务器完成一次初始化',503);
+    if(status().host.state==='offline')throw err('主机更新助手已离线，请检查 systemd 服务后再提交更新',503);
     if(fs.existsSync(requestFile))
       throw err('已有更新任务尚未处理，请检查主机更新助手状态，不会覆盖原任务',409);
     const request={sha,channel:CHANNEL,id:crypto.randomUUID(),createdAt:Date.now()};
