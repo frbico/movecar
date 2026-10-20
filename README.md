@@ -182,7 +182,7 @@ docker compose -f compose.yaml ps
 ## 2026-10-16：联系按钮、历史管理和站点自定义
 
 - **成功页精简**：移除拍照区的原图说明；车主确认时隐藏「通知已发送」卡片，仅显示「车主已收到通知」，不再堆叠两块大卡片。
-- **电话延时开放**：首次挪车请求发送成功后开始倒计时 60 秒。若车主仍未确认并且后台配置了联系电话，页面才恢复电话链接；收到确认后电话保持不可点击。倒计时显示剩余秒数，重新通知会重置倒计时。
+- **电话延时开放**：首次挪车请求发送成功后开始倒计时 60 秒。若车主仍未确认并且后台配置了联系电话，页面才恢复电话链接；收到确认后电话保持不可点击。倒计时显示剩余秒数，重新通知不重置倒计时。
 - **微信联系**：后台「基本设置」填写车主微信号，前台新增微信联系按钮。点击复制微信号并显示「已复制微信号，请添加车主微信」；未配置时按钮禁用。网站需要 HTTPS 或允许剪贴板操作的浏览器环境。
 - **后台挪车记录**：侧边栏「挪车记录」显示所有仍被保留的请求（默认最新 50 条、可在基本设置调整为 1–500 条）。支持分页、刷新、查看留言和状态、查看尚未过期的现场照片、逐条删除或清空全部保留记录，清除时同时移除关联照片。
 - **历史与链接有效期分离**：车主确认 Token 仍只在首次发送后的 1 小时内有效；过期后的历史记录可继续在后台查看，直到超出保留条数上限或被管理员删除。以前已由旧版本清理掉的记录无法恢复。
@@ -192,57 +192,32 @@ docker compose -f compose.yaml ps
 升级 Docker 后如果出现页面缓存问题可强制刷新。首次启用微信联系请先在后台设置微信号并保存。
 
 
-## 2026-10-20：匿名网络语音 WebRTC（浏览器端）
+## 实验性匿名网络语音（开发分支）
 
-- 路人成功发送挪车通知后，第二屏可点击「语音通话」，必须允许使用麦克风。**无需透露车主手机号**。
-- 服务端创建独立、短期有效的呼叫，额外向现有 Bark / 微信 / SC3 通知渠道发送「语音来电」消息；车主打开该条消息提供的**本次挪车确认链接**，在网页上点击「接听语音」或者「拒接」。车主无需登录后台。
-- **当前是浏览器对浏览器通话，不是 Android 原生 APK 来电**。车主需要打开该链接并点击接听；后台锁屏唤醒、Android FCM 铃声以及耳机/听筒切换不在此版本范围。浏览器页面进入后台或锁屏后，实时轮询可能被系统暂停。
-- 必须通过可公开访问的 **HTTPS** 域名运行网页，否则 Chrome/Safari 通常禁止麦克风权限。各端需支持 WebRTC。音频由浏览器 DTLS-SRTP 加密，经 ICE 优先直连，直连失败时可通过可选 TURN 中继；MoveCar HTTP 服务只转发认证后的 SDP/ICE 信令，不保存音频。
-- 每次呼叫最多响铃约 75 秒；通话会话最多 15 分钟；同一条挪车请求十分钟内最多发起三次语音呼叫，并设置呼叫间隔。服务重启后正在进行的通话会断开；挪车记录和照片不受影响。
-- 没有配置 TURN 时仍可尝试直连，但中国大陆网络、移动运营商 NAT、VPN 等环境可能失败，**不能保证接通**。真正确保跨 NAT 连通需要独立可达的 coturn（建议部署在你的香港服务器）。
+本开发分支增加网页扫码匿名呼叫、FCM 来电、Android 原生 WebRTC 双向语音，以及允许接听后熄屏继续运行的麦克风前台服务。当前仍是 **MVP / 未部署 / 未完成真机验证**，不会在未配置 Firebase 的情况下自动启用。完整配置与安全说明参见 [VOICE-CALLS.md](VOICE-CALLS.md)。
 
-### 香港 coturn 推荐配置（与网站反向代理可运行在同一主机）
+Android CI 产出的占位 Firebase APK **不能用于实际来电**；需为仓库 Actions 配置 `MOVECAR_GOOGLE_SERVICES_JSON_B64` 后，在本分支触发一次 Android 构建。需要配置服务端 Firebase 服务账号（不得提交仓库）和必要的 TURN 服务。
 
-在宿主机或单独 coturn 容器配置：
 
-```ini
-listening-port=3478
-tls-listening-port=5349
-realm=turn.example.com
-fingerprint
-lt-cred-mech
-use-auth-secret
-static-auth-secret=替换成与_TURN_SHARED_SECRET_相同的高强度随机密钥
-min-port=49160
-max-port=49260
-no-cli
-```
+## 🚀 通用一键安装（Docker + 任意 HTTPS 反代）
 
-设置公网 IP/映射（若服务器存在 NAT）、TLS 证书与私钥，开放 **3478 TCP/UDP、5349 TCP（启用 TURN TLS 时）、49160–49260 UDP**，并按运营商网络情况调整服务器安全组/防火墙。不要开放 Docker Socket 给网页容器。
-
-在 MoveCar 项目宿主机的 `.env` 中增加（将域名和密钥替换为真实值）：
-
-```dotenv
-STUN_URLS=stun:turn.example.com:3478
-TURN_URLS=turn:turn.example.com:3478?transport=udp,turn:turn.example.com:3478?transport=tcp,turns:turn.example.com:5349?transport=tcp
-TURN_SHARED_SECRET=与coturn静态认证密钥一致的长随机字符串
-```
-
-服务器用该密钥生成一小时有效的 coturn REST 凭据，客户端仅收到临时用户名及 HMAC，不会获得共享密钥本身。TURN 服务器必须开启 REST shared-secret 认证；此方式**不兼容**仅配置固定用户名密码的普通 TURN。
-
-### 更新现有实例
+**不绑定 1Panel、香港服务器、东京服务器、Nginx 或 Caddy。** 服务器只需安装 Docker/Compose、Git、Curl、Python3、OpenSSL；所有非基础信息都进入登录后的「部署与迁移」后台向导。
 
 ```bash
-git pull --ff-only origin main
-docker compose up -d --build
-docker compose ps
+curl -fsSL https://raw.githubusercontent.com/frbico/movecar/release/stable/scripts/install-universal.sh | sudo bash
 ```
 
-更新时不会主动删除 SQLite 数据卷；**不要执行 `docker compose down -v`**。仓库的 GitHub Actions 只进行测试和 Docker 构建检查；目前没有从 GitHub 自动远程部署到你的服务器，也没有可独立完成容器重启的网页后台更新功能。必须使用你已有的服务器管理面板或上述命令执行更新。
+自动下载/更新 MoveCar、生成独立 TURN 密钥、启动 MoveCar + coturn、将 Web 管理后端仅绑定到本机 127.0.0.1:8888，防止裸露公网。系统检测到 1Panel 的 Docker 网络时自动接入，但**没有 1Panel 也完全可以安装**。
 
-### 验收建议
+首次访问可用 SSH 隧道 `ssh -L 8888:127.0.0.1:8888 用户@服务器`，然后在本地浏览器访问 `http://127.0.0.1:8888/admin`。安装输出管理员初始密码（保密，尽快修改）；有现有数据则沿用账号密码。
 
-1. 网页以 HTTPS 访问，用手机 A 扫码后发送通知，再点击「语音通话」并允许麦克风。
-2. 手机 B 打开新收到的「语音来电」推送中的确认链接，点击接听并允许麦克风。
-3. 双方听音、挂断、拒接、无人接听超时；测试直连和强制不同移动运营商 / VPN 环境下的 TURN 回退。
-4. 检查微信/电话按钮、照片及原有挪车确认流程不受影响。测试无法替代真实 Android/网络环境验收。
+在后台配置网站 HTTPS 域名、TURN 域名、Firebase Admin SDK JSON；若需要 5349 TLS 备用，从后台上传任意有效 PEM 证书 + 私钥。所有配置保存即生效，coturn 自动重载，**不再要求安装命令输入域名、证书路径或 Firebase 私钥**。
+
+已有 1Panel/Nginx/Caddy 用户仅需为网站建立一次外部 HTTPS 反向代理到 `http://127.0.0.1:8888`（容器与 1Panel 同网络时也支持 `http://movecar:8888`）。TURN 走独立 UDP/TCP 端口，不能用普通 HTTP 反向代理。
+
+[通用安装、备份迁移和检查指南](DEPLOY-ANYWHERE.md)。
+
+
+## 网页后台一键升级（稳定版）
+
+首次从历史测试分支迁移至稳定版，使用全新入口 `scripts/recover-install.sh`。迁移后网页后台新增“**版本更新**”，可检查官方稳定版、查看变更、输入管理员密码确认升级；服务器自动备份并执行 Docker 健康检查。此功能不依赖 1Panel，详情见 [WEB-UPDATE.md](WEB-UPDATE.md)。

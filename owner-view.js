@@ -22,6 +22,5 @@
      if(navigator.vibrate)navigator.vibrate(120);
    }catch(e){status.textContent='❌ '+e.message;button.disabled=false;button.textContent='重新确认';}
  });
- if(window.MoveCarVoice)window.MoveCarVoice.mountOwner({token,container:document.getElementById('voiceOwner')});
  init();
 })();

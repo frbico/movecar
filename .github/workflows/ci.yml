@@ -14,12 +14,18 @@ jobs:
       - name: Verify executable scripts, syntax and integration
         run: |
           test -x install.sh && test -x run-linux.sh && test -x scripts/fetch-upstream.sh && test -x show-admin-password.sh
-          bash -n install.sh run-linux.sh show-admin-password.sh scripts/fetch-upstream.sh
+          bash -n install.sh run-linux.sh show-admin-password.sh scripts/fetch-upstream.sh scripts/setup-voice-fresh.sh scripts/export-db.sh scripts/install-universal.sh scripts/supervise-turn.sh scripts/check-portable.sh scripts/restore-db.sh scripts/configure-firewall.sh scripts/reset-reinstall.sh scripts/host-updater.sh scripts/recover-install.sh
+          python3 -m py_compile scripts/test-voice-endpoints.py scripts/turn-probe.py scripts/sync-host-cert.py scripts/host-health.py
+          python3 scripts/turn-probe.py --help
+          docker compose -f compose.yaml -f compose.portable.yaml config --quiet
+          node --check update-service.mjs
+          node --check infrastructure.mjs
           node --check server.mjs
+          node --check voice-service.mjs
+          node --check voice-page.js
+          node --check voice-entry.js
           node --check admin.js
           node --check request-flow.mjs
-          node --check voice-flow.mjs
-          node --check voice-client.js
           node --check request-ui.js
           node --check owner-view.js
           bash scripts/fetch-upstream.sh
@@ -43,3 +49,64 @@ jobs:
           curl --fail --silent http://127.0.0.1:18888/request-ui.js | grep -q photoChooseBtn
           curl --fail --silent http://127.0.0.1:18888/owner-view.js | grep -q confirm-move
           curl --fail --silent http://127.0.0.1:18888/admin | grep -q MoveCar
+
+
+  cert-reuse-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Discover existing website PEM files and import without revealing key
+        run: |
+          mkdir -p data/turn/tls data/testcert
+          openssl req -x509 -newkey rsa:2048 -nodes -days 5 -sha256 \
+            -subj '/CN=turn.example.test' \
+            -addext 'subjectAltName=DNS:turn.example.test' \
+            -keyout data/testcert/privkey.pem -out data/testcert/fullchain.pem >/dev/null 2>&1
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          Path('data/turn/cert-source.json').write_text(json.dumps({
+            'mode':'directory',
+            'directory':os.path.abspath('data/testcert'),
+            'turnHost':'turn.example.test'}))
+          PY
+          sudo python3 scripts/sync-host-cert.py "$PWD"
+          sudo test -s data/turn/tls/fullchain.pem
+          sudo test -s data/turn/tls/privkey.pem
+          sudo python3 - <<'PY'
+          import json
+          from pathlib import Path
+          status=json.loads(Path('data/turn/cert-sync-status.json').read_text())
+          assert status['ok'], status['message']
+          print('PASS website certificate directory matching and private TLS sync')
+          PY
+
+  turn-runtime-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Boot portable Docker stack and verify real TURN UDP allocate
+        run: |
+          bash scripts/fetch-upstream.sh
+          mkdir -p data/turn/tls
+          cp scripts/supervise-turn.sh data/turn/supervise-turn.sh
+          chmod 755 data/turn/supervise-turn.sh
+          sudo chown -R 1000:1000 data/turn
+          python3 - <<'PY'
+          from pathlib import Path
+          with open('.env','w') as fd:
+              print('VOICE_TURN_SHARED_SECRET='+'a'*64,file=fd)
+              print('VOICE_PAIRING_SECRET='+'b'*64,file=fd)
+              print('TURN_EXTERNAL_IP=127.0.0.1',file=fd)
+          PY
+          trap 'docker compose -f compose.yaml -f compose.portable.yaml logs --tail=100; docker compose -f compose.yaml -f compose.portable.yaml down' EXIT
+          docker compose -f compose.yaml -f compose.portable.yaml up -d --build movecar
+          docker compose -f compose.yaml -f compose.portable.yaml logs --tail=40 movecar
+          for i in $(seq 1 35); do
+            if curl -fsS http://127.0.0.1:8888/healthz >/dev/null 2>&1; then break; fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8888/healthz
+          docker compose -f compose.yaml -f compose.portable.yaml up -d coturn
+          sleep 5
+          python3 scripts/turn-probe.py --host 127.0.0.1 --secret-env-file .env --no-tls

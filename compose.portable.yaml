@@ -1,0 +1,26 @@
+# Generic Docker Compose overlay: no 1Panel, Nginx, Caddy, or certificate dependency.
+# MoveCar stays private on 127.0.0.1:8888 for whichever reverse proxy you use.
+# TURN uses Linux host networking for UDP relay ports and watches its config/TLS files.
+services:
+  movecar:
+    ports: !override
+      - '127.0.0.1:8888:8888'
+    environment:
+      MOVECAR_RUNTIME_DIR: /app/runtime
+      TURN_EXTERNAL_IP: '${TURN_EXTERNAL_IP:-}'
+      MOVECAR_COMMIT_SHA: '${MOVECAR_COMMIT_SHA:-}'
+    volumes:
+      - ./data/turn:/app/runtime
+
+  coturn:
+    image: coturn/coturn:4.18.0
+    container_name: movecar-turn
+    user: '1000:1000'
+    network_mode: host
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/runtime/supervise-turn.sh"]
+    volumes:
+      - ./data/turn:/runtime
+    depends_on:
+      movecar:
+        condition: service_healthy

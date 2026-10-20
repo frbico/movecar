@@ -1,0 +1,23 @@
+# Optional manual reference; the preferred 1Panel installer generates this automatically.\n# One server is enough: MoveCar HTTPS is 1Panel-managed on 443, TURN uses 3478 and 5349.\n# Never commit your real static-auth-secret.
+# Example for a standalone public-IP TURN host with direct port binding.
+fingerprint
+use-auth-secret
+static-auth-secret=REPLACE_WITH_SAME_64_CHAR_SECRET_ON_ALL_TURN_SERVERS
+realm=turn-hk.example.com
+server-name=turn-hk.example.com
+listening-port=3478
+tls-listening-port=5349
+# If the server is behind NAT, set external-ip=PUBLIC_IP/PRIVATE_IP and forward
+# every relay port without translation. Bare public-IP hosts may omit external-ip.
+min-port=49160
+max-port=49260
+cert=/etc/coturn/tls/fullchain.pem
+pkey=/etc/coturn/tls/privkey.pem
+no-tlsv1
+no-tlsv1_1
+no-multicast-peers
+no-loopback-peers
+# Only a few callers concurrently; expand limits if needed.
+user-quota=12
+total-quota=100
+stale-nonce=600

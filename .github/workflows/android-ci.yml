@@ -1,0 +1,67 @@
+name: Android debug APK
+on:
+  push:
+    branches: [feature/native-screen-off-voip, feature/owner-mobile-dashboard, feature/owner-ui-v0.4, feature/voice-network-reliability, feature/onepanel-turn-portable, feature/mobile-v05-whatsapp-reliability, feature/call-permissions-voice-limits, feature/scan-flow-ui-v06, feature/v061-call-reliability, feature/voice-stability-v061, feature/native-audio-route-v071-20261020, release/stable, main]
+    paths:
+      - 'android-owner/**'
+      - '.github/workflows/android-ci.yml'
+  pull_request:
+    paths:
+      - 'android-owner/**'
+      - '.github/workflows/android-ci.yml'
+permissions:
+  contents: read
+jobs:
+  android-debug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      FIREBASE_CONFIG_B64: ${{ secrets.MOVECAR_GOOGLE_SERVICES_JSON_B64 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK API 35
+        run: |
+          echo "${ANDROID_HOME}/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Configure Firebase (real if repository secret is supplied)
+        run: |
+          if [ -n "$FIREBASE_CONFIG_B64" ]; then
+            printf '%s' "$FIREBASE_CONFIG_B64" | base64 -d > android-owner/app/google-services.json
+            echo "CONFIGURED_FIREBASE=true" >> "$GITHUB_ENV"
+            python3 - <<'PY'
+          import json
+          with open('android-owner/app/google-services.json', encoding='utf-8') as f:
+              config = json.load(f)
+          assert any(c.get('client_info',{}).get('android_client_info',{}).get('package_name')=='com.example.movecarvoice' for c in config.get('client',[])), 'Incorrect Android package'
+          print('Configured Firebase values validated without logging secrets')
+          PY
+          else
+            echo "CONFIGURED_FIREBASE=false" >> "$GITHUB_ENV"
+            cat > android-owner/app/google-services.json <<'JSON'
+          {
+            "project_info":{"project_number":"123456789012","project_id":"movecar-build-placeholder"},
+            "client":[{
+              "client_info":{"mobilesdk_app_id":"1:123456789012:android:0123456789abcdef01234567","android_client_info":{"package_name":"com.example.movecarvoice"}},
+              "api_key":[{"current_key":"placeholder-compile-only-not-real"}]
+            }],
+            "configuration_version":"1"
+          }
+          JSON
+          fi
+      - name: Compile Android owner app
+        working-directory: android-owner
+        run: gradle --no-daemon --stacktrace :app:assembleDebug
+      - name: Upload CI-only debug APK (Firebase is a placeholder)
+        uses: actions/upload-artifact@v4
+        with:
+          name: movecar-owner-${{ env.CONFIGURED_FIREBASE == 'true' && 'configured-debug' || 'CI-only-unconfigured' }}
+          path: android-owner/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 3

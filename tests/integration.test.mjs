@@ -60,6 +60,37 @@ test('one-click bootstrap, admin login, two channels, secure owner action and pe
     assert.equal(evil.status,403);
     assert.match(logged.headers.get('set-cookie'),/HttpOnly/);
     const session=await call('/api/admin/session',{headers:{Cookie:adminCookie}});csrf=(await session.json()).csrf;
+    // Deployment settings must be behind the existing cookie + CSRF controls.
+    assert.equal((await call('/api/admin/deployment')).status,401);
+    assert.equal((await call('/api/admin/deployment/config',{method:'POST',headers:{Cookie:adminCookie},body:'{}'})).status,403);
+    const deployment=await call('/api/admin/deployment',{headers:{Cookie:adminCookie}});
+    assert.equal(deployment.status,200);
+    assert.equal((await deployment.json()).firebaseConfigured,false);
+    const invalidInfra=await admin('/api/admin/deployment/config',{siteUrl:'http://unsafe.example.test',turnHost:'turn.example.test'});
+    assert.equal(invalidInfra.status,400);
+    const savedInfra=await admin('/api/admin/deployment/config',{siteUrl:'https://car.example.test',turnHost:'turn.example.test'});
+    assert.equal(savedInfra.status,200,await savedInfra.text());
+    const infraState=await (await call('/api/admin/deployment',{headers:{Cookie:adminCookie}})).json();
+    assert.equal(infraState.turnHost,'turn.example.test');
+    assert.equal(infraState.turnTlsEnabled,false);
+    assert.equal(JSON.stringify(infraState).includes('VOICE_TURN_SHARED_SECRET'),false);
+    const badFirebase=await admin('/api/admin/deployment/firebase',{json:'{"project_id":"invalid"}'});
+    assert.equal(badFirebase.status,400);
+    // Only a signed-in admin with a valid origin/CSRF token can request an update.
+    assert.equal((await call('/api/admin/update/status')).status,401);
+    assert.equal((await call('/api/admin/update/start',{method:'POST',headers:{Cookie:adminCookie},body:'{}'})).status,403);
+    const updateStatus=await call('/api/admin/update/status',{headers:{Cookie:adminCookie}});
+    assert.equal(updateStatus.status,200);
+    const version=(await updateStatus.json()).version;
+    assert.ok(version);
+    const emptyPassword=await admin('/api/admin/update/start',{sha:'a'.repeat(40),password:''});
+    assert.equal(emptyPassword.status,400);
+    const badPassword=await admin('/api/admin/update/start',{sha:'a'.repeat(40),password:'incorrect'});
+    assert.equal(badPassword.status,403);
+    assert.equal((await call('/api/admin/voice/quality')).status,401);
+    const voiceQuality=await call('/api/admin/voice/quality',{headers:{Cookie:adminCookie}});
+    assert.equal(voiceQuality.status,200);
+    assert.deepEqual((await voiceQuality.json()).items,[]);
     const before=await call('/api/admin/config',{headers:{Cookie:adminCookie}});
     assert.equal((await before.json()).serverchanConfigured,false);
     assert.equal((await call('/api/admin/settings',{method:'POST',headers:{Cookie:adminCookie},body:'{}'})).status,403);

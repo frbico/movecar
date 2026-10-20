@@ -16,3 +16,72 @@
 .branding-card{max-width:850px}
 .branding-card input[type=file]{margin:10px 0 18px;max-width:100%;font-size:12px}
 @media(max-width:760px){.history-table{min-width:580px}.history-heading{align-items:flex-start}.history-actions{width:100%}.history-page{justify-content:center}}
+
+/* First-run onboarding: compact steps, readable progress, and no backend access
+ * until the authenticated deployment validation confirms required checks. */
+[hidden]{display:none!important}
+.setup-steps{display:flex;flex-wrap:wrap;gap:8px}
+.setup-step{display:inline-flex;padding:10px 14px;border:1px solid #dde6ee;border-radius:12px;background:#f6f8fb;color:#64748b;font-size:12px;font-weight:650}
+.setup-step.active{background:#e8f0ff;border-color:#93b4fb;color:#255dcc}
+.setup-step.done{color:#15803d;border-color:#bbefcd;background:#effcf5}
+.setup-stage .card{border-color:#dce5f0}
+.setup-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.setup-checks p{padding:11px 13px;margin:7px 0;background:#f6f8fc;border-radius:10px;line-height:1.6;font-size:14px}
+.setup-ok{color:#168343}
+.setup-bad{color:#c83b38}
+@media(max-width:700px){.setup-steps{display:grid;grid-template-columns:1fr 1fr}.setup-step{padding:8px;font-size:11px}.setup-footer button{min-width:95px}}
+
+/* Completed deployment: a persistent settings dashboard, not the first-run wizard */
+.managed-status{padding:14px 17px;margin:0 0 18px;border-radius:11px;font-size:13px;font-weight:650;line-height:1.6;border:1px solid #bde5cb;background:#eefaf3;color:#137544}
+.managed-status.needs-check{border-color:#f2d6a7;background:#fff8e8;color:#975c11}
+.managed-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-bottom:18px}
+.managed-card{margin:0!important;min-width:0;padding:22px 24px}
+.managed-card-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.managed-card-head h2{margin:0;font-size:16px;color:#273348}
+.managed-card-head .outline{font-size:12px;white-space:nowrap;min-height:36px}
+.managed-details{display:grid;gap:0;margin:0}
+.managed-details>div{display:grid;grid-template-columns:110px minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-top:1px solid #eff2f6}
+.managed-details>div:first-child{border-top:0}
+.managed-details dt{font-size:12px;color:#8490a1;line-height:1.55}
+.managed-details dd{min-width:0;margin:0;font-size:13px;font-weight:600;color:#28374c;word-break:break-word;overflow-wrap:anywhere;line-height:1.6}
+.managed-card>p,.managed-ports>p{margin:14px 0 0;line-height:1.7}
+.managed-card code,.managed-ports code{font-size:12px;background:#f4f7fb;padding:3px 6px;border-radius:5px;overflow-wrap:anywhere}
+.managed-ports{margin:0 0 24px;padding:22px 24px}
+.managed-ports h2{margin:0}
+.port-table-scroll{width:100%;overflow-x:auto;margin:10px 0}
+.port-table{width:100%;border-collapse:collapse;text-align:left;min-width:520px}
+.port-table th{background:#f4f7fc;font-weight:700;color:#65758d;font-size:12px;padding:12px 13px}
+.port-table td{border-bottom:1px solid #eef1f6;padding:13px;font-size:13px;color:#34435a}
+.port-table td:last-child{font-weight:600}
+.port-table tbody tr:last-child td{border-bottom:0}
+.setup-editor-top{margin:0 0 15px}
+.managed-checks:empty{display:none}
+.managed-checks{display:grid;gap:6px;margin:12px 0 0}
+.managed-checks p{margin:0;background:#f5f8fc;border-radius:8px;padding:8px 10px;font-size:12px;line-height:1.5}
+#setupManaged>.managed-grid>.managed-card{box-shadow:0 2px 8px rgba(22,52,95,.025)}
+@media(max-width:960px){.managed-grid{grid-template-columns:1fr}}
+@media(max-width:560px){
+  .managed-card,.managed-ports{padding:17px 16px}
+  .managed-card-head{align-items:start}
+  .managed-details>div{grid-template-columns:100px minmax(0,1fr);gap:9px}
+  .managed-details dt,.managed-details dd{font-size:12px}
+}
+
+.voice-policy-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:14px 0}
+.voice-policy-grid label{min-width:0}
+.voice-policy-grid small{display:block;font-size:12px;color:#718096;margin:6px 0;line-height:1.4}
+.voice-test-toggle{display:flex!important;align-items:center;gap:9px;padding:12px;background:#effaf6;border:1px solid #cce9d8;border-radius:9px}
+.voice-test-toggle input{width:18px;height:18px;margin:0;accent-color:#008069}
+@media(max-width:800px){.voice-policy-grid{grid-template-columns:1fr}}
+
+/* One-click stable release management */
+.update-versions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:14px 0 20px}
+.update-versions>div{display:grid;gap:9px;padding:18px;border:1px solid #e3eae7;border-radius:12px;background:#f9fbfa}
+.update-versions span{font-size:12px;color:#667780}
+.update-versions strong{font-size:19px;color:#123d32}
+.update-versions small{font-size:12px;color:#667780;overflow-wrap:anywhere}
+.update-changes{padding-left:21px;display:grid;gap:9px;font-size:14px;line-height:1.6}
+#updateStatus{line-height:1.7}
+#updateConfirmArea{margin-top:18px;border-top:1px solid #e4eae8;padding-top:16px}
+#updatePassword{max-width:410px}
+@media(max-width:640px){.update-versions{grid-template-columns:1fr}.update-versions>div{padding:14px}}

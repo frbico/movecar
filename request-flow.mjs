@@ -6,7 +6,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 
-export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJson,inputPhoto,json,reply,rateGet,ratePut}) {
+export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJson,inputPhoto,json,reply,rateGet,ratePut,notificationAvailable=()=>false}) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS move_requests (
       id TEXT PRIMARY KEY,
@@ -37,6 +37,7 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
   const byPoll=db.prepare('SELECT status,confirmed_at FROM move_requests WHERE id=? AND poll_digest=? AND expires_at>?');
   const byId=db.prepare('SELECT * FROM move_requests WHERE id=? AND expires_at>?');
   const confirm=db.prepare("UPDATE move_requests SET status='confirmed', confirmed_at=COALESCE(confirmed_at,?) WHERE owner_digest=? AND expires_at>?");
+  const confirmById=db.prepare("UPDATE move_requests SET status='confirmed',confirmed_at=COALESCE(confirmed_at,?) WHERE id=? AND expires_at>? AND status='waiting'");
   const grantInsert=db.prepare('INSERT INTO move_photo_grants(digest,request_id,expires_at) VALUES(?,?,?)');
   const grantSelect=db.prepare('SELECT request_id FROM move_photo_grants WHERE digest=? AND expires_at>?');
   const photoUsed=db.prepare('UPDATE move_requests SET photo_sent=1 WHERE id=? AND photo_sent=0 AND expires_at>?');
@@ -84,6 +85,7 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
       const total=countRequests.get().total;
       return {total,page,size,items:listRequests.all(size,(page-1)*size).map(item=>({id:item.id,message:item.message,status:item.status==='waiting' && item.expires_at<=Date.now()?'expired':item.status,createdAt:item.created_at,expiresAt:item.expires_at,confirmedAt:item.confirmed_at,photoSent:!!item.photo_sent,photoUrl:(()=>{const pic=availablePhoto.get(item.id,Date.now());return pic?'/api/photo/'+pic.id:null;})()}))};
     },
+    confirmHistory(id){return confirmById.run(Date.now(),id,Date.now()).changes===1;},
     deleteHistory(id){if(!knownRequest.get(id))return false;removeRequest(id);return true;},
     clearHistory(){for(const item of db.prepare('SELECT id FROM move_requests').all())removeRequest(item.id);},
     async handle(req,res,origin,u){
@@ -103,7 +105,7 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
         if(method!=='GET')return reply(res,405,'Method not allowed'),true;
         const record=byOwner.get(hash(confirmMatch[1]),Date.now());
         if(!record){reply(res,410,'链接已过期或无效，请让对方重新发起挪车请求');return true;}
-        reply(res,200,page,{'Content-Type':'text/html; charset=utf-8','Content-Security-Policy':"default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; media-src 'self' blob:; connect-src 'self' stun: turn: turns:; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"});return true;
+        reply(res,200,page,{'Content-Type':'text/html; charset=utf-8','Content-Security-Policy':"default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"});return true;
       }
       const infoMatch=route.match(/^\/api\/owner-request\/([A-Za-z0-9_-]{43})$/);
       if(infoMatch) {
@@ -131,12 +133,11 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
       }
       if(route==='/api/notify') {
         if(method!=='POST')return reply(res,405,'Method not allowed'),true;
-        if(!setting('bark_url')&&!setting('serverchan_sendkey')&&!setting('sc3_sendkey'))
+        if(!setting('bark_url')&&!setting('serverchan_sendkey')&&!setting('sc3_sendkey')&&!notificationAvailable())
           return json(res,503,{error:'车主尚未配置推送渠道'}),true;
         const addr=req.socket.remoteAddress||'unknown',now=Date.now(),seconds=Number(setting('rate_limit_seconds','60'));
-        const rateUntil=rateGet.get(addr)?.until??0;
-        if(seconds>0&&rateUntil>now)
-          return json(res,429,{error:'发送过于频繁，请稍后再试'},{'Retry-After':String(Math.ceil((rateUntil-now)/1000))}),true;
+        if(seconds>0&&(rateGet.get(addr)?.until??0)>now)
+          return json(res,429,{error:'发送过于频繁，请稍后再试'}),true;
         const body=await inputJson(req);
         if(typeof body.message!=='string'||body.message.length>200)return json(res,400,{error:'留言最长为 200 字'}),true;
         const id=random(),pollToken=random(),photoToken=random(),ownerToken=ownerTokenFor(id);

@@ -6,13 +6,17 @@ import crypto from 'node:crypto';
 import vm from 'node:vm';
 import { DatabaseSync } from 'node:sqlite';
 import { createRequestFlow } from './request-flow.mjs';
-import { createVoiceFlow } from './voice-flow.mjs';
+import { createVoiceService } from './voice-service.mjs';
+import { createMobileOwner } from './mobile-owner.mjs';
+import { createInfrastructure } from './infrastructure.mjs';
+import { createUpdateService } from './update-service.mjs';
 
 const port = Number(process.env.PORT || 8888);
 const dbPath = path.resolve(process.env.DB_PATH || './data/state.sqlite');
 const sourcePath = path.resolve(process.env.SOURCE_PATH || './upstream/movecar.js');
 const dataDir = path.dirname(dbPath);
 const isTest = process.env.NODE_ENV === 'test';
+const deploymentId=crypto.randomBytes(18).toString('hex');
 const allowTestHttp = isTest && process.env.MOVECAR_TEST_HTTP_PUSH === '1';
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw Error('Invalid port');
 if (!fs.existsSync(sourcePath)) throw Error('Upstream Worker missing. Run bash scripts/fetch-upstream.sh');
@@ -107,9 +111,9 @@ function reply(res, status, body, headers={}) {
   res.end(body);
 }
 function json(res,status,obj,headers={}) { return reply(res,status,JSON.stringify(obj),{'Content-Type':'application/json; charset=utf-8',...headers}); }
-async function inputJson(req,maxBytes=16384) {
+async function inputJson(req, limit = 16384) {
   let total = 0; const arr=[];
-  for await(const chunk of req) { total+=chunk.length; if(total>maxBytes) throw Object.assign(Error('请求过大'),{status:413}); arr.push(chunk); }
+  for await(const chunk of req) { total+=chunk.length; if(total>limit) throw Object.assign(Error('请求过大'),{status:413}); arr.push(chunk); }
   try { const obj=JSON.parse(Buffer.concat(arr).toString('utf8')); if(!obj || typeof obj!=='object'||Array.isArray(obj)) throw Error(); return obj; }
   catch { throw Object.assign(Error('JSON 数据无效'),{status:400}); }
 }
@@ -237,11 +241,12 @@ async function sendSc3(key,title,message,ownerUrl,richMarkdown=false) {
 async function notifyChannels({title,message,ownerUrl,query='',channel='all',richMarkdown=false}) {
   const tasks=[];
   const names=[];
-  const wanted = name => channel==='all' || channel===name;
+  const wanted = name => (channel==='all' || channel===name) && setting('notify_'+name+'_enabled','1')==='1';
   const bark=setting('bark_url'), turbo=setting('serverchan_sendkey'), sc3=setting('sc3_sendkey');
   if(bark && wanted('bark')) { names.push('bark'); tasks.push(sendBark(bark,title,message,ownerUrl,query)); }
   if(turbo && wanted('serverchan')) { names.push('serverchan'); tasks.push(sendWeChat(turbo,title,message,ownerUrl)); }
   if(sc3 && wanted('sc3')) { names.push('sc3'); tasks.push(sendSc3(sc3,title,message,ownerUrl,richMarkdown)); }
+  if(voice.isDeviceReady() && wanted('app')) {names.push('app');tasks.push(voice.notifyOwner({title,message,ownerUrl}));}
   if(!tasks.length) throw Object.assign(Error(channel==='all'?'尚未配置推送渠道，请先进入 /admin 设置':'所选渠道尚未配置，请先保存密钥'),{status:503});
   const results=await Promise.allSettled(tasks);
   const statuses=Object.fromEntries(results.map((item,index)=>[names[index],item.status==='fulfilled'?'ok':'failed']));
@@ -304,8 +309,8 @@ async function sendWorker(response,res,head=false){
         html=html.replace('<div class="icon-wrap"><span>🚗</span></div>','<div class="icon-wrap"><img src="/site-icon" alt="网站图标" style="width:70px;height:70px;object-fit:contain"></div>');
         html=html.replace('</head>','<link rel="icon" href="/site-icon"></head>');
       }
-      html=html.replace('</body>','<script src="/voice-client.js" defer></script><script src="/request-ui.js" defer></script></body>');
-      headers['content-security-policy']="frame-ancestors 'none'; img-src 'self' data: https:; media-src 'self' blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' stun: turn: turns:";
+      html=html.replace('</body>','<script src="/request-ui.js" defer></script><script src="/voice-entry.js" defer></script></body>');
+      headers['content-security-policy']="frame-ancestors 'none'; img-src 'self' data: https:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'";
     }else if(html.includes('id="confirmBtn"')){
       // Existing/legacy owner links must not ask the owner for location either.
       const geoStart=html.indexOf('      // 点击确认按钮时，触发浏览器授权');
@@ -322,8 +327,18 @@ function staticFile(res,name,type) {
   const txt=fs.readFileSync(path.join(import.meta.dirname,name));
   reply(res,200,txt,{'Content-Type':type,'Content-Security-Policy':"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"});
 }
-const requestFlow=createRequestFlow({db,setting,random,hash,notifyChannels,inputJson,inputPhoto,json,reply,rateGet,ratePut});
-const voiceFlow=createVoiceFlow({db,setting,random,hash,notifyChannels,inputJson,json,reply});
+const infrastructure=createInfrastructure({setting,save,dataDir,deploymentId});
+const updater=createUpdateService();
+const requestFlow=createRequestFlow({db,setting,random,hash,notifyChannels,inputJson,inputPhoto,json,reply,rateGet,ratePut,notificationAvailable:()=>voice.isDeviceReady()&&setting('notify_app_enabled','1')==='1'});
+const voice=createVoiceService({db,json,reply,inputJson,turnConfig:infrastructure.ice,
+  callPolicy:()=>({
+    dailyLimit:Number(setting('voice_daily_limit','8')),
+    cooldownSeconds:Number(setting('voice_cooldown_seconds','90')),
+    maxFastRetries:Number(setting('voice_fast_retries','2')),
+    testMode:setting('voice_test_mode','0')==='1'
+  })
+});
+const mobile=createMobileOwner({db,setting,save,deleteSetting:name=>delSettingStmt.run(name),inputJson,json,requestFlow,voice,notifyChannels,validateOrigin,validateBark,validateSendKey,validateSc3Key,iconUpload,iconSave,iconClear,iconGet});
 const failStats=new Map();
 setInterval(()=>{
  const now=Date.now();db.prepare('DELETE FROM kv WHERE expiry IS NOT NULL AND expiry<=?').run(now);
@@ -332,7 +347,7 @@ setInterval(()=>{
  db.prepare('DELETE FROM owner_sessions WHERE expiry<=?').run(now);
  db.prepare('DELETE FROM photo_grants WHERE expiry<=?').run(now);
  db.prepare('DELETE FROM photo_records WHERE expiry<=?').run(now);
- requestFlow.cleanup();
+ requestFlow.cleanup();mobile.cleanup();
  for (const [ip,item] of failStats) if(item.until<now)failStats.delete(ip);
 },3600000).unref();
 const server=http.createServer(async(req,res)=>{
@@ -341,7 +356,7 @@ const server=http.createServer(async(req,res)=>{
     const u=new URL(req.url||'/',origin);
     const route=u.pathname;
     if(!['GET','HEAD','POST','PUT'].includes(req.method))return reply(res,405,'Method not allowed');
-    if(route==='/healthz')return reply(res,200,'ok');
+    if(route==='/healthz')return reply(res,200,'ok',{'X-MoveCar-Deployment-ID':deploymentId});
     if(route==='/site-icon'){
       if(req.method!=='GET')return reply(res,405,'Method not allowed');
       const icon=iconGet.get();
@@ -355,8 +370,8 @@ const server=http.createServer(async(req,res)=>{
     if(route==='/admin.js')return req.method==='GET'?staticFile(res,'admin.js','text/javascript; charset=utf-8'):reply(res,405,'Method not allowed');
     if(route==='/admin.css')return req.method==='GET'?staticFile(res,'admin.css','text/css; charset=utf-8'):reply(res,405,'Method not allowed');
     if(route==='/photo-ui.js')return req.method==='GET'?staticFile(res,'photo-ui.js','text/javascript; charset=utf-8'):reply(res,405,'Method not allowed');
-    if(route==='/voice-client.js')return req.method==='GET'?staticFile(res,'voice-client.js','text/javascript; charset=utf-8'):reply(res,405,'Method not allowed');
-    if(await voiceFlow.handle(req,res,origin,u))return;
+    if(await mobile.handle(req,res,u))return;
+    if(await voice.handle(req,res,u))return;
     if(await requestFlow.handle(req,res,origin,u))return;
     if(route.startsWith('/api/admin/')){
       if(route==='/api/admin/login'&&req.method==='POST'){
@@ -365,9 +380,10 @@ const server=http.createServer(async(req,res)=>{
         const ip=req.socket.remoteAddress||'unknown';const stat=failStats.get(ip)||{fails:0,until:0};
         if(stat.until>Date.now())return json(res,429,{error:'尝试次数过多，请 15 分钟后重试'});
         const data=await inputJson(req);const password=data.password;
+        const account=typeof data.username==='string'?data.username:'admin';
         if(typeof password!=='string'||password.length>200)return json(res,400,{error:'密码格式错误'});
         const supplied=crypto.scryptSync(password,setting('admin_salt'),64).toString('hex');
-        if(!constantEq(supplied,setting('admin_hash'))){
+        if(!constantEq(supplied,setting('admin_hash'))||!constantEq(account,setting('admin_username','admin'))){
           stat.fails++;if(stat.fails>=5)stat.until=Date.now()+15*60*1000;failStats.set(ip,stat);
           return json(res,401,{error:'密码错误'});
         }
@@ -378,14 +394,92 @@ const server=http.createServer(async(req,res)=>{
       const auth=session(req);
       if(!auth)return json(res,401,{error:'请先登录'});
       if(route==='/api/admin/session'&&req.method==='GET')return json(res,200,{csrf:auth.csrf});
-      if(route==='/api/admin/config'&&req.method==='GET')return json(res,200,{publicUrl:setting('public_url'),phoneNumber:setting('phone_number'),rateLimitSeconds:Number(setting('rate_limit_seconds','60')),requestRetentionLimit:requestFlow.retentionLimit(),requestCount:requestFlow.count(),siteName:setting('site_name','呼叫车主挪车'),wechatId:setting('wechat_id'),siteIconConfigured:!!iconGet.get(),siteIconUpdatedAt:iconGet.get()?.updated_at||null,barkConfigured:!!setting('bark_url'),serverchanConfigured:!!setting('serverchan_sendkey'),sc3Configured:!!setting('sc3_sendkey')});
+      if(route==='/api/admin/deployment'&&req.method==='GET')
+        return json(res,200,infrastructure.config());
+      if(route==='/api/admin/deployment/verify'&&req.method==='GET')
+        return json(res,200,await infrastructure.verify());
+      if(route==='/api/admin/config'&&req.method==='GET')return json(res,200,{voicePolicy:voice.getCallPolicy(),publicUrl:setting('public_url'),phoneNumber:setting('phone_number'),rateLimitSeconds:Number(setting('rate_limit_seconds','60')),requestRetentionLimit:requestFlow.retentionLimit(),requestCount:requestFlow.count(),siteName:setting('site_name','呼叫车主挪车'),wechatId:setting('wechat_id'),adminUsername:setting('admin_username','admin'),appConfigured:voice.isDeviceReady(),appEnabled:setting('notify_app_enabled','1')==='1',barkEnabled:setting('notify_bark_enabled','1')==='1',sc3Enabled:setting('notify_sc3_enabled','1')==='1',serverchanEnabled:setting('notify_serverchan_enabled','1')==='1',siteIconConfigured:!!iconGet.get(),siteIconUpdatedAt:iconGet.get()?.updated_at||null,barkConfigured:!!setting('bark_url'),serverchanConfigured:!!setting('serverchan_sendkey'),sc3Configured:!!setting('sc3_sendkey')});
+      if(route==='/api/admin/voice/quality'&&req.method==='GET')
+        return json(res,200,{items:voice.listQuality()});
       if(route==='/api/admin/requests'&&req.method==='GET'){
         const page=Number(u.searchParams.get('page')||'1'),size=Number(u.searchParams.get('size')||'20');
         if(!Number.isInteger(page)||page<1||page>9999||!Number.isInteger(size)||size<1||size>100)return json(res,400,{error:'分页参数无效'});
         return json(res,200,requestFlow.listHistory(page,size));
       }
+      if(route==='/api/admin/update/status'&&req.method==='GET')
+        return json(res,200,updater.status());
       if(!['POST','PUT'].includes(req.method)||!checkCsrf(req,auth.csrf))return json(res,403,{error:'请求未通过验证'});
-      if(route==='/api/admin/requests/delete'&&req.method==='POST'){
+      if(route==='/api/admin/deployment/cert-source'&&req.method==='POST'){
+        if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});
+        const data=await inputJson(req);
+        return json(res,200,infrastructure.setCertSource(data));
+      }
+      if(route==='/api/admin/deployment/complete'&&req.method==='POST'){
+        if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});
+        await inputJson(req);
+        return json(res,200,await infrastructure.complete());
+      }
+      if(route==='/api/admin/deployment/config'&&req.method==='POST'){
+        if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});
+        const data=await inputJson(req);
+        return json(res,200,{ok:true,...infrastructure.configure(data)});
+      }
+      if(route==='/api/admin/deployment/firebase'&&req.method==='POST'){
+        if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});
+        const data=await inputJson(req,65000);
+        const result=infrastructure.saveFirebase(data.json);
+        voice.resetFirebaseAccess();
+        return json(res,200,result);
+      }
+      if(route==='/api/admin/deployment/tls'&&req.method==='POST'){
+        if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});
+        const data=await inputJson(req,115000);
+        return json(res,200,infrastructure.saveTls(data.certificate,data.privateKey));
+      }
+      if(route==='/api/admin/deployment/tls/clear'&&req.method==='POST'){
+        if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});
+        return json(res,200,infrastructure.removeTls());
+      }
+      if(route==='/api/admin/update/check'&&req.method==='POST'){
+        if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});
+        await inputJson(req);
+        return json(res,200,await updater.check());
+      }
+      if(route==='/api/admin/update/start'&&req.method==='POST'){
+        if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});
+        const data=await inputJson(req);
+        if(typeof data.password!=='string'||data.password.length>200||!data.password)
+          return json(res,400,{error:'请输入当前管理员密码确认升级'});
+        const digest=crypto.scryptSync(data.password,setting('admin_salt'),64).toString('hex');
+        if(!constantEq(digest,setting('admin_hash')))
+          return json(res,403,{error:'管理员密码错误，升级已取消'});
+        return json(res,200,await updater.requestUpdate(data.sha));
+      }
+      if(route==='/api/admin/voice-policy'&&req.method==='POST'){
+         if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});
+         const policy=await inputJson(req);
+         for(const [name,min,max] of [
+           ['dailyLimit',0,500],['cooldownSeconds',0,3600],['maxFastRetries',0,10]
+         ]){
+           if(!Number.isInteger(policy[name])||policy[name]<min||policy[name]>max)
+             return json(res,400,{error:name+' 必须在 '+min+'–'+max+' 之间'});
+         }
+         if(typeof policy.testMode!=='boolean')return json(res,400,{error:'测试模式格式不正确'});
+         if(policy.testMode!==true && policy.dailyLimit===0 && policy.cooldownSeconds===0)
+           return json(res,400,{error:'正式模式不能同时取消次数及间隔限制；请启用测试模式进行调试'});
+         save('voice_daily_limit',policy.dailyLimit);
+         save('voice_cooldown_seconds',policy.cooldownSeconds);
+         save('voice_fast_retries',policy.maxFastRetries);
+         save('voice_test_mode',policy.testMode?'1':'0');
+         return json(res,200,{ok:true,voicePolicy:voice.getCallPolicy()});
+       }
+       if(route==='/api/admin/voice-policy/reset'&&req.method==='POST'){
+         if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});
+         await inputJson(req);
+         voice.resetCallRateLimits();
+         return json(res,200,{ok:true});
+       }
+       if(route==='/api/admin/requests/delete'&&req.method==='POST'){
         const data=await inputJson(req);
         if(typeof data.id!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(data.id))return json(res,400,{error:'请求编号无效'});
         return json(res,200,{ok:true,deleted:requestFlow.deleteHistory(data.id)});
@@ -432,12 +526,18 @@ const server=http.createServer(async(req,res)=>{
         if(bark)save('bark_url',bark);else if(data.clearBark===true)delSettingStmt.run('bark_url');
         if(key)save('serverchan_sendkey',key);else if(data.clearServerchan===true)delSettingStmt.run('serverchan_sendkey');
         if(sc3Key)save('sc3_sendkey',sc3Key);else if(data.clearSc3===true)delSettingStmt.run('sc3_sendkey');
+        for(const name of ['app','bark','sc3','serverchan']) {
+          if(data[name+'Enabled']!==undefined){
+            if(typeof data[name+'Enabled']!=='boolean')throw Object.assign(Error('通知开关格式错误'),{status:400});
+            save('notify_'+name+'_enabled',data[name+'Enabled']?'1':'0');
+          }
+        }
         return json(res,200,{ok:true});
       }
       if(route==='/api/admin/test-push'&&req.method==='POST'){
         const data=await inputJson(req);
         const channel=data.channel??'all';
-        if(!['all','bark','serverchan','sc3'].includes(channel))return json(res,400,{error:'测试渠道无效'});
+        if(!['all','bark','serverchan','sc3','app'].includes(channel))return json(res,400,{error:'测试渠道无效'});
         const channels=await notifyChannels({title:'MoveCar 测试通知',message:'后台推送渠道测试成功 ✅',ownerUrl:signedOwnerLink(origin),channel});
         return json(res,200,{ok:true,message:'测试推送已提交',channels});
       }
@@ -447,7 +547,7 @@ const server=http.createServer(async(req,res)=>{
         const actual=crypto.scryptSync(data.currentPassword,setting('admin_salt'),64).toString('hex');
         if(!constantEq(actual,setting('admin_hash')))return json(res,403,{error:'原密码错误'});
         const salt=crypto.randomBytes(16).toString('hex');save('admin_salt',salt);save('admin_hash',crypto.scryptSync(data.newPassword,salt,64).toString('hex'));
-        db.exec('DELETE FROM admin_sessions');
+        db.exec('DELETE FROM admin_sessions; DELETE FROM mobile_sessions');
         try{fs.unlinkSync(initialFile);}catch(e){if(e.code!=='ENOENT')console.warn('Could not remove bootstrap password file');}
         return json(res,200,{ok:true,message:'密码修改成功，请重新登录'},{'Set-Cookie':cookie('movecar_admin','',trustedAdminOrigin(req)||origin,0)});
       }
@@ -517,7 +617,7 @@ const server=http.createServer(async(req,res)=>{
   } catch(err) {
     const status=err.status||500;
     if(status>=500)console.error('Request failed:',err.message?.replace(/(?:SCT[A-Za-z0-9_-]+|sctp[0-9]+t[A-Za-z0-9_-]+)/g,'[redacted]'));
-    if(!res.headersSent) return (req.url||'').startsWith('/api/admin/')|| (req.url||'')==='/api/admin/config' ? json(res,status,{error:status===500?'内部错误':err.message}) : reply(res,status,status===500?'服务暂时不可用':err.message);
+    if(!res.headersSent) return (req.url||'').startsWith('/api/voice/') ? json(res,status,{error:status===500?'内部错误':err.message}) : (req.url||'').startsWith('/api/admin/')|| (req.url||'')==='/api/admin/config' ? json(res,status,{error:status===500?'内部错误':err.message}) : reply(res,status,status===500?'服务暂时不可用':err.message);
     res.end();
   }
 });
