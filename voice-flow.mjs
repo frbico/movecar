@@ -49,8 +49,11 @@ export function createVoiceFlow({db,setting,random,hash,notifyChannels,inputJson
   function authorize(data,call){
     if(!call||!tokenOk(data.callId)||data.callId!==call.callId)return false;
     if(data.role==='caller')return !!callerRecord.get(call.requestId,hash(data.token||''),Date.now());
-    if(data.role==='owner')return !!ownerRecord.get(hash(data.token||''),Date.now())&&
-      !!ownerRecord.get(hash(data.token||''),Date.now()).id===call.requestId;
+    if(data.role==='owner'){
+      if(!tokenOk(data.token))return false;
+      const record=ownerRecord.get(hash(data.token),Date.now());
+      return !!record&&record.id===call.requestId;
+    }
     return false;
   }
   const fail=(res,status,message)=>json(res,status,{error:message});
