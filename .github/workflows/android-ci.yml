@@ -57,6 +57,6 @@ jobs:
           fi
       - name: Compile Android owner app
         working-directory: android-owner
-        run: gradle --no-daemon --stacktrace :app:assembleDebug
+        run: gradle --no-daemon --stacktrace :app:assembleDebug :app:testDebugUnitTest
       - name: Verify debug compilation (CI only, not a distributed APK)
         run: test -s android-owner/app/build/outputs/apk/debug/app-debug.apk
