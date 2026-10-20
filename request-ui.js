@@ -100,17 +100,6 @@
    else{callHint.textContent='请先发送通知';}
  }
  function beginWait(){startedAt=Date.now();confirmed=false;refreshContact();if(!contactTimer)contactTimer=setInterval(refreshContact,1000);}
- async function copyWechat(){
-   if(!wechatId)return;
-   try{
-     if(navigator.clipboard?.writeText)await navigator.clipboard.writeText(wechatId);
-     else {const t=document.createElement('textarea');t.value=wechatId;t.style.position='fixed';t.style.left='-9999px';document.body.appendChild(t);t.select();if(!document.execCommand('copy'))throw Error('复制失败');t.remove();}
-     wechatMessage.textContent='已复制微信号，请添加车主微信';notifyText('已复制微信号，请添加车主微信');
-   }catch {wechatMessage.textContent='复制失败，请手动复制：'+wechatId;notifyText('复制失败，请手动复制：'+wechatId);}
- }
- wechatButton.addEventListener('click',copyWechat);
- fetch('/api/site-config',{cache:'no-store'}).then(r=>r.ok?r.json():{}).then(c=>{wechatId=c.wechatId||'';wechatButton.disabled=!wechatId;wechatButton.textContent=wechatId?'💬 微信联系':'💬 微信联系（车主未配置）';}).catch(()=>{});
- refreshContact();
  const notifyText=(text)=>{
    if(typeof showToast==='function')showToast(text);
    else{let status=document.getElementById('photoStatus');if(status)status.textContent=text;}
