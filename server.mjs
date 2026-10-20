@@ -305,7 +305,7 @@ async function sendWorker(response,res,head=false){
         html=html.replace('</head>','<link rel="icon" href="/site-icon"></head>');
       }
       html=html.replace('</body>','<script src="/voice-client.js" defer></script><script src="/request-ui.js" defer></script></body>');
-      headers['content-security-policy']="frame-ancestors 'none'; img-src 'self' data: https:; media-src 'self' blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'";
+      headers['content-security-policy']="frame-ancestors 'none'; img-src 'self' data: https:; media-src 'self' blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' stun: turn: turns:";
     }else if(html.includes('id="confirmBtn"')){
       // Existing/legacy owner links must not ask the owner for location either.
       const geoStart=html.indexOf('      // 点击确认按钮时，触发浏览器授权');
