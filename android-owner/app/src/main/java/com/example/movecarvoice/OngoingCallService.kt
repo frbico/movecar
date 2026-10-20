@@ -96,6 +96,11 @@ class OngoingCallService : Service() {
                 worker.execute {
                     try {
                         makePeer()
+                        // WebRTC audio device startup can override the initial receiver route.
+                        // Reapply the explicit route after the audio module is initialized.
+                        Handler(Looper.getMainLooper()).postDelayed({
+                            if(!stopped && currentCallId==callId)updateSpeaker(speakerEnabled)
+                        },700L)
                         ticker = worker.scheduleWithFixedDelay({ pollSafely() },0,900,TimeUnit.MILLISECONDS)
                     } catch (e: Exception) {
                         Log.e("MoveCarVoice","Native WebRTC initialization failed",e)
@@ -198,6 +203,11 @@ class OngoingCallService : Service() {
                 if (s == PeerConnection.IceConnectionState.CONNECTED ||
                     s == PeerConnection.IceConnectionState.COMPLETED) {
                     disconnectionEpoch = 0L
+                    // Reassert earpiece / headset after ICE recovery; Android audio
+                    // focus and device routing can change when WebRTC reconnects.
+                    Handler(Looper.getMainLooper()).post {
+                        if(!stopped && currentCallId==callId)updateSpeaker(speakerEnabled)
+                    }
                     worker.execute { reportQuality(if(reconnects>0)"recovered" else "connected") }
                 } else if (s == PeerConnection.IceConnectionState.DISCONNECTED ||
                            s == PeerConnection.IceConnectionState.FAILED) {
