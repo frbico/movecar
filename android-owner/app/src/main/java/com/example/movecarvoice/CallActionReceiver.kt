@@ -9,7 +9,7 @@ class CallActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val id = intent.getStringExtra("callId") ?: return
         if (!VoiceApi.validCallId(id)) return
-        CarMessagingService.cancel(context)
+        CarMessagingService.cancel(context,id)
         val pending = goAsync()
         Thread {
             try {
