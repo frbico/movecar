@@ -103,7 +103,7 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
         if(method!=='GET')return reply(res,405,'Method not allowed'),true;
         const record=byOwner.get(hash(confirmMatch[1]),Date.now());
         if(!record){reply(res,410,'链接已过期或无效，请让对方重新发起挪车请求');return true;}
-        reply(res,200,page,{'Content-Type':'text/html; charset=utf-8','Content-Security-Policy':"default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; media-src 'self' blob:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"});return true;
+        reply(res,200,page,{'Content-Type':'text/html; charset=utf-8','Content-Security-Policy':"default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; media-src 'self' blob:; connect-src 'self' stun: turn: turns:; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"});return true;
       }
       const infoMatch=route.match(/^\/api\/owner-request\/([A-Za-z0-9_-]{43})$/);
       if(infoMatch) {
