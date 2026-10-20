@@ -1,5 +1,10 @@
 # MoveCar · Linux / Docker 自部署版
 
+## 📦 Android 车主 APP 下载
+
+**今后统一在 [GitHub Releases](https://github.com/frbico/movecar/releases) 下载正式签名 APK**，不从 Actions 的 Debug Artifacts 安装。正式版文件名为 MoveCar-Owner-vX.Y.Z.apk，附带 SHA-256 校验文件。Android 车主 APP 的设置页可以检查新版本并跳转官方 Releases。固定签名配置、首次从 Debug 版迁移步骤见 [ANDROID-RELEASES.md](ANDROID-RELEASES.md)。
+
+
 在 Linux 一键部署 [lesnolie/movecar](https://github.com/lesnolie/movecar) 的挪车页面，保留原始 Worker 前端与状态处理，增加 SQLite 兼容层、**管理后台**、**Bark + 微信 Server酱 + Server酱³ 推送**。
 
 > 本项目为第三方独立适配版，不是上游作者的官方 Docker 版本；上游代码由 `scripts/fetch-upstream.sh` 在首次安装时从 GitHub 下载。请自行审查后用于正式环境。
