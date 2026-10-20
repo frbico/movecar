@@ -4,6 +4,35 @@
  const notify=document.getElementById('notifyBtn');
  const success=document.getElementById('successView');
  if(!notify||!success)return;
+ // Scan visitor UX: one primary action first, contact choices only after a notification.
+ const main=document.getElementById('mainView');
+ if(main){
+   const allControls=[...main.querySelectorAll('button,a')];
+   for(const el of allControls){
+     if(el===notify||notify.contains(el))continue;
+     const label=(el.textContent||'').replace(/\\s+/g,' ').trim();
+     // Remove duplicate first-screen calling actions, not the required notify button.
+     if(/(?:语音通话|网络语音|呼叫车主)/.test(label)&&!/(?:一键通知车主)/.test(label))el.hidden=true;
+   }
+ }
+ // Remove only the broken audio-output-settings entry, preserving actual call controls.
+ for(const el of document.querySelectorAll('button,a')){
+   if(/音频输出设置/.test(el.textContent||''))el.remove();
+ }
+ const actions=success.querySelector('.action-card');
+ if(actions){
+   const retry=document.getElementById('retryBtn');
+   const existingVoice=[...document.querySelectorAll('button,a')].find(el=>
+     el!==retry&&/(?:网络语音呼叫车主|语音通话)/.test(el.textContent||'')&&
+     !/(?:音频输出设置)/.test(el.textContent||''));
+   if(retry){retry.textContent='再次通知';actions.appendChild(retry);}
+   if(existingVoice){
+     existingVoice.hidden=false;
+     existingVoice.textContent='语音通话';
+     actions.appendChild(existingVoice);
+   }
+   // 微信和电话的 positions are finalized after their nodes are created below.
+ }
  const waiting=document.getElementById('waitingText');
  let current=null,photo=null,objectUrl=null,pollTimer=null,contactTimer=null,startedAt=0,confirmed=false,wechatId='';
  const successCard=success.querySelector('.success-card');
@@ -19,6 +48,19 @@
  if(phone)phone.insertAdjacentElement('beforebegin',wechatButton);
  const wechatMessage=document.createElement('p');wechatMessage.id='wechatCopyHint';wechatMessage.setAttribute('role','status');wechatMessage.style.cssText='position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap';
  wechatButton.insertAdjacentElement('afterend',wechatMessage);
+ // The action list must read: 再次通知 → 语音通话 → 微信联系 → 电话联系.
+ // Preserve existing handlers and phone's 60s safety countdown.
+ if(actions){
+   const retry=document.getElementById('retryBtn');
+   const voice=[...actions.querySelectorAll('button,a')].find(el=>/(?:语音通话)/.test(el.textContent||''));
+   if(retry)actions.appendChild(retry);
+   if(voice)actions.appendChild(voice);
+   actions.appendChild(wechatButton);
+   if(phone)actions.appendChild(phone);
+   if(callHint)actions.appendChild(callHint);
+   actions.appendChild(wechatMessage);
+ }
+
  function refreshContact(){
    if(!phone)return;
    const remaining=startedAt?Math.max(0,60-Math.floor((Date.now()-startedAt)/1000)):60;
