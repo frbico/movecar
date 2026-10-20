@@ -29,16 +29,18 @@ export function createUpdateService({
     // Host updater runs outside the container. Distinguish a pending job
     // from the previous successful/idle status and detect a stuck queue.
     if(pending?.channel===CHANNEL&&hashRegex.test(pending.sha||'')&&
-       Number.isSafeInteger(pending.createdAt)&&
-       Number(host.updatedAt||0)<pending.createdAt){
+       Number.isSafeInteger(pending.createdAt)){
       const age=Date.now()-pending.createdAt;
-      if(age>=0&&age<20*60*1000)
+      // A stale request file is a stalled queue even if its status file was
+      // touched more recently (e.g. host helper restarted but never consumed it).
+      if(age>=20*60*1000 || age<0)
+        return {...version(),host:{...host,state:'stalled',
+          message:'更新任务超过 20 分钟仍未处理，请检查主机更新服务及日志',
+          targetSha:pending.sha,queuedAt:pending.createdAt}};
+      if(Number(host.updatedAt||0)<pending.createdAt)
         return {...version(),host:{...host,state:'queued',
           message:'更新任务已排队，等待宿主机更新助手执行',
           targetSha:pending.sha,queuedAt:pending.createdAt}};
-      return {...version(),host:{...host,state:'stalled',
-        message:'更新任务超过 20 分钟仍未处理，请检查主机更新服务及日志',
-        targetSha:pending.sha,queuedAt:pending.createdAt}};
     }
     // Older host agents do not write a heartbeat; remain compatible during
     // their one-time upgrade. New agents expose a real liveness timestamp.
