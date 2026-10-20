@@ -735,6 +735,30 @@ class MainActivity : Activity() {
             notify("已提交推送："+it.optJSONObject("channels")?.toString())
         }
     }
+    private fun copySafeCallDiagnostics(){
+        val nm=getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
+        val channel=nm.getNotificationChannel(CarMessagingService.CHANNEL)
+        val saved=getSharedPreferences("movecar_call_health",MODE_PRIVATE)
+        @Suppress("DEPRECATION")
+        val version=packageManager.getPackageInfo(packageName,0).versionName?:"unknown"
+        // No call IDs, access tokens, FCM tokens, phone numbers or URLs.
+        val report=listOf(
+            "MoveCar Owner "+version,
+            "Device: "+Build.MANUFACTURER+" "+Build.MODEL+" / SDK "+Build.VERSION.SDK_INT,
+            "Notifications: "+nm.areNotificationsEnabled(),
+            "Call channel importance: "+(channel?.importance?:0),
+            "Full-screen permission: "+(Build.VERSION.SDK_INT<34||nm.canUseFullScreenIntent()),
+            "Real FCM received at: "+saved.getLong("lastReceivedAt",0L),
+            "Incoming UI opened at: "+saved.getLong("lastUiOpenedAt",0L),
+            "Simulated call at: "+saved.getLong("lastTestReceivedAt",0L),
+            "Active native call: "+(OngoingCallService.currentCallId!=null),
+            "Call state: "+OngoingCallService.state
+        ).joinToString("\n")
+        val clipboard=getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("MoveCar diagnostics",report))
+        notify("诊断信息已复制（不含号码、域名、Token 或密钥）")
+    }
+
     private fun showCallPermissionStatus() {
         if(Build.VERSION.SDK_INT<26)return
         CarMessagingService.ensureIncomingCallChannel(this)
@@ -801,6 +825,7 @@ class MainActivity : Activity() {
                 },7000L)
             }
             note("模拟来电不使用 FCM 或香港服务器。若模拟也不亮屏，问题在三星通知/全屏权限；若模拟正常但真实来电不亮，则继续检查 FCM 到达后的流程。")
+            action("复制来电诊断（不含密钥）"){copySafeCallDiagnostics()}
             note("受系统权限、免打扰和省电策略影响，无法强制绕过用户关闭的锁屏提醒。")
         }
     }
@@ -1005,7 +1030,7 @@ class MainActivity : Activity() {
             action("更换服务器或域名"){confirm("切换后将返回登录界面，请输入新服务器 HTTPS 域名，使用管理员账号重新登录。原服务器数据不会删除。"){
                 clearLogin()
             }}
-            note("MoveCar Owner v0.8.0 · GitHub Releases 正式更新")
+            note("MoveCar Owner v"+packageManager.getPackageInfo(packageName,0).versionName+" · GitHub Releases 正式更新")
         }
     }
     private fun account(config:JSONObject){
