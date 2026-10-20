@@ -63,7 +63,7 @@ export function createVoiceFlow({db,setting,random,hash,notifyChannels,inputJson
       const route=u.pathname;
       if(!route.startsWith('/api/voice/'))return false;
       if(req.method!=='POST'){reply(res,405,'Method not allowed');return true;}
-      const data=await inputJson(req);
+      const data=await inputJson(req,route==='/api/voice/signal'?70000:16384);
       if(route==='/api/voice/start'){
         const record=matchesCaller(data);
         if(!record){fail(res,403,'挪车请求无效或已过期');return true;}
