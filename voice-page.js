@@ -17,7 +17,26 @@
   let connectedOnce=false,reconnectAttempts=0,lastIceRestart=0,restartInFlight=false;
   let pendingOffer=null,lastQualityReport=0,qualityInFlight=false;
   const pendingIce=[];
+  const unsentIce=[];
+  const MAX_OUTGOING_ICE=90;
   let pendingAnswer=null;
+  // ICE candidates can be lost when a VPN/TURN connection briefly stalls.
+  // Queue a bounded number, retry later, never block microphone or SDP.
+  const sendIce=async candidate=>{
+    if(closed)return;
+    if(!await signal('ice',candidate)){
+      if(unsentIce.length>=MAX_OUTGOING_ICE)unsentIce.shift();
+      unsentIce.push(candidate);
+    }
+  };
+  const flushIce=async()=>{
+    // Flush a small batch each successful signaling poll, preserving order.
+    for(let i=0;i<Math.min(12,unsentIce.length);i++){
+      const item=unsentIce[0];
+      if(!await signal('ice',item))break;
+      unsentIce.shift();
+    }
+  };
   const say=s=>{label.textContent=s;};
   async function api(endpoint,body){
     const r=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},
@@ -94,7 +113,7 @@
     if(sendEnd&&callId&&auth){
       api(endpoint('end'),{token:auth}).catch(()=>{});
     }
-    if(inCallAt)void sendQuality('ended');
+    if(inCallAt)await sendQuality('ended');
     releaseMedia();
     hangup.hidden=true;start.hidden=true;
     if(message)say(message);
@@ -128,7 +147,7 @@
       remote.srcObject=e.streams[0];
       remote.play().catch(()=>say('点按页面继续播放语音'));
     };
-    pc.onicecandidate=e=>{if(e.candidate)void signal('ice',e.candidate.toJSON());};
+    pc.onicecandidate=e=>{if(e.candidate)void sendIce(e.candidate.toJSON());};
     pc.onconnectionstatechange=()=>{
       if(closed||!pc)return;
       if(pc.connectionState==='connected'){
@@ -152,6 +171,7 @@
       const data=await api(endpoint('events'),{token:auth,after:last});
       pollFailures=0;
       if(closed)return;
+      if(unsentIce.length)await flushIce();
       if(['missed','rejected','ended','failed'].includes(data.status)){
         if(data.status==='failed'&&!owner){
           const ticket=await api(endpoint('retry'),{token:auth}).catch(()=>({}));
@@ -175,9 +195,9 @@
           const offer=await pc.createOffer({offerToReceiveAudio:true});
           await pc.setLocalDescription(offer);
         }
-        offerSent=await signal('offer',{
-          type:pc.localDescription.type,sdp:pc.localDescription.sdp
-        });
+        pendingOffer={type:pc.localDescription.type,sdp:pc.localDescription.sdp};
+        if(await signal('offer',pendingOffer)){offerSent=true;pendingOffer=null;}
+        else offerSent=false;
       }
       for(const event of data.events){
         last=Math.max(last,event.seq);
@@ -195,7 +215,7 @@
         }
       }
       if(pendingOffer&&!owner&&!restartInFlight){
-        if(await signal('offer',pendingOffer))pendingOffer=null;
+        if(await signal('offer',pendingOffer)){pendingOffer=null;offerSent=true;}
       }
       if(pendingAnswer){
         if(await signal('answer',pendingAnswer))pendingAnswer=null;
@@ -228,7 +248,7 @@
   async function begin(){
     closed=false;retrying=false;last=0;offerSent=false;inCallAt=0;connectSince=0;pollFailures=0;
     connectedOnce=false;reconnectAttempts=0;lastIceRestart=0;restartInFlight=false;pendingOffer=null;lastQualityReport=0;qualityInFlight=false;
-    callId='';auth='';pendingIce.length=0;pendingAnswer=null;timer.textContent='';
+    callId='';auth='';pendingIce.length=0;unsentIce.length=0;pendingAnswer=null;timer.textContent='';
     start.hidden=true;hangup.hidden=false;hangup.disabled=false;
     try{
       if(owner){

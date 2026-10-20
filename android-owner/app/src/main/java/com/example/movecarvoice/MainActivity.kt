@@ -773,9 +773,23 @@ class MainActivity : Activity() {
             val recent=getSharedPreferences("movecar_call_health",MODE_PRIVATE)
             val received=recent.getLong("lastReceivedAt",0L)
             val uiOpened=recent.getLong("lastUiOpenedAt",0L)
-            if(received>0)note("最近收到来电通知："+
-                formattedTime(received)+" · "+
-                (if(uiOpened>=received)"已显示来电界面" else "未观察到来电界面打开"))
+            if(received>0){
+                val shown=uiOpened>=received
+                note("最近收到来电："+formattedTime(received))
+                status(if(shown)"✓ 系统已打开来电界面" else "✕ 通知到达后未观察到来电界面",shown)
+                if(shown){
+                    val delay=(uiOpened-received).coerceAtLeast(0L)
+                    note("来电通知 → 来电页面打开："+delay+" 毫秒")
+                }else{
+                    note("FCM 已经到达手机，但系统没有打开来电页面。请优先检查全屏意图、锁屏通知渠道与省电限制，而非修改 TURN 端口。")
+                }
+                val fsi=recent.getBoolean("lastFullScreenAllowed",false)
+                val enabled=recent.getBoolean("lastNotificationsEnabled",false)
+                val importance=recent.getInt("lastChannelImportance",0)
+                note("当次来电权限：全屏 "+(if(fsi)"允许" else "未允许")+
+                    " · 通知 "+(if(enabled)"开启" else "关闭")+
+                    " · 渠道优先级 "+importance)
+            }
             else note("尚未记录到来电通知。若听不到铃声，请检查 FCM/VPN。")
             action("7 秒后模拟锁屏来电（现在按电源键锁屏）",primary=true){
                 CarMessagingService.ensureIncomingCallChannel(this)
