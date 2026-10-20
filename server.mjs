@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import vm from 'node:vm';
 import { DatabaseSync } from 'node:sqlite';
 import { createRequestFlow } from './request-flow.mjs';
+import { createVoiceFlow } from './voice-flow.mjs';
 
 const port = Number(process.env.PORT || 8888);
 const dbPath = path.resolve(process.env.DB_PATH || './data/state.sqlite');
@@ -106,9 +107,9 @@ function reply(res, status, body, headers={}) {
   res.end(body);
 }
 function json(res,status,obj,headers={}) { return reply(res,status,JSON.stringify(obj),{'Content-Type':'application/json; charset=utf-8',...headers}); }
-async function inputJson(req) {
+async function inputJson(req,maxBytes=16384) {
   let total = 0; const arr=[];
-  for await(const chunk of req) { total+=chunk.length; if(total>16384) throw Object.assign(Error('请求过大'),{status:413}); arr.push(chunk); }
+  for await(const chunk of req) { total+=chunk.length; if(total>maxBytes) throw Object.assign(Error('请求过大'),{status:413}); arr.push(chunk); }
   try { const obj=JSON.parse(Buffer.concat(arr).toString('utf8')); if(!obj || typeof obj!=='object'||Array.isArray(obj)) throw Error(); return obj; }
   catch { throw Object.assign(Error('JSON 数据无效'),{status:400}); }
 }
@@ -303,8 +304,8 @@ async function sendWorker(response,res,head=false){
         html=html.replace('<div class="icon-wrap"><span>🚗</span></div>','<div class="icon-wrap"><img src="/site-icon" alt="网站图标" style="width:70px;height:70px;object-fit:contain"></div>');
         html=html.replace('</head>','<link rel="icon" href="/site-icon"></head>');
       }
-      html=html.replace('</body>','<script src="/request-ui.js" defer></script></body>');
-      headers['content-security-policy']="frame-ancestors 'none'; img-src 'self' data: https:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'";
+      html=html.replace('</body>','<script src="/voice-client.js" defer></script><script src="/request-ui.js" defer></script></body>');
+      headers['content-security-policy']="frame-ancestors 'none'; img-src 'self' data: https:; media-src 'self' blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' stun: turn: turns:";
     }else if(html.includes('id="confirmBtn"')){
       // Existing/legacy owner links must not ask the owner for location either.
       const geoStart=html.indexOf('      // 点击确认按钮时，触发浏览器授权');
@@ -322,6 +323,7 @@ function staticFile(res,name,type) {
   reply(res,200,txt,{'Content-Type':type,'Content-Security-Policy':"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"});
 }
 const requestFlow=createRequestFlow({db,setting,random,hash,notifyChannels,inputJson,inputPhoto,json,reply,rateGet,ratePut});
+const voiceFlow=createVoiceFlow({db,setting,random,hash,notifyChannels,inputJson,json,reply});
 const failStats=new Map();
 setInterval(()=>{
  const now=Date.now();db.prepare('DELETE FROM kv WHERE expiry IS NOT NULL AND expiry<=?').run(now);
@@ -353,6 +355,8 @@ const server=http.createServer(async(req,res)=>{
     if(route==='/admin.js')return req.method==='GET'?staticFile(res,'admin.js','text/javascript; charset=utf-8'):reply(res,405,'Method not allowed');
     if(route==='/admin.css')return req.method==='GET'?staticFile(res,'admin.css','text/css; charset=utf-8'):reply(res,405,'Method not allowed');
     if(route==='/photo-ui.js')return req.method==='GET'?staticFile(res,'photo-ui.js','text/javascript; charset=utf-8'):reply(res,405,'Method not allowed');
+    if(route==='/voice-client.js')return req.method==='GET'?staticFile(res,'voice-client.js','text/javascript; charset=utf-8'):reply(res,405,'Method not allowed');
+    if(await voiceFlow.handle(req,res,origin,u))return;
     if(await requestFlow.handle(req,res,origin,u))return;
     if(route.startsWith('/api/admin/')){
       if(route==='/api/admin/login'&&req.method==='POST'){
