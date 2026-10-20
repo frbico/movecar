@@ -822,6 +822,51 @@ class MainActivity : Activity() {
             .setPositiveButton("前往设置"){_,_->navigate("settings")}
             .show()
     }
+    private fun checkAppUpdate(){
+        notify("正在检查 GitHub 正式版…")
+        Thread {
+            val result=runCatching{ReleaseUpdates.check()}
+            runOnUiThread {
+                if(isFinishing||isDestroyed)return@runOnUiThread
+                result.onSuccess{latest->
+                    @Suppress("DEPRECATION")
+                    val installed=packageManager.getPackageInfo(packageName,0).versionName?:"0.0.0"
+                    when{
+                        latest==null -> AlertDialog.Builder(this)
+                            .setTitle("暂时没有可安装的正式版本")
+                            .setMessage("GitHub Releases 尚无使用固定签名发布的 MoveCar APK。测试版不能当作正式更新。")
+                            .setNegativeButton("关闭",null)
+                            .setPositiveButton("打开 Releases"){_,_->browse(ReleaseUpdates.RELEASES_PAGE)}
+                            .show()
+                        ReleaseUpdates.isNewer(installed,latest.version)->
+                            AlertDialog.Builder(this)
+                                .setTitle("发现 MoveCar v"+latest.version)
+                                .setMessage("当前安装 v"+installed+"。更新包来自官方 GitHub Releases。\\n\\n"+
+                                    "下载后通过 Android 安装器确认；如果旧版 APK 的签名不同，系统会拒绝覆盖安装。不会自动卸载或删除 APP 数据。")
+                                .setNegativeButton("稍后",null)
+                                .setNeutralButton("查看发布说明"){_,_->browse(latest.pageUrl)}
+                                .setPositiveButton("下载正式 APK"){_,_->browse(latest.apkUrl)}
+                                .show()
+                        else -> AlertDialog.Builder(this)
+                            .setTitle("当前已经是最新版本")
+                            .setMessage("已安装 v"+installed+"；GitHub Releases 最新正式版为 v"+latest.version+"。")
+                            .setNegativeButton("关闭",null)
+                            .setPositiveButton("查看 Releases"){_,_->browse(ReleaseUpdates.RELEASES_PAGE)}
+                            .show()
+                    }
+                }.onFailure{error->
+                    AlertDialog.Builder(this)
+                        .setTitle("检查更新失败")
+                        .setMessage((error.message?:"网络错误")+
+                            "\\n请检查网络是否能够访问 GitHub。不会因此更改已安装的 APP。")
+                        .setNegativeButton("关闭",null)
+                        .setPositiveButton("打开 Releases"){_,_->browse(ReleaseUpdates.RELEASES_PAGE)}
+                        .show()
+                }
+            }
+        }.start()
+    }
+
     private fun settings(config:JSONObject){
         shell("设置")
         showCallPermissionStatus()
@@ -929,6 +974,15 @@ class MainActivity : Activity() {
                 }
             }}
         }
+        section("APP 版本更新","仅从 GitHub Releases 下载固定签名的正式 APK，安装前由系统确认。")
+        inCard{
+            @Suppress("DEPRECATION")
+            val installed=packageManager.getPackageInfo(packageName,0).versionName?:"未知"
+            status("已安装 MoveCar Owner v"+installed,true)
+            action("检查 Android APP 更新",primary=true){checkAppUpdate()}
+            action("查看 GitHub Releases ↗"){browse(ReleaseUpdates.RELEASES_PAGE)}
+            note("首次从 Debug 测试版迁移到正式签名版本可能无法覆盖安装。请先保留服务器账号与设置，并核对已安装包的签名。")
+        }
         section("账户及更多")
         inCard{
             action("管理员账号与安全"){navigate("account")}
@@ -951,7 +1005,7 @@ class MainActivity : Activity() {
             action("更换服务器或域名"){confirm("切换后将返回登录界面，请输入新服务器 HTTPS 域名，使用管理员账号重新登录。原服务器数据不会删除。"){
                 clearLogin()
             }}
-            note("MoveCar Owner v0.7.2 · 来电状态核验与弱网去重")
+            note("MoveCar Owner v0.8.0 · GitHub Releases 正式更新")
         }
     }
     private fun account(config:JSONObject){
