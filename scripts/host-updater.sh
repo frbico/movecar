@@ -25,7 +25,7 @@ import os,json,time,tempfile
 dst=os.environ['MC_STATUS']
 obj={'state':os.environ['MC_STATE'],'message':os.environ['MC_MESSAGE'][:280],
      'currentSha':os.environ['MC_OLD'],'targetSha':os.environ['MC_NEW'],
-     'updatedAt':int(time.time()*1000)}
+     'updatedAt':int(time.time()*1000),'lastHeartbeatAt':int(time.time()*1000)}
 fd,tmp=tempfile.mkstemp(prefix='.update-',dir=os.path.dirname(dst))
 try:
  with os.fdopen(fd,'w') as f:json.dump(obj,f,ensure_ascii=False)
@@ -66,6 +66,25 @@ EOF
   else
     echo 'Warning: systemd unavailable, set up host root cron to run host-updater.sh service.'
   fi
+}
+heartbeat(){
+  # A host timer can exist but be disabled. Refresh a private heartbeat on
+  # every service invocation without erasing the last success/error result.
+  MC_STATUS="$STATUS" python3 - <<'PY'
+import os,json,time,tempfile
+dst=os.environ['MC_STATUS']
+try:
+ with open(dst,encoding='utf8') as f: obj=json.load(f)
+ if not isinstance(obj,dict):obj={}
+except (OSError,ValueError):obj={'state':'idle','message':'主机更新助手已启动'}
+obj['lastHeartbeatAt']=int(time.time()*1000)
+fd,tmp=tempfile.mkstemp(prefix='.heartbeat-',dir=os.path.dirname(dst))
+try:
+ with os.fdopen(fd,'w') as f:json.dump(obj,f,ensure_ascii=False)
+ os.chmod(tmp,0o600);os.chown(tmp,1000,1000);os.replace(tmp,dst)
+finally:
+ if os.path.exists(tmp):os.unlink(tmp)
+PY
 }
 if [[ "$MODE" == install ]];then
   install_timer
@@ -129,6 +148,7 @@ record_failure(){
 }
 trap record_failure EXIT
 if [[ "$MODE" == service ]];then
+  heartbeat
   [[ -s "$REQUEST" ]] || exit 0
   TARGET="$(python3 - "$REQUEST" <<'PY'
 import json,re,sys,time
