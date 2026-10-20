@@ -1,7 +1,7 @@
 name: Android debug APK
 on:
   push:
-    branches: [feature/native-screen-off-voip, feature/owner-mobile-dashboard, feature/owner-ui-v0.4, feature/voice-network-reliability, feature/onepanel-turn-portable, feature/mobile-v05-whatsapp-reliability, feature/call-permissions-voice-limits, feature/scan-flow-ui-v06, feature/v061-call-reliability, feature/voice-stability-v061, feature/native-audio-route-v071-20261020, feature/v072-incoming-freshness-20261020, release/stable, main]
+    branches: [feature/native-screen-off-voip, feature/owner-mobile-dashboard, feature/owner-ui-v0.4, feature/voice-network-reliability, feature/onepanel-turn-portable, feature/mobile-v05-whatsapp-reliability, feature/call-permissions-voice-limits, feature/scan-flow-ui-v06, feature/v061-call-reliability, feature/voice-stability-v061, feature/native-audio-route-v071-20261020, feature/v072-incoming-freshness-20261020, feature/android-releases-v080-20261020, release/stable, main]
     paths:
       - 'android-owner/**'
       - '.github/workflows/android-ci.yml'
@@ -57,11 +57,6 @@ jobs:
           fi
       - name: Compile Android owner app
         working-directory: android-owner
-        run: gradle --no-daemon --stacktrace :app:assembleDebug
-      - name: Upload CI-only debug APK (Firebase is a placeholder)
-        uses: actions/upload-artifact@v4
-        with:
-          name: movecar-owner-${{ env.CONFIGURED_FIREBASE == 'true' && 'configured-debug' || 'CI-only-unconfigured' }}
-          path: android-owner/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-          retention-days: 3
+        run: gradle --no-daemon --stacktrace :app:assembleDebug :app:testDebugUnitTest
+      - name: Verify debug compilation (CI only, not a distributed APK)
+        run: test -s android-owner/app/build/outputs/apk/debug/app-debug.apk
