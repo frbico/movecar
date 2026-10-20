@@ -110,6 +110,7 @@
     if(!button)return;
     button.disabled=false;
     button.title='匿名网络语音通话';
+    if(button.id==='voiceUnavailableBtn')button.id='voiceCallBtn';
     button.removeAttribute('aria-label');
     button.style.cssText='display:block;width:100%;margin:0;padding:16px 12px;border-radius:16px;border:none;background:#2475c4;color:white;font-size:17px;font-weight:700';
     let active=null;
@@ -156,7 +157,7 @@
     row.appendChild(answer);row.appendChild(decline);
     container.appendChild(header);container.appendChild(statusNode);container.appendChild(row);
     const ui=elements(container);ui.area.hidden=true;
-    let active=null,offer=null,pollBusy=false;
+    let active=null,offer=null,pollBusy=false,lastRinging='';
     const poll=async()=>{
       if(active||pollBusy)return;
       pollBusy=true;
@@ -167,9 +168,10 @@
           offer=incoming;
           answer.hidden=decline.hidden=false;
           statusNode.textContent='有人请求语音通话，是否接听？';
-          if(navigator.vibrate)navigator.vibrate(100);
+          if(lastRinging!==incoming.callId&&navigator.vibrate)navigator.vibrate(100);
+          lastRinging=incoming.callId;
         }else if(!incoming){
-          offer=null;
+          offer=null;lastRinging='';
           answer.hidden=decline.hidden=true;
           statusNode.textContent='等待可能的语音呼叫…';
         }
