@@ -190,3 +190,59 @@ docker compose -f compose.yaml ps
 - **隐私与安全**：历史记录接口仅管理员可读；修改、删除、上传图标受管理员登录和 CSRF 校验保护。公开网站只返回显示所需的站点名称和微信号，不公开管理员密码及通知密钥。
 
 升级 Docker 后如果出现页面缓存问题可强制刷新。首次启用微信联系请先在后台设置微信号并保存。
+
+
+## 2026-10-20：匿名网络语音 WebRTC（浏览器端）
+
+- 路人成功发送挪车通知后，第二屏可点击「语音通话」，必须允许使用麦克风。**无需透露车主手机号**。
+- 服务端创建独立、短期有效的呼叫，额外向现有 Bark / 微信 / SC3 通知渠道发送「语音来电」消息；车主打开该条消息提供的**本次挪车确认链接**，在网页上点击「接听语音」或者「拒接」。车主无需登录后台。
+- **当前是浏览器对浏览器通话，不是 Android 原生 APK 来电**。车主需要打开该链接并点击接听；后台锁屏唤醒、Android FCM 铃声以及耳机/听筒切换不在此版本范围。浏览器页面进入后台或锁屏后，实时轮询可能被系统暂停。
+- 必须通过可公开访问的 **HTTPS** 域名运行网页，否则 Chrome/Safari 通常禁止麦克风权限。各端需支持 WebRTC。音频由浏览器 DTLS-SRTP 加密，经 ICE 优先直连，直连失败时可通过可选 TURN 中继；MoveCar HTTP 服务只转发认证后的 SDP/ICE 信令，不保存音频。
+- 每次呼叫最多响铃约 75 秒；通话会话最多 15 分钟；同一条挪车请求十分钟内最多发起三次语音呼叫，并设置呼叫间隔。服务重启后正在进行的通话会断开；挪车记录和照片不受影响。
+- 没有配置 TURN 时仍可尝试直连，但中国大陆网络、移动运营商 NAT、VPN 等环境可能失败，**不能保证接通**。真正确保跨 NAT 连通需要独立可达的 coturn（建议部署在你的香港服务器）。
+
+### 香港 coturn 推荐配置（与网站反向代理可运行在同一主机）
+
+在宿主机或单独 coturn 容器配置：
+
+```ini
+listening-port=3478
+tls-listening-port=5349
+realm=turn.example.com
+fingerprint
+lt-cred-mech
+use-auth-secret
+static-auth-secret=替换成与_TURN_SHARED_SECRET_相同的高强度随机密钥
+min-port=49160
+max-port=49260
+no-cli
+```
+
+设置公网 IP/映射（若服务器存在 NAT）、TLS 证书与私钥，开放 **3478 TCP/UDP、5349 TCP（启用 TURN TLS 时）、49160–49260 UDP**，并按运营商网络情况调整服务器安全组/防火墙。不要开放 Docker Socket 给网页容器。
+
+在 MoveCar 项目宿主机的 `.env` 中增加（将域名和密钥替换为真实值）：
+
+```dotenv
+STUN_URLS=stun:turn.example.com:3478
+TURN_URLS=turn:turn.example.com:3478?transport=udp,turn:turn.example.com:3478?transport=tcp,turns:turn.example.com:5349?transport=tcp
+TURN_SHARED_SECRET=与coturn静态认证密钥一致的长随机字符串
+```
+
+服务器用该密钥生成一小时有效的 coturn REST 凭据，客户端仅收到临时用户名及 HMAC，不会获得共享密钥本身。TURN 服务器必须开启 REST shared-secret 认证；此方式**不兼容**仅配置固定用户名密码的普通 TURN。
+
+### 更新现有实例
+
+```bash
+git pull --ff-only origin main
+docker compose up -d --build
+docker compose ps
+```
+
+更新时不会主动删除 SQLite 数据卷；**不要执行 `docker compose down -v`**。仓库的 GitHub Actions 只进行测试和 Docker 构建检查；目前没有从 GitHub 自动远程部署到你的服务器，也没有可独立完成容器重启的网页后台更新功能。必须使用你已有的服务器管理面板或上述命令执行更新。
+
+### 验收建议
+
+1. 网页以 HTTPS 访问，用手机 A 扫码后发送通知，再点击「语音通话」并允许麦克风。
+2. 手机 B 打开新收到的「语音来电」推送中的确认链接，点击接听并允许麦克风。
+3. 双方听音、挂断、拒接、无人接听超时；测试直连和强制不同移动运营商 / VPN 环境下的 TURN 回退。
+4. 检查微信/电话按钮、照片及原有挪车确认流程不受影响。测试无法替代真实 Android/网络环境验收。
