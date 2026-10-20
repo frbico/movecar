@@ -13,24 +13,37 @@ import android.widget.*
 class VoiceActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var status: TextView
+    private lateinit var duration: TextView
     private lateinit var speaker: Button
+    private lateinit var hang: Button
     private var id = ""
     private var pendingAuth: String? = null
     private var openedAt = SystemClock.elapsedRealtime()
     private var callWasActive = false
     private val updateUi = object: Runnable {
         override fun run() {
-            val activeId = OngoingCallService.currentCallId
-            if (activeId != null && activeId == id) callWasActive = true
-            if (activeId == null && pendingAuth == null &&
-                (callWasActive || SystemClock.elapsedRealtime() - openedAt > 4500L)) {
-                // Server ended the call or the service has already stopped.
-                // Dismiss the call UI automatically; no extra Hang Up tap.
+            val activeId=OngoingCallService.currentCallId
+            val matching=CallUiState.matchesActiveCall(id,activeId)
+            if(matching)callWasActive=true
+            if(!matching && pendingAuth==null &&
+                (callWasActive || SystemClock.elapsedRealtime()-openedAt>9500L)){
+                // A stale page must never control the next caller's session.
                 finish()
                 return
             }
-            status.text = OngoingCallService.state
-            speaker.text = if (OngoingCallService.speakerEnabled) "关闭免提" else "开启免提"
+            if(matching){
+                val ui=CallUiState.display(OngoingCallService.state,
+                    OngoingCallService.connectedAtElapsedMs,SystemClock.elapsedRealtime(),true)
+                status.text=ui.detail
+                duration.text=ui.duration
+            }else{
+                status.text="正在初始化本次通话…"
+                duration.text="等待接通"
+            }
+            speaker.isEnabled=matching
+            hang.isEnabled=matching
+            speaker.alpha=if(matching)1f else 0.5f
+            speaker.text=if(OngoingCallService.speakerEnabled)"关闭免提" else "开启免提"
             handler.postDelayed(this,350)
         }
     }
@@ -38,8 +51,8 @@ class VoiceActivity : Activity() {
         super.onCreate(savedInstanceState)
         val d=resources.displayMetrics.density
         fun dp(x:Int)=(x*d+0.5f).toInt()
-        window.statusBarColor=0xFF075E54.toInt()
-        window.navigationBarColor=0xFF075E54.toInt()
+        window.statusBarColor=OwnerUi.blueDeep
+        window.navigationBarColor=OwnerUi.blueDeep
         val panel=OwnerUi.vertical(this).apply{
             gravity=Gravity.CENTER
             background=OwnerUi.gradient(this@VoiceActivity)
@@ -59,9 +72,14 @@ class VoiceActivity : Activity() {
         panel.addView(OwnerUi.label(this,"挪车网络通话",25f,OwnerUi.white,true).apply{
             gravity=Gravity.CENTER
         })
+        duration=OwnerUi.label(this,"等待接通",30f,OwnerUi.white,true).apply{
+            gravity=Gravity.CENTER
+            setPadding(0,dp(24),0,dp(4))
+        }
+        panel.addView(duration)
         status=OwnerUi.label(this,"连接中…",15f,0xFFDEE9FF.toInt()).apply{
             gravity=Gravity.CENTER
-            setPadding(0,dp(12),0,dp(52))
+            setPadding(0,dp(10),0,dp(40))
         }
         panel.addView(status)
         val actions=OwnerUi.horizontal(this)
@@ -73,7 +91,7 @@ class VoiceActivity : Activity() {
             background=OwnerUi.pressable(this@VoiceActivity,OwnerUi.white,20)
             minHeight=dp(64)
         }
-        val hang=Button(this).apply{
+        hang=Button(this).apply{
             text="挂断"
             isAllCaps=false
             textSize=17f
@@ -90,10 +108,14 @@ class VoiceActivity : Activity() {
         })
         setContentView(panel)
         speaker.setOnClickListener {
-            startService(Intent(this,OngoingCallService::class.java).setAction(OngoingCallService.ACTION_SPEAKER))
+            if(!CallUiState.matchesActiveCall(id,OngoingCallService.currentCallId))return@setOnClickListener
+            startService(Intent(this,OngoingCallService::class.java)
+                .setAction(OngoingCallService.ACTION_SPEAKER).putExtra("callId",id))
         }
         hang.setOnClickListener {
-            startService(Intent(this,OngoingCallService::class.java).setAction(OngoingCallService.ACTION_END))
+            if(!CallUiState.matchesActiveCall(id,OngoingCallService.currentCallId))return@setOnClickListener
+            startService(Intent(this,OngoingCallService::class.java)
+                .setAction(OngoingCallService.ACTION_END).putExtra("callId",id))
             finish()
         }
         val callId = intent.getStringExtra("callId")
@@ -106,14 +128,22 @@ class VoiceActivity : Activity() {
             // Do not keep private bearer tokens in the Activity intent after handoff.
             intent.removeExtra("ownerToken")
         } else {
-            // Return-to-call from the ongoing notification carries no bearer
-            // token. Reattach to the already running foreground service.
-            id = OngoingCallService.currentCallId.orEmpty()
-            if (id.isBlank()) status.text="暂无进行中的通话"
-            else callWasActive=true
+            // Return-to-call can outlive the notification's original session.
+            val expected=intent.getStringExtra("callId")
+            val active=OngoingCallService.currentCallId
+            if(expected!=null && !CallUiState.matchesActiveCall(expected,active)){
+                finish();return
+            }
+            id=active.orEmpty()
+            if(id.isBlank()){finish();return}
+            callWasActive=true
         }
     }
-    override fun onResume() { super.onResume();handler.post(updateUi) }
+    override fun onResume() {
+        super.onResume()
+        handler.removeCallbacks(updateUi)
+        handler.post(updateUi)
+    }
     override fun onPostResume() {
         super.onPostResume()
         // API 34+ requires the microphone foreground service to start while this
