@@ -42,4 +42,5 @@ dependencies {
     implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
     implementation("com.google.firebase:firebase-messaging")
     implementation("io.github.webrtc-sdk:android:150.7871.01")
+    testImplementation("junit:junit:4.13.2")
 }
