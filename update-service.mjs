@@ -23,7 +23,32 @@ export function createUpdateService({
   const current=safeRead(releasePath)||{version:'unknown',changes:[]};
   const version=()=>({version:String(current.version||'unknown'),sha:localSha||'',channel:'stable'});
   const status=()=>{
-    const host=safeRead(statusFile)||{state:'not_configured',message:'等待安装程序安装后台更新助手'};
+    const saved=safeRead(statusFile);
+    const host=saved||{state:'not_configured',message:'请先安装服务器后台更新助手'};
+    const pending=safeRead(requestFile);
+    // Host updater runs outside the container. Distinguish a pending job
+    // from the previous successful/idle status and detect a stuck queue.
+    if(pending?.channel===CHANNEL&&hashRegex.test(pending.sha||'')&&
+       Number.isSafeInteger(pending.createdAt)){
+      const age=Date.now()-pending.createdAt;
+      // A stale request file is a stalled queue even if its status file was
+      // touched more recently (e.g. host helper restarted but never consumed it).
+      if(age>=20*60*1000 || age<0)
+        return {...version(),host:{...host,state:'stalled',
+          message:'更新任务超过 20 分钟仍未处理，请检查主机更新服务及日志',
+          targetSha:pending.sha,queuedAt:pending.createdAt}};
+      if(Number(host.updatedAt||0)<pending.createdAt)
+        return {...version(),host:{...host,state:'queued',
+          message:'更新任务已排队，等待宿主机更新助手执行',
+          targetSha:pending.sha,queuedAt:pending.createdAt}};
+    }
+    // Older host agents do not write a heartbeat; remain compatible during
+    // their one-time upgrade. New agents expose a real liveness timestamp.
+    if(Number.isSafeInteger(host.lastHeartbeatAt)&&
+       Date.now()-host.lastHeartbeatAt>120000 &&
+       !['running','rollback'].includes(host.state))
+      return {...version(),host:{...host,state:'offline',
+        message:'主机更新助手超过 2 分钟没有心跳，请检查 systemd timer'}};
     return {...version(),host};
   };
   async function check(){
@@ -58,17 +83,23 @@ export function createUpdateService({
     const latest=await check();
     if(latest.latest.sha!==sha)throw err('发现更新版本已经变化，请重新检查后确认');
     if(localSha===sha)return {ok:false,message:'当前已经是最新版'};
-    const prior=safeRead(requestFile);
-    if(prior && Date.now()-(prior.createdAt||0)<20*60*1000)
-      throw err('已经有更新任务等待执行，请查看升级状态',409);
     if(!fs.existsSync(runtimeDir))throw err('更新任务目录尚未配置，请先安装后台升级助手',503);
+    if(!safeRead(statusFile))throw err('宿主机更新助手尚未安装，请先在服务器完成一次初始化',503);
+    if(status().host.state==='offline')throw err('主机更新助手已离线，请检查 systemd 服务后再提交更新',503);
+    if(fs.existsSync(requestFile))
+      throw err('已有更新任务尚未处理，请检查主机更新助手状态，不会覆盖原任务',409);
     const request={sha,channel:CHANNEL,id:crypto.randomUUID(),createdAt:Date.now()};
     const temp=path.join(runtimeDir,'.update-request-'+crypto.randomBytes(5).toString('hex'));
     try{
       fs.writeFileSync(temp,JSON.stringify(request),{mode:0o600,flag:'wx'});
-      fs.renameSync(temp,requestFile);
+      // rename() silently replaces another pending request. A hard link is
+      // atomic and fails with EEXIST, protecting concurrent admin requests.
+      try{fs.linkSync(temp,requestFile);}catch(e){
+        if(e.code==='EEXIST')throw err('已有更新任务正在排队，请勿重复提交',409);
+        throw e;
+      }
     }finally{try{fs.unlinkSync(temp);}catch{}}
-    return {ok:true,message:'已提交升级任务，请等待自动备份、部署和健康检查',requestId:request.id};
+    return {ok:true,message:'更新已排队：主机将先备份，再部署并验证；请在本页查看状态',requestId:request.id};
   }
   return {version,status,check,requestUpdate};
 }

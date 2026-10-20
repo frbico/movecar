@@ -9,6 +9,9 @@ const SHA1='a'.repeat(40),SHA2='b'.repeat(40);
 const fixture=()=>{
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'movecar-upgrade-'));
  fs.writeFileSync(path.join(dir,'release.json'),JSON.stringify({version:'0.5.1'}));
+ fs.writeFileSync(path.join(dir,'update-status.json'),JSON.stringify({
+   state:'idle',message:'网页更新助手已就绪',updatedAt:Date.now()-5000
+ }));
  let requested=[];
  const fetcher=async (url)=> {
    requested.push(url);
@@ -42,7 +45,11 @@ test('queues a single bounded update request, never executes shell commands',asy
   assert.equal(marker.channel,'release/stable');
   assert.ok(/^[0-9a-f-]{36}$/.test(marker.id));
   assert.equal(fs.statSync(path.join(f.dir,'update-request.json')).mode&0o777,0o600);
-  await assert.rejects(()=>f.service.requestUpdate(SHA2),/已经有更新任务/);
+  await assert.rejects(()=>f.service.requestUpdate(SHA2),/已有更新任务/);
+  const queued=f.service.status().host;
+  assert.equal(queued.state,'queued');
+  assert.equal(queued.targetSha,SHA2);
+  assert.match(queued.message,/已排队/);
  }finally{f.clean();}
 });
 test('no update available when the current installed commit equals remote',async()=>{
@@ -54,5 +61,57 @@ test('no update available when the current installed commit equals remote',async
   });
   assert.equal((await service.check()).available,false);
   assert.equal((await service.requestUpdate(SHA2)).ok,false);
+ }finally{f.clean();}
+});
+
+test('does not queue without a running host update assistant',async()=>{
+ const f=fixture();
+ try{
+  fs.rmSync(path.join(f.dir,'update-status.json'));
+  assert.equal(f.service.status().host.state,'not_configured');
+  await assert.rejects(()=>f.service.requestUpdate(SHA2),e=>e.status===503&&/助手/.test(e.message));
+  assert.equal(fs.existsSync(path.join(f.dir,'update-request.json')),false);
+ }finally{f.clean();}
+});
+test('a pending update is never replaced even when stale',async()=>{
+ const f=fixture();
+ try{
+  const first=await f.service.requestUpdate(SHA2);
+  assert.equal(first.ok,true);
+  const jobPath=path.join(f.dir,'update-request.json');
+  const original=JSON.parse(fs.readFileSync(jobPath,'utf8'));
+  const stale= {...original,createdAt:Date.now()-25*60*1000};
+  fs.writeFileSync(jobPath,JSON.stringify(stale));
+  assert.equal(f.service.status().host.state,'stalled');
+  await assert.rejects(()=>f.service.requestUpdate(SHA2),e=>e.status===409);
+  assert.deepEqual(JSON.parse(fs.readFileSync(jobPath,'utf8')),stale);
+ }finally{f.clean();}
+});
+test('atomic pending-job creation refuses a concurrent file instead of replacing it',async()=>{
+ const f=fixture();
+ const target=path.join(f.dir,'update-request.json');
+ const originalLink=fs.linkSync;
+ try{
+  fs.linkSync=(source,destination)=>{
+    fs.writeFileSync(destination,JSON.stringify({existing:true,createdAt:Date.now()}),{flag:'wx'});
+    const err=new Error('File exists');err.code='EEXIST';throw err;
+  };
+  await assert.rejects(()=>f.service.requestUpdate(SHA2),e=>e.status===409);
+  assert.equal(JSON.parse(fs.readFileSync(target,'utf8')).existing,true);
+ }finally{fs.linkSync=originalLink;f.clean();}
+});
+
+test('new host heartbeats allow updates; an offline helper blocks them safely',async()=>{
+ const f=fixture();
+ try{
+  const file=path.join(f.dir,'update-status.json');
+  const old={state:'success',updatedAt:Date.now()-300000,lastHeartbeatAt:Date.now()-180000};
+  fs.writeFileSync(file,JSON.stringify(old));
+  assert.equal(f.service.status().host.state,'offline');
+  await assert.rejects(()=>f.service.requestUpdate(SHA2),e=>e.status===503&&/离线/.test(e.message));
+  assert.equal(fs.existsSync(path.join(f.dir,'update-request.json')),false);
+  fs.writeFileSync(file,JSON.stringify({...old,lastHeartbeatAt:Date.now()}));
+  assert.equal(f.service.status().host.state,'success');
+  assert.equal((await f.service.requestUpdate(SHA2)).ok,true);
  }finally{f.clean();}
 });
