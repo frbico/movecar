@@ -8,6 +8,8 @@ import android.os.Bundle
 import android.view.Gravity
 import android.view.WindowManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.widget.*
 import org.json.JSONObject
 
@@ -16,6 +18,21 @@ class IncomingCallActivity : Activity() {
     private var testIncoming = false
     private lateinit var state: TextView
     private var busy = false
+    private var verifying = false
+    private var acceptButton: Button? = null
+    private var rejectButton: Button? = null
+    private val refreshHandler=Handler(Looper.getMainLooper())
+    private val refreshIncoming=object:Runnable {
+        override fun run() {
+            if(!isFinishing&&!isDestroyed&&!testIncoming&&!busy) {
+                val accept=acceptButton
+                val reject=rejectButton
+                if(accept!=null&&reject!=null)verifyIncoming(accept,reject,false)
+            }
+            if(!isFinishing&&!isDestroyed&&!testIncoming)
+                refreshHandler.postDelayed(this,2500L)
+        }
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (Build.VERSION.SDK_INT >= 27) {
@@ -83,6 +100,8 @@ class IncomingCallActivity : Activity() {
             background=OwnerUi.pressable(this@IncomingCallActivity,OwnerUi.red,24)
             minHeight=dp(64)
         }
+        acceptButton=accept
+        rejectButton=reject
         if(!testIncoming){accept.isEnabled=false;reject.isEnabled=false}
         buttons.addView(reject,LinearLayout.LayoutParams(0,dp(64),1f).apply{marginEnd=dp(9)})
         buttons.addView(accept,LinearLayout.LayoutParams(0,dp(64),1f).apply{marginStart=dp(9)})
@@ -97,21 +116,43 @@ class IncomingCallActivity : Activity() {
                 return@setOnClickListener
             }
             if (busy) return@setOnClickListener
-            busy=true;CarMessagingService.cancel(this,callId)
-            Thread { runCatching { VoiceApi.post(VoiceApi.base(this),"/api/voice/calls/$callId/reject",JSONObject(),VoiceApi.auth(this)) };runOnUiThread{finish()} }.start()
+            busy=true
+            state.text="正在拒接…"
+            accept.isEnabled=false
+            reject.isEnabled=false
+            Thread {
+                val result=runCatching {
+                    VoiceApi.post(VoiceApi.base(this),"/api/voice/calls/$callId/reject",JSONObject(),VoiceApi.auth(this))
+                }
+                runOnUiThread {
+                    if(isFinishing||isDestroyed)return@runOnUiThread
+                    result.onSuccess {
+                        CarMessagingService.cancel(this,callId)
+                        finish()
+                    }.onFailure {
+                        busy=false
+                        state.text="拒接未送达："+(it.message?:"网络异常")+"，请重试"
+                        accept.isEnabled=true
+                        reject.isEnabled=true
+                    }
+                }
+            }.start()
         }
         if(!testIncoming)verifyIncoming(accept,reject,intent.getBooleanExtra("answer",false))
     }
 
     private fun verifyIncoming(acceptButton:Button,rejectButton:Button,autoAnswer:Boolean){
-        state.text="正在确认来电状态…"
+        if(verifying||busy)return
+        verifying=true
+        if(!acceptButton.isEnabled)state.text="正在确认来电状态…"
         Thread {
             val result=runCatching {
                 VoiceApi.post(VoiceApi.base(this),
                     "/api/voice/calls/$callId/incoming",JSONObject(),VoiceApi.auth(this))
             }
             runOnUiThread {
-                if(isFinishing||isDestroyed)return@runOnUiThread
+                verifying=false
+                if(isFinishing||isDestroyed||busy)return@runOnUiThread
                 result.onSuccess { data ->
                     if(data.optBoolean("ringing",false)){
                         state.text="有人请求你挪车"
@@ -146,17 +187,38 @@ class IncomingCallActivity : Activity() {
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 42);return
         }
-        busy=true;state.text="正在接通…";CarMessagingService.cancel(this,callId)
+        busy=true;state.text="正在接通…"
+        acceptButton?.isEnabled=false
+        rejectButton?.isEnabled=false
         Thread {
             val result=runCatching { VoiceApi.post(VoiceApi.base(this),"/api/voice/calls/$callId/answer",JSONObject(),VoiceApi.auth(this)) }
             runOnUiThread {
+                if(isFinishing||isDestroyed)return@runOnUiThread
                 result.onSuccess { r ->
-                    startActivity(Intent(this,VoiceActivity::class.java).putExtra("callId",callId).putExtra("ownerToken",r.getString("ownerToken")))
+                    CarMessagingService.cancel(this,callId)
+                    startActivity(Intent(this,VoiceActivity::class.java)
+                        .putExtra("callId",callId).putExtra("ownerToken",r.getString("ownerToken")))
                     finish()
-                }.onFailure { busy=false;state.text="接听失败：${it.message}" }
+                }.onFailure {
+                    busy=false
+                    state.text="接听失败："+(it.message?:"网络异常")
+                    acceptButton?.isEnabled=true
+                    rejectButton?.isEnabled=true
+                }
             }
         }.start()
     }
+    override fun onResume(){
+        super.onResume()
+        refreshHandler.removeCallbacks(refreshIncoming)
+        if(!testIncoming)refreshHandler.postDelayed(refreshIncoming,2500L)
+    }
+
+    override fun onPause(){
+        refreshHandler.removeCallbacks(refreshIncoming)
+        super.onPause()
+    }
+
     override fun onRequestPermissionsResult(requestCode:Int,permissions:Array<out String>,results:IntArray) {
         super.onRequestPermissionsResult(requestCode,permissions,results)
         if (requestCode==42 && results.firstOrNull()==PackageManager.PERMISSION_GRANTED) accept()
