@@ -77,11 +77,13 @@ class OngoingCallService : Service() {
             ACTION_END -> {
                 if (CallUiState.matchesActiveCall(intent.getStringExtra("callId"),currentCallId))
                     finishCall(true)
+                else if(currentCallId==null)stopSelf(startId)
                 return START_NOT_STICKY
             }
             ACTION_SPEAKER -> {
                 if (CallUiState.matchesActiveCall(intent.getStringExtra("callId"),currentCallId))
                     toggleSpeaker()
+                else if(currentCallId==null)stopSelf(startId)
                 return START_NOT_STICKY
             }
             ACTION_START -> {
