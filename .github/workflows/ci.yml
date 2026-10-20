@@ -18,6 +18,8 @@ jobs:
           node --check server.mjs
           node --check admin.js
           node --check request-flow.mjs
+          node --check voice-flow.mjs
+          node --check voice-client.js
           node --check request-ui.js
           node --check owner-view.js
           bash scripts/fetch-upstream.sh
