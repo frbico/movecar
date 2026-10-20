@@ -67,6 +67,34 @@ test('owner pairing, caller starts, call offer/answer, finish',async()=>withServ
   assert.equal((await post(callRoute('events'),{token:ownerToken,after:2})).body.status,'ended');
 }));
 
+test('only the paired owner can check live-call freshness and stale FCM alerts',async()=>withServer(async({post,clockForward})=>{
+ const reg=await post('/api/voice/device/register',{
+   pairingSecret:'test-voice-secret-which-is-long-and-private',
+   fcmToken:'fcm:abc_this-is-a-pretend-token-xxxxxxxxx'
+ });
+ const auth=reg.body.deviceAuth;
+ const created=await post('/api/voice/start');
+ const url='/api/voice/calls/'+created.body.callId+'/incoming';
+ assert.equal((await post(url)).status,401,'a passerby cannot inspect a call');
+ assert.equal((await post(url,{},'x'.repeat(43))).status,401,'other owner auth is rejected');
+ let state=await post(url,{},auth);
+ assert.equal(state.status,200);
+ assert.deepEqual(state.body,{status:'ringing',ringing:true});
+ assert.equal(JSON.stringify(state.body).includes(created.body.token),false,'caller token must remain private');
+ const accepted=await post('/api/voice/calls/'+created.body.callId+'/answer',{},auth);
+ assert.equal(accepted.status,200);
+ state=await post(url,{},auth);
+ assert.deepEqual(state.body,{status:'active',ringing:false});
+ clockForward(11*60000);
+ state=await post(url,{},auth);
+ assert.deepEqual(state.body,{status:'ended',ringing:false});
+ const next=await post('/api/voice/start');
+ assert.equal(next.status,200);
+ clockForward(36000);
+ state=await post('/api/voice/calls/'+next.body.callId+'/incoming',{},auth);
+ assert.deepEqual(state.body,{status:'missed',ringing:false});
+}, {policy:{testMode:true}}));
+
 test('rate limiting and expired missed calls',async()=>withServer(async({post,clockForward})=>{
   assert.equal((await post('/api/voice/device/register',{pairingSecret:'invalid-code-which-is-sufficiently-long',fcmToken:'fcm:abc_this-is-a-pretend-token-xxxxxxxxx'})).status,403);
   const reg=await post('/api/voice/device/register',{pairingSecret:'test-voice-secret-which-is-long-and-private',fcmToken:'fcm:abc_this-is-a-pretend-token-xxxxxxxxx'});
