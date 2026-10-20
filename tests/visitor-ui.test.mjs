@@ -14,6 +14,8 @@ class Node {
     this.handlers={};this.className='';this.id='';this.innerHTML=text;
     this.classList={add:()=>{},remove:()=>{}};
   }
+  set innerHTML(s){this._html=String(s);if(this.tagName==='a')this._text=this._html.replace(/<[^>]*>/g,'');}
+  get innerHTML(){return this._html||'';}
   get textContent(){return this._text||this.children.map(c=>c.textContent).join('');}
   set textContent(s){this._text=String(s);this.children=[];}
   appendChild(node){node.remove();node.parentNode=this;this.children.push(node);return node;}
