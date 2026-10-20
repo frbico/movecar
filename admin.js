@@ -358,9 +358,9 @@ async function refreshUpdater(){
     $('updateCurrentVersion').textContent='MoveCar '+u.version;
     $('updateCurrentSha').textContent='运行版本：'+shortSha(u.sha);
     const h=u.host||{};
-    const state={idle:'等待更新',running:'正在备份并部署，请保持页面打开',rollback:'新版本有问题，正在恢复旧版本',success:'更新完成',error:'更新失败',not_configured:'首次安装后将自动启用一键升级助手'}[h.state]||'等待状态';
+    const state={idle:'等待更新',queued:'升级任务已排队',running:'正在备份并部署，页面可以关闭后再查看',rollback:'新版本失败，正在验证旧版本恢复',stalled:'升级任务长时间未执行',success:'更新完成',error:'更新失败',not_configured:'宿主机更新助手尚未安装'}[h.state]||'等待状态';
     $('updateStatus').textContent=state+'。'+(h.message||'');
-    if(h.state==='running'||h.state==='rollback'){
+    if(['queued','running','rollback','stalled','not_configured'].includes(h.state)){
       $('updateStart').disabled=true;
     }else if(h.state==='success' && h.targetSha && h.targetSha===u.sha){
       $('updateStart').disabled=false;
