@@ -1,0 +1,123 @@
+name: Publish signed Android APP to GitHub Releases
+on:
+  push:
+    branches: [release/stable]
+    paths:
+      - 'android-owner/**'
+      - '.github/workflows/android-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: movecar-android-release
+  cancel-in-progress: false
+
+jobs:
+  signed-release:
+    if: github.repository == 'frbico/movecar'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      FIREBASE_CONFIG_B64: ${{ secrets.MOVECAR_GOOGLE_SERVICES_JSON_B64 }}
+      KEYSTORE_B64: ${{ secrets.MOVECAR_ANDROID_KEYSTORE_B64 }}
+      MOVECAR_SIGNING_KEY_ALIAS: ${{ secrets.MOVECAR_ANDROID_KEY_ALIAS }}
+      MOVECAR_SIGNING_STORE_PASSWORD: ${{ secrets.MOVECAR_ANDROID_STORE_PASSWORD }}
+      MOVECAR_SIGNING_KEY_PASSWORD: ${{ secrets.MOVECAR_ANDROID_KEY_PASSWORD }}
+      EXPECTED_CERT_SHA256: ${{ secrets.MOVECAR_ANDROID_CERT_SHA256 }}
+    steps:
+      - name: Checkout canonical stable branch
+        uses: actions/checkout@v4
+        with:
+          ref: release/stable
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Install Android SDK
+        run: |
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
+      - name: Validate fixed signing and actual Firebase config
+        shell: bash
+        run: |
+          set -euo pipefail
+          for key in FIREBASE_CONFIG_B64 KEYSTORE_B64 MOVECAR_SIGNING_KEY_ALIAS MOVECAR_SIGNING_STORE_PASSWORD MOVECAR_SIGNING_KEY_PASSWORD EXPECTED_CERT_SHA256; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error::Missing Actions secret $key. Refusing to publish a placeholder or ephemeral debug-signed APK."
+              exit 1
+            fi
+          done
+          umask 077
+          printf '%s' "$FIREBASE_CONFIG_B64" | base64 --decode > android-owner/app/google-services.json
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "${RUNNER_TEMP}/movecar-distribution.jks"
+          echo "MOVECAR_SIGNING_KEYSTORE_FILE=${RUNNER_TEMP}/movecar-distribution.jks" >> "$GITHUB_ENV"
+          python3 - <<'PY'
+          import json
+          data=json.load(open('android-owner/app/google-services.json',encoding='utf8'))
+          assert any(c.get('client_info',{}).get('android_client_info',{}).get('package_name')=='com.example.movecarvoice' for c in data.get('client',[])), 'Firebase package mismatch'
+          print('Firebase configuration package validated')
+          PY
+      - name: Build signed Android release APK
+        working-directory: android-owner
+        run: gradle --no-daemon --stacktrace :app:assembleRelease
+      - name: Verify signature and package identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          out=android-owner/app/build/outputs/apk/release/app-release.apk
+          test -s "$out"
+          "${ANDROID_HOME}/build-tools/35.0.0/apksigner" verify --verbose "$out"
+          actual=$("${ANDROID_HOME}/build-tools/35.0.0/apksigner" verify --print-certs "$out" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1 | tr '[:upper:]' '[:lower:]' | tr -d ':')
+          expected=$(printf '%s' "$EXPECTED_CERT_SHA256" | tr '[:upper:]' '[:lower:]' | tr -d ':')
+          if [ -z "$actual" ] || [ "$actual" != "$expected" ]; then
+            echo '::error::Pinned Android signing certificate mismatch. Refusing to publish.'
+            exit 1
+          fi
+          python3 - <<'PY'
+          import os,re
+          text=open('android-owner/app/build.gradle.kts',encoding='utf8').read()
+          v=re.search(r'versionName\s*=\s*"(\d+\.\d+\.\d+)"',text)
+          n=re.search(r'versionCode\s*=\s*(\d+)',text)
+          assert v and n, 'Android release version missing'
+          with open(os.environ['GITHUB_ENV'],'a') as f:
+              f.write('APP_VERSION='+v.group(1)+'\nAPP_VERSION_CODE='+n.group(1)+'\n')
+          PY
+      - name: Publish signed APK and SHA256 to Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="android-v${APP_VERSION}"
+          apk="MoveCar-Owner-v${APP_VERSION}.apk"
+          out="${RUNNER_TEMP}/$apk"
+          cp android-owner/app/build/outputs/apk/release/app-release.apk "$out"
+          package=$("${ANDROID_HOME}/build-tools/35.0.0/aapt" dump badging "$out" | head -1)
+          [[ "$package" == *"name='com.example.movecarvoice'"* ]] || { echo '::error::Android package mismatch'; exit 1; }
+          [[ "$package" == *"versionName='${APP_VERSION}'"* ]] || { echo '::error::APK version differs from tag'; exit 1; }
+          [[ "$package" == *"versionCode='${APP_VERSION_CODE}'"* ]] || { echo '::error::APK versionCode mismatch'; exit 1; }
+          (cd "$RUNNER_TEMP" && sha256sum "$apk" > "$apk.sha256")
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $tag already exists; will not replace a previously published APK."
+            exit 0
+          fi
+          cat > "${RUNNER_TEMP}/notes.md" <<EOF
+          ## MoveCar Owner v${APP_VERSION}（Android）
+          - 固定签名的车主端正式 APK（包名：com.example.movecarvoice）
+          - 「设置 → APP 版本更新」可检查并下载后续 GitHub Releases
+          - 保留 FCM 锁屏来电、WebRTC 和 TURN 通话功能
+          - Android 版本代码：${APP_VERSION_CODE}；源代码：$(git rev-parse --short HEAD)
+          - 附带 APK SHA-256 校验文件
+          
+          **重要：** 此前通过 Actions 下载的 Debug APK 可能采用不同签名，Android 可能拒绝直接覆盖安装。正式版以后始终使用同一发布签名。安装需在手机上确认。
+          EOF
+          gh release create "$tag" "$out" "${out}.sha256" \
+            --repo "$GITHUB_REPOSITORY" --target "$(git rev-parse HEAD)" \
+            --title "MoveCar Owner v${APP_VERSION} · Android" \
+            --notes-file "${RUNNER_TEMP}/notes.md" --latest
+          echo "Published: https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag"
