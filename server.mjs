@@ -107,9 +107,9 @@ function reply(res, status, body, headers={}) {
   res.end(body);
 }
 function json(res,status,obj,headers={}) { return reply(res,status,JSON.stringify(obj),{'Content-Type':'application/json; charset=utf-8',...headers}); }
-async function inputJson(req) {
+async function inputJson(req,maxBytes=16384) {
   let total = 0; const arr=[];
-  for await(const chunk of req) { total+=chunk.length; if(total>16384) throw Object.assign(Error('请求过大'),{status:413}); arr.push(chunk); }
+  for await(const chunk of req) { total+=chunk.length; if(total>maxBytes) throw Object.assign(Error('请求过大'),{status:413}); arr.push(chunk); }
   try { const obj=JSON.parse(Buffer.concat(arr).toString('utf8')); if(!obj || typeof obj!=='object'||Array.isArray(obj)) throw Error(); return obj; }
   catch { throw Object.assign(Error('JSON 数据无效'),{status:400}); }
 }
