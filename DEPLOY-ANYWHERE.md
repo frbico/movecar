@@ -7,8 +7,10 @@
 SSH 登录新服务器，确保 Docker Compose v2、Git、Curl、Python3、OpenSSL 已安装。执行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/frbico/movecar/feature/onboarding-firewall-cert-sync/scripts/install-universal.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/frbico/movecar/release/stable/scripts/install-universal.sh | sudo bash
 ```
+
+**这是全新安装命令。** 如果你的香港服务器已经安装 MoveCar，并且此前遇到过「未提交代码修改」等错误，不要反复执行新装脚本。请按照 [WEB-UPDATE.md](WEB-UPDATE.md) 的一次性恢复入口迁移到稳定通道，并先检查数据库备份。
 
 该命令会从 GitHub 下载项目到 `/opt/movecar`，随机生成 TURN 长密钥和语音配对码，自动检测 VPS 公网/内网 IP、启动 `movecar` 与 `movecar-turn`，在 UFW 已启用的情况下开放 TURN 必要端口；生成的密钥和私钥不会上传 GitHub，已有账号数据库和数据卷保留。
 
