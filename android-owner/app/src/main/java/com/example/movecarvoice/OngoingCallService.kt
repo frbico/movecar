@@ -9,6 +9,7 @@ import android.media.AudioManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
@@ -35,6 +36,8 @@ class OngoingCallService : Service() {
         @Volatile var state: String = "已挂断"
             private set
         @Volatile var speakerEnabled = false
+            private set
+        @Volatile var connectedAtElapsedMs: Long = 0
             private set
         private var rtcInitialized = false
     }
@@ -71,17 +74,29 @@ class OngoingCallService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_END -> { finishCall(true); return START_NOT_STICKY }
-            ACTION_SPEAKER -> { toggleSpeaker(); return START_NOT_STICKY }
+            ACTION_END -> {
+                if (CallUiState.matchesActiveCall(intent.getStringExtra("callId"),currentCallId))
+                    finishCall(true)
+                return START_NOT_STICKY
+            }
+            ACTION_SPEAKER -> {
+                if (CallUiState.matchesActiveCall(intent.getStringExtra("callId"),currentCallId))
+                    toggleSpeaker()
+                return START_NOT_STICKY
+            }
             ACTION_START -> {
                 val id = intent.getStringExtra("callId") ?: ""
                 val auth = intent.getStringExtra("ownerToken") ?: ""
+                // A stale duplicated start must never stop an already active service.
+                if (currentCallId != null) return START_NOT_STICKY
                 if (!VoiceApi.validCallId(id) || !Regex("^[A-Za-z0-9_-]{43}$").matches(auth) ||
-                    VoiceApi.base(this).isBlank() || currentCallId != null) {
-                    stopSelf(); return START_NOT_STICKY
+                    VoiceApi.base(this).isBlank()) {
+                    stopSelf(startId); return START_NOT_STICKY
                 }
                 callId = id; token = auth; base = VoiceApi.base(this)
                 currentCallId = id; state = "正在连接…"; stopped = false
+                speakerEnabled = false
+                connectedAtElapsedMs = 0L
                 // Called while the accepting Activity is visible: required for API 34+ microphone FGS.
                 try {
                     val note = ongoingNotification()
@@ -114,11 +129,17 @@ class OngoingCallService : Service() {
 
     private fun ongoingNotification(): Notification {
         val screen = PendingIntent.getActivity(this, 201,
-            Intent(this,VoiceActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            Intent(this,VoiceActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                data = android.net.Uri.parse("movecar://active/" + callId + "/open")
+                putExtra("callId",callId)
+            }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val end = PendingIntent.getService(this, 202,
-            Intent(this,OngoingCallService::class.java).setAction(ACTION_END),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            Intent(this,OngoingCallService::class.java).apply {
+                action = ACTION_END
+                data = android.net.Uri.parse("movecar://active/" + callId + "/end")
+                putExtra("callId",callId)
+            }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return Notification.Builder(this,CHANNEL)
             .setSmallIcon(android.R.drawable.sym_action_call)
             .setContentTitle("挪车语音通话中")
@@ -194,6 +215,7 @@ class OngoingCallService : Service() {
         peer = factory!!.createPeerConnection(rtcConfig, object : PeerConnection.Observer {
             override fun onSignalingChange(s: PeerConnection.SignalingState) {}
             override fun onIceConnectionChange(s: PeerConnection.IceConnectionState) {
+                if(stopped || currentCallId != callId) return
                 state = when(s) {
                     PeerConnection.IceConnectionState.CONNECTED,PeerConnection.IceConnectionState.COMPLETED -> "通话中"
                     PeerConnection.IceConnectionState.DISCONNECTED -> "网络重连中…"
@@ -203,6 +225,7 @@ class OngoingCallService : Service() {
                 if (s == PeerConnection.IceConnectionState.CONNECTED ||
                     s == PeerConnection.IceConnectionState.COMPLETED) {
                     disconnectionEpoch = 0L
+                    if (connectedAtElapsedMs == 0L) connectedAtElapsedMs = SystemClock.elapsedRealtime()
                     // Reassert earpiece / headset after ICE recovery; Android audio
                     // focus and device routing can change when WebRTC reconnects.
                     Handler(Looper.getMainLooper()).post {
@@ -383,7 +406,7 @@ class OngoingCallService : Service() {
         override fun onSetFailure(error: String) { Log.e("MoveCarVoice","SDP set failed: $error") }
     }
 
-    private fun finishCall(notifyOther: Boolean, failureReason: String? = null) {
+    @Synchronized private fun finishCall(notifyOther: Boolean, failureReason: String? = null) {
         if (stopped) return
         stopped = true
         if (notifyOther && callId.isNotBlank()) {
@@ -397,11 +420,14 @@ class OngoingCallService : Service() {
             }.start()
         }
         ticker?.cancel(false)
-        worker.execute {
-            try { peer?.close(); peer?.dispose(); localTrack?.dispose(); audioSource?.dispose(); factory?.dispose() }
-            catch (_:Exception) {}
-        }
+        runCatching {
+            worker.execute {
+                try { peer?.close(); peer?.dispose(); localTrack?.dispose(); audioSource?.dispose(); factory?.dispose() }
+                catch (_:Exception) {}
+            }
+        }.onFailure { Log.w("MoveCarVoice","Audio cleanup worker unavailable") }
         currentCallId = null
+        connectedAtElapsedMs = 0L
         state = "通话已结束"
         audio?.let { am ->
             if (Build.VERSION.SDK_INT >= 31) am.clearCommunicationDevice()
