@@ -288,9 +288,17 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
       }
       json(res,200,{callId,token:callerToken,expiresIn:35,iceServers:iceServers()});return true;
     }
-    const match=route.match(/^\/api\/voice\/calls\/([A-Za-z0-9_-]{24})\/(answer|reject|events|signal|end|retry|diagnostic)$/);
+    const match=route.match(/^\/api\/voice\/calls\/([A-Za-z0-9_-]{24})\/(incoming|answer|reject|events|signal|end|retry|diagnostic)$/);
     if(!match)throw bad(404,'接口不存在');
     const c=getCall(match[1]),action=match[2];
+    // A delayed FCM message or an old PendingIntent must not be shown as a live
+    // call. Only the currently paired owner may inspect the ringing state.
+    // Never return caller token, device FCM token or SDP on this endpoint.
+    if(action==='incoming'){
+      requireOwner(req);
+      json(res,200,{status:c.status,ringing:c.status==='ringing'});
+      return true;
+    }
     if(action==='answer'||action==='reject'){
       requireOwner(req);
       if(c.status!=='ringing')throw bad(409,'来电已经结束');
