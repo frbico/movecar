@@ -34,8 +34,10 @@ class IncomingCallActivity : Activity() {
                 .cancel(CarMessagingService.TEST_NOTIFICATION_ID)
             finish();return
         }
-        getSharedPreferences("movecar_call_health",MODE_PRIVATE).edit()
-            .putLong("lastUiOpenedAt",System.currentTimeMillis()).apply()
+        val health=getSharedPreferences("movecar_call_health",MODE_PRIVATE)
+        if(!testIncoming && health.getString("lastIncomingCallId","")==callId) {
+            health.edit().putLong("lastUiOpenedAt",System.currentTimeMillis()).apply()
+        }
         val d=resources.displayMetrics.density
         fun dp(x:Int)=(x*d+0.5f).toInt()
         window.statusBarColor=OwnerUi.blueDeep
@@ -81,6 +83,7 @@ class IncomingCallActivity : Activity() {
             background=OwnerUi.pressable(this@IncomingCallActivity,OwnerUi.red,24)
             minHeight=dp(64)
         }
+        if(!testIncoming){accept.isEnabled=false;reject.isEnabled=false}
         buttons.addView(reject,LinearLayout.LayoutParams(0,dp(64),1f).apply{marginEnd=dp(9)})
         buttons.addView(accept,LinearLayout.LayoutParams(0,dp(64),1f).apply{marginStart=dp(9)})
         panel.addView(buttons,LinearLayout.LayoutParams(-1,-2))
@@ -94,11 +97,44 @@ class IncomingCallActivity : Activity() {
                 return@setOnClickListener
             }
             if (busy) return@setOnClickListener
-            busy=true;CarMessagingService.cancel(this)
+            busy=true;CarMessagingService.cancel(this,callId)
             Thread { runCatching { VoiceApi.post(VoiceApi.base(this),"/api/voice/calls/$callId/reject",JSONObject(),VoiceApi.auth(this)) };runOnUiThread{finish()} }.start()
         }
-        if (intent.getBooleanExtra("answer",false)) accept()
+        if(!testIncoming)verifyIncoming(accept,reject,intent.getBooleanExtra("answer",false))
     }
+
+    private fun verifyIncoming(acceptButton:Button,rejectButton:Button,autoAnswer:Boolean){
+        state.text="正在确认来电状态…"
+        Thread {
+            val result=runCatching {
+                VoiceApi.post(VoiceApi.base(this),
+                    "/api/voice/calls/$callId/incoming",JSONObject(),VoiceApi.auth(this))
+            }
+            runOnUiThread {
+                if(isFinishing||isDestroyed)return@runOnUiThread
+                result.onSuccess { data ->
+                    if(data.optBoolean("ringing",false)){
+                        state.text="有人请求你挪车"
+                        acceptButton.isEnabled=true
+                        rejectButton.isEnabled=true
+                        if(autoAnswer)accept()
+                    }else{
+                        state.text="此通来电已结束"
+                        CarMessagingService.cancel(this,callId)
+                        finish()
+                    }
+                }.onFailure {
+                    // Keep manual controls available on transient mobile network
+                    // errors. The authoritative answer/reject API still enforces
+                    // that the call exists and is currently ringing.
+                    state.text="无法确认来电状态，请检查网络后重试"
+                    acceptButton.isEnabled=true
+                    rejectButton.isEnabled=true
+                }
+            }
+        }.start()
+    }
+
     private fun accept() {
         if(testIncoming){
             (getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager)
@@ -110,7 +146,7 @@ class IncomingCallActivity : Activity() {
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 42);return
         }
-        busy=true;state.text="正在接通…";CarMessagingService.cancel(this)
+        busy=true;state.text="正在接通…";CarMessagingService.cancel(this,callId)
         Thread {
             val result=runCatching { VoiceApi.post(VoiceApi.base(this),"/api/voice/calls/$callId/answer",JSONObject(),VoiceApi.auth(this)) }
             runOnUiThread {
