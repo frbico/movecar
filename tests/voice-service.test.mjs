@@ -108,6 +108,28 @@ test('rate limiting and expired missed calls',async()=>withServer(async({post,cl
   assert.equal((await post(`/api/voice/calls/${two.body.callId}/reject`,{},reg.body.deviceAuth)).status,200);
 }));
 
+test('FCM notifications include ordered server timestamps for rapid redial',async()=>withServer(async({post,clockForward,messages})=>{
+  const owner=await post('/api/voice/device/register',{
+    pairingSecret:'test-voice-secret-which-is-long-and-private',
+    fcmToken:'fcm:abc_this-is-a-pretend-token-xxxxxxxxx'
+  });
+  let call=await post('/api/voice/start');
+  assert.equal(call.status,200);
+  assert.match(messages[0].sentAtMs,/^\\d{13}$/);
+  const accepted=await post('/api/voice/calls/'+call.body.callId+'/answer',{},owner.body.deviceAuth);
+  assert.equal(accepted.status,200);
+  const end=await post('/api/voice/calls/'+call.body.callId+'/end',{
+    token:call.body.token,reason:'connect_timeout'
+  });
+  assert.match(end.body.retryToken,/^[A-Za-z0-9_-]{43}$/);
+  clockForward(2500);
+  const again=await post('/api/voice/start',{retryToken:end.body.retryToken});
+  assert.equal(again.status,200);
+  assert.equal(messages.length,2);
+  assert.ok(Number(messages[1].sentAtMs)>Number(messages[0].sentAtMs),
+    'a delayed old FCM message must carry an earlier issued time than the latest call');
+}));
+
 test('ICE failure returns one-use fast-retry tickets, with bounded abuse protection',async()=>withServer(async({post})=>{
   const pairing=await post('/api/voice/device/register',{pairingSecret:'test-voice-secret-which-is-long-and-private',fcmToken:'fcm:abc_this-is-a-pretend-token-xxxxxxxxx'});
   assert.equal(pairing.status,200);
