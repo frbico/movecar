@@ -841,7 +841,7 @@ class MainActivity : Activity() {
                         ReleaseUpdates.isNewer(installed,latest.version)->
                             AlertDialog.Builder(this)
                                 .setTitle("发现 MoveCar v"+latest.version)
-                                .setMessage("当前安装 v"+installed+"。更新包来自官方 GitHub Releases。\\n\\n"+
+                                .setMessage("当前安装 v"+installed+"。更新包来自官方 GitHub Releases。\n\n"+
                                     "下载后通过 Android 安装器确认；如果旧版 APK 的签名不同，系统会拒绝覆盖安装。不会自动卸载或删除 APP 数据。")
                                 .setNegativeButton("稍后",null)
                                 .setNeutralButton("查看发布说明"){_,_->browse(latest.pageUrl)}
@@ -858,7 +858,7 @@ class MainActivity : Activity() {
                     AlertDialog.Builder(this)
                         .setTitle("检查更新失败")
                         .setMessage((error.message?:"网络错误")+
-                            "\\n请检查网络是否能够访问 GitHub。不会因此更改已安装的 APP。")
+                            "\n请检查网络是否能够访问 GitHub。不会因此更改已安装的 APP。")
                         .setNegativeButton("关闭",null)
                         .setPositiveButton("打开 Releases"){_,_->browse(ReleaseUpdates.RELEASES_PAGE)}
                         .show()
