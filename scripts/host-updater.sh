@@ -12,7 +12,10 @@ FAIL(){ echo "MoveCar updater: $*" >&2;exit 1; }
 for c in git docker python3 curl flock;do command -v "$c" >/dev/null || FAIL "Missing $c";done
 docker compose version >/dev/null || FAIL 'Docker Compose V2 required'
 [[ -d "$ROOT/.git" ]] || FAIL 'MoveCar repository not found in /opt/movecar'
-[[ "$(git -C "$ROOT" remote get-url origin)" == *frbico/movecar* ]] || FAIL 'Git origin not recognized'
+case "$(git -C "$ROOT" remote get-url origin)" in
+  https://github.com/frbico/movecar|https://github.com/frbico/movecar.git|git@github.com:frbico/movecar.git|ssh://git@github.com/frbico/movecar.git) ;;
+  *) FAIL 'Git origin must be the official frbico/movecar repository' ;;
+esac
 mkdir -p "$RUNTIME" "$BACKUP_ROOT"
 umask 077
 
@@ -74,12 +77,54 @@ exec 9>"$RUNTIME/.upgrade.lock"
 flock -n 9 || { echo 'Already upgrading';exit 0; }
 PREVIOUS="$(git -C "$ROOT" rev-parse HEAD)"
 TARGET=''
+ARCHIVE=''
 UPDATE_FINALIZED=0
+SWITCHED=0
+COMPOSE=(docker compose -f compose.yaml -f compose.portable.yaml)
+if docker network inspect 1panel-network >/dev/null 2>&1;then
+  COMPOSE+=(-f compose.network-onepanel.yaml)
+fi
+health_ok(){
+  for _attempt in $(seq 1 45);do
+    if curl --noproxy '*' -fsS --max-time 4 http://127.0.0.1:8888/healthz >/dev/null 2>&1;then return 0;fi
+    sleep 2
+  done
+  return 1
+}
+container_sha(){
+  docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' movecar 2>/dev/null |
+    sed -n 's/^MOVECAR_COMMIT_SHA=//p' | head -1
+}
 record_failure(){
   local rc="$?"
   if ((rc != 0 && UPDATE_FINALIZED == 0));then
+    trap - EXIT
+    if ((SWITCHED));then
+      status rollback '部署未通过验证，正在恢复先前的代码与容器…' "$PREVIOUS" "$TARGET" || true
+      local restored=1
+      git -C "$ROOT" switch -C release/stable "$PREVIOUS" || restored=0
+      if [[ -n "$ARCHIVE" && -f "$ARCHIVE/dot-env" ]];then
+        cp -p "$ARCHIVE/dot-env" "$ROOT/.env" || restored=0
+      fi
+      if ((restored));then
+        (cd "$ROOT" && bash scripts/fetch-upstream.sh && "${COMPOSE[@]}" up -d --build movecar coturn) || restored=0
+      fi
+      if ((restored));then
+        [[ "$(git -C "$ROOT" rev-parse HEAD)" == "$PREVIOUS" ]] || restored=0
+        # Old containers may not have the revision environment variable yet.
+        local restored_sha; restored_sha="$(container_sha)"
+        if [[ -n "$restored_sha" && "$restored_sha" != "$PREVIOUS" ]];then restored=0;fi
+        if ((restored));then health_ok || restored=0;fi
+      fi
+      if ((restored));then
+        status error "升级失败，但旧版本已恢复并通过健康检查。备份位于 $ARCHIVE" "$PREVIOUS" "$TARGET" || true
+      else
+        status error "升级及自动回退均未通过检查！请勿重复升级，检查 $ARCHIVE 内的备份并人工恢复" "$PREVIOUS" "$TARGET" || true
+      fi
+    else
+      status error '升级在修改程序前中断；请检查服务器日志和备份目录' "$PREVIOUS" "$TARGET" || true
+    fi
     if [[ "$MODE" == service ]];then rm -f "$REQUEST";fi
-    status error '自动升级中断；原始数据未删除。请检查服务器日志及 root 备份目录。' "$PREVIOUS" "$TARGET" || true
   fi
 }
 trap record_failure EXIT
@@ -128,6 +173,14 @@ if [[ -f "$ROOT/.env" ]];then
   cp -p "$ROOT/.env" "$ARCHIVE/dot-env"
   chmod 0600 "$ARCHIVE/dot-env"
 fi
+# The existing application must be running so its SQLite snapshot is
+# transactionally consistent. Never upgrade a stopped/missing service blindly.
+[[ "$(docker inspect --format '{{.State.Running}}' movecar 2>/dev/null)" == true ]] ||
+  FAIL 'Running movecar container required for a consistent backup'
+RUNNING_OLD_SHA="$(container_sha)"
+if [[ -n "$RUNNING_OLD_SHA" && "$RUNNING_OLD_SHA" != "$PREVIOUS" ]];then
+  FAIL 'Checkout differs from running container; resolve version mismatch before upgrading'
+fi
 if docker container inspect movecar >/dev/null 2>&1;then
   docker exec movecar node --input-type=module -e '
 import {DatabaseSync,backup} from "node:sqlite";
@@ -138,6 +191,20 @@ if(fs.existsSync("/app/data/state.sqlite")){
 }' || FAIL "Failed to create consistent SQLite backup; nothing changed"
   docker cp movecar:/app/data/movecar-preupdate.sqlite "$ARCHIVE/state.sqlite" >/dev/null ||
     FAIL "Database backup copy failed; stopped before modifying program"
+  # Verify the copied backup itself, not merely the live DB or a successful cp.
+  python3 - "$ARCHIVE/state.sqlite" <<'PY'
+import sqlite3,sys,os
+f=sys.argv[1]
+if not os.path.isfile(f) or os.path.getsize(f)<1024:
+    raise SystemExit('SQLite backup is empty or missing')
+db=sqlite3.connect('file:'+f+'?mode=ro',uri=True)
+try:
+    if db.execute('PRAGMA quick_check').fetchone()[0]!='ok':
+        raise SystemExit('SQLite backup integrity check failed')
+    if not db.execute("SELECT name FROM sqlite_master WHERE name='settings'").fetchone():
+        raise SystemExit('SQLite backup lacks settings table')
+finally: db.close()
+PY
   docker exec movecar rm -f /app/data/movecar-preupdate.sqlite >/dev/null 2>&1 || true
   mkdir -p "$ARCHIVE/app-data"
   docker cp 'movecar:/app/data/.' "$ARCHIVE/app-data/" >/dev/null ||
@@ -155,6 +222,7 @@ FETCHED="$(git -C "$ROOT" rev-parse refs/remotes/origin/release/stable)"
 [[ "$FETCHED" == "$TARGET" ]] || FAIL 'Release moved while fetching; retry'
 git -C "$ROOT" switch -C release/stable "$TARGET" ||
   FAIL "Conflicting untracked files; source and data backup is at $ARCHIVE"
+SWITCHED=1
 cd "$ROOT"
 python3 - "$TARGET" <<'PY'
 from pathlib import Path
@@ -166,10 +234,6 @@ lines.append('MOVECAR_COMMIT_SHA='+sys.argv[1])
 p.write_text(chr(10).join(lines)+chr(10))
 p.chmod(0o600)
 PY
-COMPOSE=(docker compose -f compose.yaml -f compose.portable.yaml)
-if docker network inspect 1panel-network >/dev/null 2>&1;then
- COMPOSE+=(-f compose.network-onepanel.yaml)
-fi
 set +e
 bash scripts/fetch-upstream.sh
 fetch_rc=$?
@@ -180,31 +244,18 @@ else update_rc=1;fi
 if (( update_rc == 0 ));then
   # Verify the *new* container actually exposes the requested revision; a
   # surviving old service on port 8888 would otherwise yield a false success.
-  running_sha="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' movecar 2>/dev/null |
-    sed -n 's/^MOVECAR_COMMIT_SHA=//p' | head -1)"
+  running_sha="$(container_sha)"
   if [[ "$running_sha" != "$TARGET" ]];then
     echo "Rebuilt container revision mismatch: expected $TARGET, found $running_sha" >&2
     update_rc=1
   fi
 fi
 if (( update_rc == 0 ));then
-  good=0
-  for i in $(seq 1 45);do
-    if curl --noproxy '*' -fsS --max-time 4 http://127.0.0.1:8888/healthz >/dev/null 2>&1;then good=1;break;fi
-    sleep 2
-  done
-  [[ "$good" == 1 ]] || update_rc=1
+  health_ok || update_rc=1
 fi
 set -e
 if ((update_rc != 0));then
-  status rollback '新版本启动或健康检查失败，尝试恢复旧程序…' "$PREVIOUS" "$TARGET"
-  git -C "$ROOT" switch -C release/stable "$PREVIOUS" || true
-  if [[ -f "$ARCHIVE/dot-env" ]];then cp -p "$ARCHIVE/dot-env" "$ROOT/.env";fi
-  bash scripts/fetch-upstream.sh || true
-  "${COMPOSE[@]}" up -d --build movecar coturn || true
-  rm -f "$REQUEST"
-  status error "更新失败，已尝试回退。备份位于 $ARCHIVE，请查看日志" "$PREVIOUS" "$TARGET"
-  UPDATE_FINALIZED=1
+  echo 'New release failed runtime checks; initiating verified rollback' >&2
   exit 1
 fi
 rm -f "$REQUEST"
