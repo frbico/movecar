@@ -1,7 +1,7 @@
 name: Android debug APK
 on:
   push:
-    branches: [feature/native-screen-off-voip, feature/owner-mobile-dashboard, feature/owner-ui-v0.4, feature/voice-network-reliability, feature/onepanel-turn-portable, feature/mobile-v05-whatsapp-reliability, feature/call-permissions-voice-limits, feature/scan-flow-ui-v06, feature/v061-call-reliability, feature/voice-stability-v061, feature/native-audio-route-v071-20261020, release/stable, main]
+    branches: [feature/native-screen-off-voip, feature/owner-mobile-dashboard, feature/owner-ui-v0.4, feature/voice-network-reliability, feature/onepanel-turn-portable, feature/mobile-v05-whatsapp-reliability, feature/call-permissions-voice-limits, feature/scan-flow-ui-v06, feature/v061-call-reliability, feature/voice-stability-v061, feature/native-audio-route-v071-20261020, feature/v072-incoming-freshness-20261020, release/stable, main]
     paths:
       - 'android-owner/**'
       - '.github/workflows/android-ci.yml'

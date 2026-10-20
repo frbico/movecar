@@ -142,13 +142,13 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
     cachedAccess={value:result.access_token,expires:now()+Number(result.expires_in||3600)*1000};
     return cachedAccess.value;
   }
-  async function sendPush(callId,deviceToken){
-    if(pushCall)return pushCall({callId,deviceToken});
+  async function sendPush(callId,deviceToken,issuedAt){
+    if(pushCall)return pushCall({callId,deviceToken,sentAtMs:String(issuedAt)});
     const sa=JSON.parse(fs.readFileSync(serviceAccountPath,'utf8'));
     const access=await fcmAccess();
     const response=await fetch(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(sa.project_id)}/messages:send`,{
       method:'POST',headers:{Authorization:`Bearer ${access}`,'Content-Type':'application/json'},
-      body:JSON.stringify({message:{token:deviceToken,data:{type:'incoming_call',callId},android:{priority:'HIGH',ttl:'35s'}}}),
+      body:JSON.stringify({message:{token:deviceToken,data:{type:'incoming_call',callId,sentAtMs:String(issuedAt)},android:{priority:'HIGH',ttl:'35s'}}}),
       signal:AbortSignal.timeout(10000)
     });
     if(!response.ok)throw bad(502,'FCM 未接受来电通知，请检查设备注册');
@@ -269,7 +269,7 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
       const c={id:callId,callerHash:sha(callerToken),callerIp:ip,retryDepth:depth,retryTicket:null,
         ownerHash:null,status:'ringing',created:now(),acceptedAt:0,seq:0,events:[]};
       calls.set(callId,c);insertHistory.run(callId,now(),now(),'ringing');
-      try{await sendPush(callId,device.fcm_token);}catch(e){
+      try{await sendPush(callId,device.fcm_token,c.created);}catch(e){
         calls.delete(callId);setStatus(c,'failed');
         // FCM itself failed. This isn't an actual ringing attempt.
         const r=limit.get(ip);
@@ -288,9 +288,17 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
       }
       json(res,200,{callId,token:callerToken,expiresIn:35,iceServers:iceServers()});return true;
     }
-    const match=route.match(/^\/api\/voice\/calls\/([A-Za-z0-9_-]{24})\/(answer|reject|events|signal|end|retry|diagnostic)$/);
+    const match=route.match(/^\/api\/voice\/calls\/([A-Za-z0-9_-]{24})\/(incoming|answer|reject|events|signal|end|retry|diagnostic)$/);
     if(!match)throw bad(404,'接口不存在');
     const c=getCall(match[1]),action=match[2];
+    // A delayed FCM message or an old PendingIntent must not be shown as a live
+    // call. Only the currently paired owner may inspect the ringing state.
+    // Never return caller token, device FCM token or SDP on this endpoint.
+    if(action==='incoming'){
+      requireOwner(req);
+      json(res,200,{status:c.status,ringing:c.status==='ringing'});
+      return true;
+    }
     if(action==='answer'||action==='reject'){
       requireOwner(req);
       if(c.status!=='ringing')throw bad(409,'来电已经结束');

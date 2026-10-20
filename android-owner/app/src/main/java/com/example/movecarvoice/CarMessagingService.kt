@@ -28,7 +28,7 @@ class CarMessagingService : FirebaseMessagingService() {
                 lockscreenVisibility=Notification.VISIBILITY_PUBLIC
             })
         }
-        fun postIncomingNotification(context:android.content.Context,callId:String,testing:Boolean=false) {
+        fun postIncomingNotification(context:android.content.Context,callId:String,testing:Boolean=false,issuedAt:Long=0L) {
         val nm = context.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as NotificationManager
         ensureIncomingCallChannel(context)
         // Android notification-channel importance is immutable. Never override
@@ -36,12 +36,34 @@ class CarMessagingService : FirebaseMessagingService() {
         // Android 14+ may require the user to grant full-screen call notification
         // permission. No background activity launch: use the OS call notification.
         val fullScreenAllowed = Build.VERSION.SDK_INT < 34 || nm.canUseFullScreenIntent()
-        context.getSharedPreferences("movecar_call_health",android.content.Context.MODE_PRIVATE)
-            .edit().putLong("lastReceivedAt",System.currentTimeMillis())
-            .putBoolean("lastFullScreenAllowed",fullScreenAllowed)
-            .putBoolean("lastNotificationsEnabled",nm.areNotificationsEnabled())
-            .putInt("lastChannelImportance",nm.getNotificationChannel(CHANNEL)?.importance?:0)
-            .apply()
+        val prefs=context.getSharedPreferences("movecar_call_health",android.content.Context.MODE_PRIVATE)
+        val receivedAt=System.currentTimeMillis()
+        if(!testing) {
+            // A previous FCM from the failed call can arrive after a fast retry.
+            // Compare server-issued timestamps, not the client's clock offset.
+            val previousIssue=prefs.getLong("lastIncomingIssuedAt",0L)
+            if(issuedAt>0L && previousIssue>0L && issuedAt<previousIssue){
+                Log.i("MoveCarIncoming","Out-of-order FCM call suppressed")
+                return
+            }
+            // FCM can redeliver one incoming_call. Reposting the same notification
+            // after the user rejected/answered it can produce a phantom ring.
+            if(prefs.getString("lastIncomingCallId","")==callId &&
+                receivedAt-prefs.getLong("lastReceivedAt",0L) in 0L..45000L) {
+                Log.i("MoveCarIncoming","Duplicate call notification suppressed")
+                return
+            }
+            prefs.edit().putLong("lastReceivedAt",receivedAt)
+                .putLong("lastIncomingIssuedAt",if(issuedAt>0L)issuedAt else previousIssue)
+                .putString("lastIncomingCallId",callId)
+                .putBoolean("lastFullScreenAllowed",fullScreenAllowed)
+                .putBoolean("lastNotificationsEnabled",nm.areNotificationsEnabled())
+                .putInt("lastChannelImportance",nm.getNotificationChannel(CHANNEL)?.importance?:0)
+                .apply()
+        }else {
+            // A local lock-screen simulator is not proof of successful real FCM.
+            prefs.edit().putLong("lastTestReceivedAt",receivedAt).apply()
+        }
         Log.i("MoveCarIncoming","Posted "+(if(testing)"test" else "FCM")+
             " incoming call; fullScreen="+fullScreenAllowed)
         val intent = Intent(context, IncomingCallActivity::class.java).apply {
@@ -49,14 +71,24 @@ class CarMessagingService : FirebaseMessagingService() {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             putExtra("callId", callId)
             putExtra("testIncoming",testing)
+            // Android PendingIntent equality ignores extras. A distinct data URI
+            // prevents an old ringing notification's tap from becoming a new call.
+            data=android.net.Uri.parse(if(testing)"movecar://test/incoming" else "movecar://call/$callId/incoming")
         }
         val view = PendingIntent.getActivity(context, if(testing)21 else 1, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val answer = PendingIntent.getActivity(context, if(testing)22 else 2, Intent(intent).putExtra("answer", true), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val answer = PendingIntent.getActivity(context, if(testing)22 else 2, Intent(intent).apply {
+            data=android.net.Uri.parse(if(testing)"movecar://test/answer" else "movecar://call/$callId/answer")
+            putExtra("answer",true)
+        }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val decline = if(testing)
-            PendingIntent.getActivity(context,23,Intent(intent).putExtra("dismissTest",true),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        else PendingIntent.getBroadcast(context,3,Intent(context,CallActionReceiver::class.java)
-            .putExtra("callId",callId),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            PendingIntent.getActivity(context,23,Intent(intent).apply {
+                data=android.net.Uri.parse("movecar://test/dismiss")
+                putExtra("dismissTest",true)
+            },PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        else PendingIntent.getBroadcast(context,3,Intent(context,CallActionReceiver::class.java).apply {
+                data=android.net.Uri.parse("movecar://call/$callId/reject")
+                putExtra("callId",callId)
+            },PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val builder = Notification.Builder(context, CHANNEL)
             .setSmallIcon(android.R.drawable.sym_action_call)
             .setContentTitle(if(testing)"锁屏来电显示测试" else "有人请求挪车")
@@ -99,7 +131,10 @@ class CarMessagingService : FirebaseMessagingService() {
             Log.w("MoveCarCalls","Notification or wake-up permission denied",e)
         }
         }
-        fun cancel(context: android.content.Context) {
+        fun cancel(context: android.content.Context,expectedCallId:String) {
+            // An old notification action must never clear a newer incoming call.
+            val prefs=context.getSharedPreferences("movecar_call_health",android.content.Context.MODE_PRIVATE)
+            if(prefs.getString("lastIncomingCallId","")!=expectedCallId)return
             (context.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(NOTIFICATION_ID)
         }
     }
@@ -130,7 +165,9 @@ class CarMessagingService : FirebaseMessagingService() {
         if (message.data["type"] != "incoming_call") return
         val callId = message.data["callId"] ?: return
         if (!VoiceApi.validCallId(callId) || VoiceApi.auth(this).isBlank()) return
-        postIncomingNotification(this,callId)
+        if(OngoingCallService.currentCallId==callId)return // Already answered; late FCM is not a new call.
+        val issuedAt=message.data["sentAtMs"]?.toLongOrNull()?:0L
+        postIncomingNotification(this,callId,issuedAt=issuedAt)
     }
     private fun showParkingAlert(message: RemoteMessage) {
         if (VoiceApi.mobileAuth(this).isBlank()) return

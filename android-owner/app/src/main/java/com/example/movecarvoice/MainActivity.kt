@@ -771,6 +771,8 @@ class MainActivity : Activity() {
                 startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
             }
             val recent=getSharedPreferences("movecar_call_health",MODE_PRIVATE)
+            val localTest=recent.getLong("lastTestReceivedAt",0L)
+            if(localTest>0L)note("最近模拟锁屏测试："+formattedTime(localTest)+"（非真实 FCM 来电）")
             val received=recent.getLong("lastReceivedAt",0L)
             val uiOpened=recent.getLong("lastUiOpenedAt",0L)
             if(received>0){
@@ -949,7 +951,7 @@ class MainActivity : Activity() {
             action("更换服务器或域名"){confirm("切换后将返回登录界面，请输入新服务器 HTTPS 域名，使用管理员账号重新登录。原服务器数据不会删除。"){
                 clearLogin()
             }}
-            note("MoveCar Owner v0.7.1 · 原生语音与网络恢复")
+            note("MoveCar Owner v0.7.2 · 来电状态核验与弱网去重")
         }
     }
     private fun account(config:JSONObject){
