@@ -87,6 +87,7 @@
    wechatButton.disabled=!wechatId;
    wechatButton.textContent=wechatId?'💬 微信联系':'💬 微信联系（车主未配置）';
  }).catch(()=>{});
+ if(window.MoveCarVoice)window.MoveCarVoice.mountCaller({button:voiceButton,getRequest:()=>current});
  refreshContact();
  function refreshContact(){
    if(!phone)return;
