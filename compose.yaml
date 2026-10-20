@@ -8,6 +8,9 @@ services:
       PORT: '8888'
       DB_PATH: /app/data/state.sqlite
       SOURCE_PATH: /app/upstream/movecar.js
+      STUN_URLS: '${STUN_URLS:-stun:stun.l.google.com:19302}'
+      TURN_URLS: '${TURN_URLS:-}'
+      TURN_SHARED_SECRET: '${TURN_SHARED_SECRET:-}'
     ports:
       - '${HOST_BIND:-0.0.0.0}:${HOST_PORT:-8888}:8888'
     volumes:
