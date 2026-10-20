@@ -253,6 +253,20 @@ fi
 if (( update_rc == 0 ));then
   health_ok || update_rc=1
 fi
+if (( update_rc == 0 ));then
+  # Startup alone is insufficient: verify the running SQLite volume remains
+  # readable after the new version's migrations, without exposing its rows.
+  docker exec movecar node --input-type=module -e '
+import {DatabaseSync} from "node:sqlite";
+import fs from "node:fs";
+if(!fs.existsSync("/app/data/state.sqlite"))process.exit(1);
+const db=new DatabaseSync("/app/data/state.sqlite");
+try{
+ if(db.prepare("PRAGMA quick_check").get()?.quick_check!=="ok")process.exit(1);
+ if(!db.prepare("SELECT name FROM sqlite_master WHERE name=\x27settings\x27").get())process.exit(1);
+}finally{db.close()}
+' || update_rc=1
+fi
 set -e
 if ((update_rc != 0));then
   echo 'New release failed runtime checks; initiating verified rollback' >&2
