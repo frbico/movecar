@@ -115,7 +115,7 @@ test('FCM notifications include ordered server timestamps for rapid redial',asyn
   });
   let call=await post('/api/voice/start');
   assert.equal(call.status,200);
-  assert.match(messages[0].sentAtMs,/^\\d{13}$/);
+  assert.match(messages[0].sentAtMs,/^[0-9]{13}$/);
   const accepted=await post('/api/voice/calls/'+call.body.callId+'/answer',{},owner.body.deviceAuth);
   assert.equal(accepted.status,200);
   const end=await post('/api/voice/calls/'+call.body.callId+'/end',{
