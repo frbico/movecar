@@ -1,4 +1,4 @@
-# MoveCar Owner v0.8.0 — GitHub Releases 正式分发
+# MoveCar Owner — GitHub Releases 正式分发
 
 下载地址：https://github.com/frbico/movecar/releases
 
@@ -38,7 +38,7 @@ Windows PowerShell：
 - 构建严格校验 Firebase 包名、签名证书 SHA256、APK 数字版本及包名，未通过时拒绝发布。缺 Secret 会明确失败，不会降级发布测试包。
 - 同一 Android 版本标签如果已发布，流程不会自动覆盖原有 APK。每次发布新版本必须增加 Android versionCode 和 versionName。
 - 新 Android 正式版均从 Releases 安装，服务器网页后台的版本更新仍负责服务器，不会自动更新手机。
-- 当前 Android 正式版为 0.8.0（versionCode 15）；服务端可以维持 0.7.3，两者不应混为一个版本。
+- Android 正式版 0.8.2（versionCode 17）包含新版界面；服务端版本 0.7.4。两者分别管理版本，需分别更新。
 
 ## 从已有 Debug 包迁移
 
