@@ -503,7 +503,7 @@ class MainActivity : Activity() {
             OwnerUi.vertical(this).apply {
                 background=OwnerUi.pressable(this@MainActivity,color,22)
                 setPadding(px(16),px(16),px(16),px(15))
-                minHeight=px(138)
+                minimumHeight=px(138)
                 isClickable=true;isFocusable=true
                 contentDescription="$caption，$value，$detail"
                 setOnClickListener { click() }
