@@ -86,20 +86,12 @@ class VoiceActivity : Activity() {
         }
         panel.addView(status)
         val actions=OwnerUi.horizontal(this)
-        speaker=Button(this).apply{
-            text="开启免提"
-            isAllCaps=false
+        speaker=OwnerUi.flatCallButton(this,"开启免提",OwnerUi.blueDeep,OwnerUi.softBlue).apply{
             textSize=16f
-            setTextColor(OwnerUi.blueDeep)
-            background=OwnerUi.pressable(this@VoiceActivity,OwnerUi.softBlue,20)
             minHeight=dp(64)
         }
-        hang=Button(this).apply{
-            text="挂断"
-            isAllCaps=false
+        hang=OwnerUi.flatCallButton(this,"挂断",OwnerUi.white,OwnerUi.red).apply{
             textSize=17f
-            setTextColor(OwnerUi.white)
-            background=OwnerUi.pressable(this@VoiceActivity,OwnerUi.red,20)
             minHeight=dp(64)
         }
         actions.addView(speaker,LinearLayout.LayoutParams(0,dp(64),1f).apply{marginEnd=dp(9)})

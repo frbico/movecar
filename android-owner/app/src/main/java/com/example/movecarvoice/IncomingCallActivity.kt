@@ -87,20 +87,14 @@ class IncomingCallActivity : Activity() {
             setPadding(0,dp(12),0,dp(46))
         })
         val buttons=OwnerUi.horizontal(this)
-        val accept=Button(this).apply{
-            text=if(testIncoming)"完成测试" else "接听"
-            isAllCaps=false
+        val accept=OwnerUi.flatCallButton(this,if(testIncoming)"完成测试" else "接听",
+            OwnerUi.white,OwnerUi.green,22).apply{
             textSize=18f
-            setTextColor(OwnerUi.white)
-            background=OwnerUi.pressable(this@IncomingCallActivity,OwnerUi.green,22)
             minHeight=dp(64)
         }
-        val reject=Button(this).apply{
-            text=if(testIncoming)"关闭" else "拒绝"
-            isAllCaps=false
+        val reject=OwnerUi.flatCallButton(this,if(testIncoming)"关闭" else "拒绝",
+            OwnerUi.red,OwnerUi.softRed,22).apply{
             textSize=18f
-            setTextColor(OwnerUi.red)
-            background=OwnerUi.pressable(this@IncomingCallActivity,OwnerUi.softRed,22)
             minHeight=dp(64)
         }
         acceptButton=accept

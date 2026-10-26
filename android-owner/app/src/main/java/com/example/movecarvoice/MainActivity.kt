@@ -44,7 +44,6 @@ class MainActivity : Activity() {
         }
         if (VoiceApi.mobileAuth(this).isEmpty()) loginPage() else {
             navigate(if(intent.getStringExtra("openPage")=="requests")"requests" else "home")
-            window.decorView.post { promptCallPermissionsOnce() }
         }
     }
 
@@ -57,6 +56,8 @@ class MainActivity : Activity() {
         // re-read actual OS grants instead of displaying cached checkmarks.
         if (page=="settings_permissions" && token().isNotBlank())
             refreshHandler.post { if(page=="settings_permissions")refreshCurrent(false) }
+        if (page!="login" && token().isNotBlank())
+            refreshHandler.post { if(!isFinishing && page!="login")promptCallPermissionsIfNeeded() }
     }
     override fun onPause() {
         refreshHandler.removeCallbacks(periodicRefresh)
@@ -475,7 +476,7 @@ class MainActivity : Activity() {
                         OwnerCache.invalidate(this)
                         notify("后台登录成功，正在绑定消息推送")
                         navigate("home")
-                        window.decorView.post { promptCallPermissionsOnce() }
+                        window.decorView.post { promptCallPermissionsIfNeeded() }
                         bindPushAfterLogin(url, bearer)
                     }.onFailure {
                         status.text = "登录失败：" + (it.message ?: "服务器连接异常")
@@ -942,6 +943,7 @@ class MainActivity : Activity() {
             "Call channel importance: "+(channel?.importance?:0),
             "Full-screen permission: "+(Build.VERSION.SDK_INT<34||nm.canUseFullScreenIntent()),
             "Real FCM received at: "+saved.getLong("lastReceivedAt",0L),
+            "Short wake fallback at: "+saved.getLong("lastWakeFallbackAt",0L),
             "Incoming UI opened at: "+saved.getLong("lastUiOpenedAt",0L),
             "Simulated call at: "+saved.getLong("lastTestReceivedAt",0L),
             "Active native call: "+(OngoingCallService.currentCallId!=null),
@@ -995,6 +997,8 @@ class MainActivity : Activity() {
             if(received>0){
                 val shown=uiOpened>=received
                 note("最近收到来电："+formattedTime(received))
+                if(recent.getLong("lastWakeFallbackAt",0L)>=received)
+                    note("本次已请求系统短时唤醒屏幕")
                 status(if(shown)"✓ 系统已打开来电界面" else "✕ 通知到达后未观察到来电界面",shown)
                 if(shown){
                     val delay=(uiOpened-received).coerceAtLeast(0L)
@@ -1023,19 +1027,29 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun promptCallPermissionsOnce(){
+    private fun promptCallPermissionsIfNeeded(){
         if(Build.VERSION.SDK_INT<34)return
         val nm=getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
         CarMessagingService.ensureIncomingCallChannel(this)
-        val allowed=nm.canUseFullScreenIntent()&&nm.areNotificationsEnabled()&&
-            (nm.getNotificationChannel(CarMessagingService.CHANNEL)?.importance?:0)>=android.app.NotificationManager.IMPORTANCE_HIGH
-        if(allowed)return
+        val full=nm.canUseFullScreenIntent()
+        val notifications=nm.areNotificationsEnabled()
+        val importance=nm.getNotificationChannel(CarMessagingService.CHANNEL)?.importance?:0
+        val allowed=full&&notifications&&importance>=android.app.NotificationManager.IMPORTANCE_HIGH
         val prefs=VoiceApi.prefs(this)
-        if(prefs.getBoolean("callPermPromptV06",false))return
-        prefs.edit().putBoolean("callPermPromptV06",true).apply()
+        if(allowed){
+            prefs.edit().remove("callPermPromptState").remove("callPermPromptAt").apply()
+            return
+        }
+        val permissionState="$notifications:$importance:$full"
+        val now=System.currentTimeMillis()
+        if(!IncomingCallPolicy.shouldPromptForPermissions(false,permissionState,
+                prefs.getString("callPermPromptState",null),
+                prefs.getLong("callPermPromptAt",0L),now))return
+        prefs.edit().putString("callPermPromptState",permissionState)
+            .putLong("callPermPromptAt",now).apply()
         android.app.AlertDialog.Builder(this)
             .setTitle("开启锁屏来电亮屏")
-            .setMessage("检测到三星系统尚未完整允许 MoveCar 全屏来电。请在设置中允许全屏提醒、来电通知和锁屏显示，否则只能听到振铃。")
+            .setMessage("当前手机没有完整允许来电亮屏。请检查 APP 通知、挪车语音来电渠道及全屏提醒权限；未授权时 Android 可能只显示通知而不打开来电页面。")
             .setNegativeButton("稍后",null)
             .setPositiveButton("前往设置"){_,_->navigate("settings_permissions")}
             .show()

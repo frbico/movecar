@@ -9,6 +9,7 @@ import android.graphics.drawable.RippleDrawable
 import android.view.Gravity
 import android.view.View
 import android.widget.ImageView
+import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 
@@ -52,6 +53,20 @@ internal object OwnerUi {
             bg(color, radius, context, border),
             null
         )
+
+    fun flatCallButton(ctx: Context, title: String, foreground: Int, surface: Int,
+                       radius: Int = 20): Button = Button(ctx).apply {
+        text = title
+        isAllCaps = false
+        setTextColor(foreground)
+        background = pressable(ctx, surface, radius)
+        // Platform Button keeps its elevation animator after a custom background
+        // is assigned; disable both the resting and pressed-state shadows.
+        stateListAnimator = null
+        elevation = 0f
+        translationZ = 0f
+        includeFontPadding = false
+    }
 
     fun label(ctx: Context, text: String, size: Float = 14f, color: Int = navy,
               weight: Boolean = false): TextView =

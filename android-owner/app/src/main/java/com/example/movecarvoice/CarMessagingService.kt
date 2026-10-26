@@ -115,8 +115,8 @@ class CarMessagingService : FirebaseMessagingService() {
             // Strictly gated by the user's full-screen call entitlement; a
             // short timeout gives Samsung/One UI a chance to wake the display
             // before Android starts the full-screen incoming-call Activity.
-            if (fullScreenAllowed && nm.areNotificationsEnabled() &&
-                nm.getNotificationChannel(CHANNEL)?.importance == NotificationManager.IMPORTANCE_HIGH) {
+            if (IncomingCallPolicy.mayUseWakeFallback(fullScreenAllowed,
+                    nm.areNotificationsEnabled(),nm.getNotificationChannel(CHANNEL)?.importance?:0)) {
                 val power = context.getSystemService(android.content.Context.POWER_SERVICE) as PowerManager
                 if (!power.isInteractive) {
                     @Suppress("DEPRECATION")
@@ -125,6 +125,7 @@ class CarMessagingService : FirebaseMessagingService() {
                         "MoveCar:IncomingCallScreen")
                     // Never hold it for the entire ringing interval.
                     wake.acquire(3500L)
+                    if(!testing)prefs.edit().putLong("lastWakeFallbackAt",System.currentTimeMillis()).apply()
                 }
             }
         } catch (e: SecurityException) {
