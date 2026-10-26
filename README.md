@@ -1,17 +1,24 @@
-# MoveCar · Linux / Docker 自部署版
+# MoveCar
 
-## 📦 Android 车主 APP 下载
+**自部署挪车通知与车主联系系统。** 将网站链接制作成车内二维码，扫码者可以留言、补充现场照片，也可以在启用后发起匿名网络语音通话；车主通过通知或 Android App 查看请求并确认，扫码页面同步显示处理状态。项目提供 Web 管理后台、原生 Android 车主 App 和 SQLite 持久化服务。
 
-**今后统一在 [GitHub Releases](https://github.com/frbico/movecar/releases) 下载正式签名 APK**，不从 Actions 的 Debug Artifacts 安装。正式版文件名为 MoveCar-Owner-vX.Y.Z.apk，附带 SHA-256 校验文件。Android 车主 APP 的设置页可以检查新版本并跳转官方 Releases。固定签名配置、首次从 Debug 版迁移步骤见 [ANDROID-RELEASES.md](ANDROID-RELEASES.md)。
+## 功能概览
 
+| 场景 | 能力 |
+| --- | --- |
+| 扫码联系 | 留言通知、电话和微信号联系、可选的匿名语音呼叫。 |
+| 车主处理 | 每次请求独立的确认状态；可通过通知链接、Web 后台或 Android App 处理。 |
+| 现场照片 | 首次通知成功后可补发一张 JPEG、PNG、WebP 或 HEIC/HEIF 原图，最大 10 MiB。 |
+| 消息渠道 | Bark、Server酱 Turbo、Server酱³，以及基于 Firebase Cloud Messaging 的 Android App。 |
+| 管理与运维 | 站点品牌、联系方式、通知渠道、挪车记录、语音规则、部署配置和服务端更新。 |
 
-在 Linux 一键部署 [lesnolie/movecar](https://github.com/lesnolie/movecar) 的挪车页面，保留原始 Worker 前端与状态处理，增加 SQLite 兼容层、**管理后台**、**Bark + 微信 Server酱 + Server酱³ 推送**。
+挪车请求的确认链接有效期为 **1 小时**；照片上传凭证有效期为 **20 分钟**，照片链接有效期为 **1 小时**。照片保留原始文件，可能包含 EXIF/GPS 元数据。网页挪车流程不采集位置。
 
-> 本项目为第三方独立适配版，不是上游作者的官方 Docker 版本；上游代码由 `scripts/fetch-upstream.sh` 在首次安装时从 GitHub 下载。请自行审查后用于正式环境。
+## 部署
 
-## 🚀 一键部署（默认 8888 端口）
+### 基础 Docker 部署
 
-前置要求：Docker Engine + Docker Compose 插件、网络可以访问 GitHub 上游源码（需要 `curl`）。
+要求 Linux、Docker Engine、Docker Compose v2、Git、Bash、Curl，以及可访问 GitHub 源码下载地址的网络。
 
 ```bash
 git clone https://github.com/frbico/movecar.git
@@ -19,39 +26,22 @@ cd movecar
 ./install.sh
 ```
 
-**无需输入域名、Bark Key 或微信 SendKey，甚至不需要 `.env`。** 安装脚本会下载上游源码并构建容器，首次启动后自动生成随机管理密码，显示在终端。
+脚本会获取页面运行所需的源码、构建容器、等待健康检查，并显示首次生成的管理员密码。默认挪车页面为 `http://服务器IP:8888/`，后台为 `http://服务器IP:8888/admin`。在服务器仓库目录可用 `./show-admin-password.sh` 再次查看初始密码；修改密码后该文件会删除。
 
-- 用户扫码页面：`http://服务器IP:8888/`
-- 管理后台：`http://服务器IP:8888/admin`
-- 服务器上重新查看首次密码：`./show-admin-password.sh`
-- 首次登录后建议立刻修改密码，修改后初始密码文件被删除。
+首次进入后台后，请修改管理员密码，配置至少一个通知渠道，并填写手机能访问的 **HTTPS 公网地址**。随后用手机完成一次真实的扫码、通知和确认测试，再制作车内二维码。
 
-### 后台配置
+### 完整部署与 HTTPS
 
-1. 打开 `/admin`，使用安装脚本显示的初始管理员密码登录。
-2. 填入任一种推送渠道：
-   - **Bark**（iPhone）：`https://api.day.app/你的DeviceKey`；支持自建 HTTPS Bark 服务。
-   - **微信**：先在 [Server酱 Turbo](https://sct.ftqq.com) 用微信扫码登录，复制以 `SCT` 开头的 **SendKey**，粘贴到后台。免费版有日推送限额；这是第三方平台，非微信官方直接推送 API。
-3. 点击**保存所有设置**，再点击**发送测试通知**。
-4. 如果多个渠道都已配置，将同时发送；某个渠道失败而另一个成功时视为推送成功。
-5. **公网访问地址**可以暂时不填：程序会使用当前访问使用的 IP/主机名生成车主确认链接。但是正式使用请填写 HTTPS 公网域名，例如 `https://car.example.com`，否则微信/Bark 中的确认链接可能无法从外网访问。
+匿名语音与 Android FCM 接收端还需要 Firebase、STUN/TURN、HTTPS 反向代理及相应网络配置。仓库提供 [通用安装与迁移指南](DEPLOY-ANYWHERE.md)，可在 Linux VPS 上安装应用及 TURN，并在后台配置域名、Firebase 服务账号和证书。基础安装无需启用语音功能；相关服务只有在配置完整后才可用。
 
-**配置保存到 Docker 数据卷的 SQLite 数据库中，重启后仍然存在。** 后台不回显 Bark / SendKey；留空表示不修改已有值，可显式清除。
+默认 Compose 映射为 `0.0.0.0:8888` 的 HTTP 端口。对公网开放后台前，请使用 HTTPS 反向代理；同机代理可在根目录创建 `.env` 将其限制为本机访问：
 
-## 🔒 安全建议
+```dotenv
+HOST_BIND=127.0.0.1
+HOST_PORT=8888
+```
 
-- 默认按你的要求开放 TCP `0.0.0.0:8888`。这是 **HTTP**，明文连接不适合直接跨公网输入管理员密码。正式上线请使用 HTTPS 反向代理，或者通过 SSH 隧道访问后台。请配置防火墙限制 8888 端口的访问来源。
-- 正式页面位置授权需要 HTTPS（浏览器对 localhost 有部分例外）。收到微信通知不意味着 URL 已能在外网访问。
-- 用 Nginx、Caddy、Traefik 或其他 HTTPS 反向代理指向宿主机 `127.0.0.1:8888`，后台填写 HTTPS 域名。确认反向代理入口及访问域名正确。也可将 `HOST_BIND` 设置为 `127.0.0.1`，只允许本地和反向代理访问。
-- 管理员密码采用 scrypt 哈希，登录会话通过 HttpOnly、SameSite Cookie 管理，并校验 CSRF token。首次密码保存在持久化目录的 `admin-initial-password` 文件，权限 `0600`，密码修改后删除。
-- 推送中使用**有效期一小时的签名车主确认链接**，而不是永久的车主 token；首次访问后会被换成一小时 HttpOnly Cookie。
-- 没有推送渠道时可正常打开页面和后台，但扫码者发送通知会提示“尚未配置”；配置任何一个渠道后立即可用，无需重启。
-- 限流默认按服务端看到的 TCP 来源 IP 实施。在统一反向代理之后，多个请求方可能共用一个限流身份；需要更精确的限流建议使用反向代理/WAF。
-- 上游设计为单车/单状态共享，`/api/check-status` 会把车主确认位置返回给关注该状态的请求者。不要视作私有的多用户系统。
-
-### HTTPS 反向代理示例（Caddy）
-
-若解析了 `car.example.com`，可参考：
+例如在同一主机上用 Caddy：
 
 ```caddyfile
 car.example.com {
@@ -59,170 +49,52 @@ car.example.com {
 }
 ```
 
-若无需公网直接访问 8888，可在项目根目录新建**可选** `.env` 文件：
+反向代理应保留原始 `Host` 头；上传照片时，请将代理请求体上限设为至少 **12 MiB**。语音通话还需独立配置 TURN 端口和中继端口，不能仅靠网站反向代理。具体端口、证书与迁移步骤见 [部署指南](DEPLOY-ANYWHERE.md)。
 
-```dotenv
-HOST_BIND=127.0.0.1
-HOST_PORT=8888
-```
+## Android 车主 App
 
-注意：`.env` 只决定 Docker 端口绑定，**不是**通知渠道配置文件。通知渠道只在后台配置。
+正式签名 APK 从 [GitHub Releases](https://github.com/frbico/movecar/releases) 下载，文件名为 `MoveCar-Owner-vX.Y.Z.apk`，并提供 SHA-256 校验文件。App 支持挪车记录、通知渠道与站点设置、FCM 提醒、来电和通话界面，以及检查更新。服务器地址可在 App 登录时填写。
 
-## 日常管理
+App 源码位于 `android-owner/`，构建需要 JDK 17、Android SDK 35、Gradle 8.9 和与包名 `com.example.movecarvoice` 匹配的 `google-services.json`。CI 可用占位 Firebase 配置验证编译；实际推送必须使用自己的 Firebase 配置。正式发布还需要长期保存的签名密钥，详见 [Android 发布说明](ANDROID-RELEASES.md)。
+
+FCM 消息送达取决于手机的 Google Play 服务、通知权限、网络和系统后台策略。语音通话还需要麦克风权限，并建议在目标手机和实际网络下验证锁屏、蓝牙、重连与 TURN 中继。应用更新不会自动部署服务端代码。
+
+## 后台配置
+
+在 `/admin` 可以分别启停并测试 Bark、Server酱 Turbo、Server酱³和 Android App 推送。Bark 使用 HTTPS API 地址；Turbo 使用 `SCT` 开头的 SendKey；Server酱³使用 `sctp` 开头的 SendKey。已保存的密钥不会回显，输入框留空会保留原值，只有选择清除才会删除。
+
+站点名称、图标、联系电话、微信号、通知间隔和记录保留数也可在后台设置。默认通知间隔为 **60 秒**，可设为 0–3600 秒；默认保留最近 **50 条**记录，可设为 1–500 条。记录被删除或超过保留上限时，关联照片会一并清理。保留条数设得过小，可能使尚待确认的旧请求提前失效。
+
+多个启用的通知渠道可同时发送；至少一个渠道成功时请求即成立。服务端接受推送不代表手机已展示通知，正式使用前请在锁屏状态做端到端测试。电话联系按钮会在请求发出 **60 秒后且车主尚未确认时**开放；微信联系按钮复制后台设置的微信号。
+
+## 数据、安全与更新
+
+设置、账号、设备绑定和挪车记录保存在 Docker 的 `movecar_data` 命名数据卷。`docker compose down` 不会删除数据卷，`docker compose down -v` **会删除**。备份 SQLite 数据库时应先停服务或使用一致性备份；跨服务器迁移可参考 [部署指南](DEPLOY-ANYWHERE.md) 中的导出与恢复脚本。
+
+管理员密码采用 scrypt 哈希；后台会话使用 HttpOnly Cookie，并对修改操作校验 CSRF。确认链接、照片链接及其他授权凭证均有有效期，但**持有有效链接的人仍可访问相应内容**，请不要转发或上传敏感照片。请求限流依据服务端看到的 TCP 来源 IP；统一反向代理下多位用户可能共享一个限流身份。
+
+日常检查：
 
 ```bash
 docker compose ps
 docker compose logs --tail=80
-docker compose restart
-docker compose up -d --build
-./show-admin-password.sh    # 仅管理员密码未修改时有效
+curl -fsS http://127.0.0.1:8888/healthz
 ```
 
-更新代码：
+基础部署可在仓库目录运行 `git pull --ff-only` 和 `./install.sh` 更新。使用通用安装器或稳定发布通道的部署，请按 [网页后台更新说明](WEB-UPDATE.md) 操作；**`main` 分支的代码提交不会自动发布 Android APK，也不会自动更新使用 `release/stable` 的服务器**。
 
-```bash
-cd ~/movecar
-git pull --ff-only
-./install.sh
-```
+不用 Docker 时，Node.js 24+ 可执行 `bash scripts/fetch-upstream.sh` 后运行 `./run-linux.sh`。测试入口为 `node --test tests/*.test.mjs`；Android 工程另有 Gradle 单元测试。集成测试使用模拟通知与网络服务，不能代替真实设备验收。
 
-数据保存在 `movecar_data` 命名数据卷里，`docker compose down` 不删除它。请勿使用 `docker compose down -v`，否则会清除设置、密码和通知状态。备份 SQLite 时应先停服务或使用 SQLite 一致性备份，数据库为 WAL 模式。
+## 项目结构
 
-## 不用 Docker
+- `server.mjs`、`request-flow.mjs`：HTTP 服务、挪车请求、照片与后台接口。
+- `mobile-owner.mjs`、`voice-service.mjs`：车主 App API、FCM 与匿名语音信令。
+- `android-owner/`：原生 Android 车主 App。
+- `scripts/`、`deployment/`：安装、更新、证书、备份及 TURN 配置。
+- `tests/`：服务端集成测试。
 
-Node.js 24+ 环境下：
+## 致谢与许可
 
-```bash
-bash scripts/fetch-upstream.sh
-./run-linux.sh
-```
+感谢 [lesnolie/movecar](https://github.com/lesnolie/movecar) 提供挪车页面与 Worker 实现，为本项目的页面交互提供基础。相关源码在安装时下载至 `upstream/`，其许可见下载后的 `upstream/LICENSE`。
 
-同样默认监听 8888，初始密码保存在 `./data/admin-initial-password`；可设置环境变量 `DB_PATH`、`PORT` 调整数据库路径和端口。
-
-## 自动测试
-
-```bash
-node --test tests/*.test.mjs
-```
-
-CI 执行语法测试、登录/配置/推送集成测试、脚本执行权限检查、上游代码下载和 Docker 构建。集成测试使用模拟原版 Worker 与本地推送接口，**不包含真实微信或 Bark 账号推送测试**。
-
-## License
-
-兼容层采用仓库内 `LICENSE` 所载许可。下载的上游项目使用其原始许可证，见 `upstream/LICENSE`。
-
-
-## 📲 Server酱³ Android / iOS 原生推送
-
-新版后台支持 **Bark、Server酱³ 和微信 Server酱 Turbo** 三种独立通知渠道，互不覆盖，可同时发送。
-
-1. 在 [Server酱³](https://sc3.ft07.com) 获取 `sctp` 开头的 SendKey；这是独立于微信 Turbo 的 `SCT` 密钥。
-2. 小米国行与三星美版安装 Server酱³ App，绑定同一个账户，确认厂商推送 / Google FCM 与通知权限正常。
-3. 打开 `/admin` →「通知渠道」，输入 SendKey 后保存，并点击 **Server酱³ 单独测试**。
-4. 可继续启用 Bark 和微信备用通道。后台会显示各渠道是否已配置；**密钥不回显**，留空保留已保存密钥，勾选「清除」可删除密钥。
-5. 为方便车主点击通知中的链接，建议在「基本设置」填写可从手机访问的 HTTPS 公网域名。
-
-SC3 使用官方 HTTPS API：`https://<uid>.push.ft07.com/send/<sendkey>.send`，请求体包含 `title`、`short`、`desp` 和 `tags`。请求成功仅说明推送服务接受消息，仍需要在两台手机上检查锁屏通知是否实际送达。
-
-升级现有容器：
-
-```sh
-git pull --ff-only
-docker compose up -d --build
-```
-
-**不要执行 `docker compose down -v`**，否则会删除原数据卷。旧的 SQLite 配置和管理员密码无需迁移或重设。
-
-## 📷 照片与修复说明（2026-10-15）
-
-- **通知立即发送**。已移除原始 Worker 无位置时同步等待 30 秒的逻辑，推送服务本身仍可能存在网络耗时。
-- **Server酱³ 的正文换行**：把上游字面的 `\\n` 转换成真正换行；Markdown 正文不再显示转义符。
-- **车主确认链接**：新消息携带 `/owner-confirm/<过期时间>/<HMAC签名>`，减少聊天客户端在打开链接时丢弃 URL 查询参数的风险；旧版 `?expires=...&sig=...` 链接仍可使用，过期链接依旧拒绝访问。收到仅有 `/owner-confirm` 的链接并不能绕过授权。
-- **现场照片**：发起者在第一次挪车通知成功后，进入成功页才可见拍照按钮。浏览器选择/拍摄照片，自动压缩为不带原始 EXIF 元数据的 JPEG（最长边不超过 1200 像素、最多 1.5 MB），点击「发送现场照片给车主」将产生单独推送。每次首次成功通知只能上传一次，上传授权 20 分钟有效。
-- **照片访问和保留期限**：照片数据保存在原 SQLite 数据卷中，通过不可猜测的随机链接访问，1 小时后自动拒绝读取，并按后台清理任务清理过期记录。持有照片链接的人在有效期内可以查看，请勿上传身份证、无关行人面孔等敏感信息。
-- **Server酱³ 中的“图片”选项**：旧通知未上传任何照片，App 里的图片页空白是正常的；新的现场照片通知包含 HTTPS 图片 Markdown，实际预览取决于手机 App 与公网图片地址可访问性。
-- **重要**：手机拍照与接收照片都建议通过有效 HTTPS 域名访问服务，HTTP 下可能受摄像头和图片加载限制。无推送配置或所有渠道失败不会签发照片上传凭据。
-
-更新：`git pull --ff-only origin main && docker compose -f compose.yaml up -d --build`。请保留现有数据卷，不要执行 `docker compose down -v`。
-
-## 2026-10-15：定位、拍照、确认和 SC3 排版修复
-
-- 每次挪车请求都有 **独立确认 Token**，有效期 60 分钟；车主无须登录。打开链接只显示确认页，点「我已收到，正在前往」才真正确认。
-- 发起人页面对每条请求单独查询状态，约每 1.2 秒检查一次；两条请求不会互相影响，手机锁屏暂停浏览器时更新可能延迟。
-- **定位功能已在最新版移除**，无需位置权限，SC3 通知和车主确认页不再包含地图链接。
-- SC3 使用 Markdown 完整正文 desp 和实际换行；short 只作通知摘要，所以系统通知栏折叠时通常仍是一行，打开消息详情才看到完整排版。
-- 发送成功页面加入拍照按钮，照片通过浏览器 Canvas 压缩成 JPEG 后补发；照片凭证 20 分钟有效、每次请求最多补发一张，图片链接 60 分钟过期。
-- 安全提示：拥有确认链接的人即有本次确认权限，不要转发该链接；照片使用随机限时 URL，请勿拍摄他人的敏感信息。
-- 更新后请使用**新发起的挪车通知**测试，旧版失效链接不会自动恢复。后台「基本设置」应填写 HTTPS 公网地址。
-
-### 升级服务器
-
-```bash
-cd ~/movecar
-git pull --ff-only origin main
-docker compose -f compose.yaml up -d --build
-docker compose -f compose.yaml ps
-```
-
-出现 git pull 本地修改冲突时，请先备份对应文件或使用 git stash；不要执行 docker compose down -v。
-
-## 原图直传与挪车记录保留上限
-
-- 挪车成功页面支持直接上传 JPEG、PNG、WebP、HEIC/HEIF 原文件，**不再依赖浏览器的 Image/Canvas 解码及重编码**。选择文件后可预览的会预览，HEIC 在部分浏览器无法预览，但仍可直接上传并在车主通知里点击原图链接。
-- 单张原图上限为 **10 MiB（10 × 1024 × 1024 字节）**。服务器会对文件头进行格式识别并与请求 Content-Type 交叉校验，拒绝不支持的格式；不再要求所有图片都必须是 JPEG。
-- 原图含有相机原始 EXIF/GPS 等元数据，不会自动清除；建议避免拍到陌生人面孔、证件、车牌以外的敏感信息。
-- 在 `/admin` → **基本设置** 中可以更改「保留最近挪车记录（条）」，默认 **50**，允许 1–500 条；修改后立刻清理超额记录。每次新挪车通知成功后也自动清理最旧记录。
-- 与被删记录关联的照片及上传凭证会一起清除；照片独立的一小时访问期限仍然生效。已过期的记录和照片会定期清理。
-- 挪车记录和照片主要占用 SQLite 数据库的磁盘空间，不是等量常驻 RAM。删除记录后 SQLite 通常会复用空闲页，但磁盘文件未必立即缩小；若需要实际回收文件体积，应在维护窗口备份数据库并执行 VACUUM。
-- 设置很小的保留条数会让较早但仍在等待回复的请求失效。推荐常规使用保留 50 条。
-
-## 2026-10-16 更新：禁用定位与 10 MiB 照片
-
-- 挪车前台取消位置授权弹窗和位置状态卡片，不调用浏览器 Geolocation API；所有新挪车请求即使带有旧客户端传来的经纬度也会被忽略。
-- SC3/Bark/微信通知不生成地图链接，车主确认页不显示位置。服务端在首次启动时清除现存挪车记录的经纬度字段。
-- 照片上传支持原始 JPEG、PNG、WebP、HEIC/HEIF，允许单张 **最多 10 MiB**；超出会返回 HTTP 413。保持原图不压缩，因此相机写入图片的 EXIF/GPS 信息仍可能存在，请注意隐私。
-- 如果使用 Nginx 反向代理，需要确保 `client_max_body_size` 至少为 `11m`（建议 `12m`），否则上传较大的照片可能在抵达 MoveCar 服务器前被代理直接拒绝。
-- 其余挪车 Token 确认、状态反馈、后台最近记录条数管理均保留不变。
-
-## 2026-10-16：联系按钮、历史管理和站点自定义
-
-- **成功页精简**：移除拍照区的原图说明；车主确认时隐藏「通知已发送」卡片，仅显示「车主已收到通知」，不再堆叠两块大卡片。
-- **电话延时开放**：首次挪车请求发送成功后开始倒计时 60 秒。若车主仍未确认并且后台配置了联系电话，页面才恢复电话链接；收到确认后电话保持不可点击。倒计时显示剩余秒数，重新通知不重置倒计时。
-- **微信联系**：后台「基本设置」填写车主微信号，前台新增微信联系按钮。点击复制微信号并显示「已复制微信号，请添加车主微信」；未配置时按钮禁用。网站需要 HTTPS 或允许剪贴板操作的浏览器环境。
-- **后台挪车记录**：侧边栏「挪车记录」显示所有仍被保留的请求（默认最新 50 条、可在基本设置调整为 1–500 条）。支持分页、刷新、查看留言和状态、查看尚未过期的现场照片、逐条删除或清空全部保留记录，清除时同时移除关联照片。
-- **历史与链接有效期分离**：车主确认 Token 仍只在首次发送后的 1 小时内有效；过期后的历史记录可继续在后台查看，直到超出保留条数上限或被管理员删除。以前已由旧版本清理掉的记录无法恢复。
-- **站点名称与图标**：后台可编辑站点名称（1–40 字）、上传图标（PNG、JPEG、WebP、ICO；最大 256 KiB），应用于前台站点标题、浏览器标签和 favicon；可恢复默认图标。
-- **隐私与安全**：历史记录接口仅管理员可读；修改、删除、上传图标受管理员登录和 CSRF 校验保护。公开网站只返回显示所需的站点名称和微信号，不公开管理员密码及通知密钥。
-
-升级 Docker 后如果出现页面缓存问题可强制刷新。首次启用微信联系请先在后台设置微信号并保存。
-
-
-## 实验性匿名网络语音（开发分支）
-
-本开发分支增加网页扫码匿名呼叫、FCM 来电、Android 原生 WebRTC 双向语音，以及允许接听后熄屏继续运行的麦克风前台服务。当前仍是 **MVP / 未部署 / 未完成真机验证**，不会在未配置 Firebase 的情况下自动启用。完整配置与安全说明参见 [VOICE-CALLS.md](VOICE-CALLS.md)。
-
-Android CI 产出的占位 Firebase APK **不能用于实际来电**；需为仓库 Actions 配置 `MOVECAR_GOOGLE_SERVICES_JSON_B64` 后，在本分支触发一次 Android 构建。需要配置服务端 Firebase 服务账号（不得提交仓库）和必要的 TURN 服务。
-
-
-## 🚀 通用一键安装（Docker + 任意 HTTPS 反代）
-
-**不绑定 1Panel、香港服务器、东京服务器、Nginx 或 Caddy。** 服务器只需安装 Docker/Compose、Git、Curl、Python3、OpenSSL；所有非基础信息都进入登录后的「部署与迁移」后台向导。
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/frbico/movecar/release/stable/scripts/install-universal.sh | sudo bash
-```
-
-自动下载/更新 MoveCar、生成独立 TURN 密钥、启动 MoveCar + coturn、将 Web 管理后端仅绑定到本机 127.0.0.1:8888，防止裸露公网。系统检测到 1Panel 的 Docker 网络时自动接入，但**没有 1Panel 也完全可以安装**。
-
-首次访问可用 SSH 隧道 `ssh -L 8888:127.0.0.1:8888 用户@服务器`，然后在本地浏览器访问 `http://127.0.0.1:8888/admin`。安装输出管理员初始密码（保密，尽快修改）；有现有数据则沿用账号密码。
-
-在后台配置网站 HTTPS 域名、TURN 域名、Firebase Admin SDK JSON；若需要 5349 TLS 备用，从后台上传任意有效 PEM 证书 + 私钥。所有配置保存即生效，coturn 自动重载，**不再要求安装命令输入域名、证书路径或 Firebase 私钥**。
-
-已有 1Panel/Nginx/Caddy 用户仅需为网站建立一次外部 HTTPS 反向代理到 `http://127.0.0.1:8888`（容器与 1Panel 同网络时也支持 `http://movecar:8888`）。TURN 走独立 UDP/TCP 端口，不能用普通 HTTP 反向代理。
-
-[通用安装、备份迁移和检查指南](DEPLOY-ANYWHERE.md)。
-
-
-## 网页后台一键升级（稳定版）
-
-首次从历史测试分支迁移至稳定版，使用全新入口 `scripts/recover-install.sh`。迁移后网页后台新增“**版本更新**”，可检查官方稳定版、查看变更、输入管理员密码确认升级；服务器自动备份并执行 Docker 健康检查。此功能不依赖 1Panel，详情见 [WEB-UPDATE.md](WEB-UPDATE.md)。
+本仓库新增代码采用 [MIT License](LICENSE)；第三方代码和依赖遵循各自许可证。
