@@ -1,9 +1,9 @@
 {
-  "version": "0.7.6",
+  "version": "0.7.7",
   "channel": "stable",
   "releasedAt": "2026-10-26",
   "changes": [
-    "修正后台侧栏车图标与站点名称的垂直对齐",
-    "侧栏底部改为项目地址与最新版 APP 下载入口"
+    "README 增加面向新手的 Ubuntu、Docker、HTTPS、后台和 Android 逐步部署教程",
+    "详细说明自部署 FCM 的两份 Firebase JSON、同项目校验、APP 构建及通知排障"
   ]
 }
