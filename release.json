@@ -1,9 +1,9 @@
 {
-  "version": "0.7.7",
+  "version": "0.7.8",
   "channel": "stable",
   "releasedAt": "2026-10-26",
   "changes": [
-    "README 增加面向新手的 Ubuntu、Docker、HTTPS、后台和 Android 逐步部署教程",
-    "详细说明自部署 FCM 的两份 Firebase JSON、同项目校验、APP 构建及通知排障"
+    "车主 APP 精简首页、通知和设置页面，挪车记录操作直接显示",
+    "统一卡片边框并修正启动图标边缘及 FCM 通知中的 Markdown 标记"
   ]
 }

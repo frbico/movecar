@@ -55,8 +55,8 @@ class MainActivity : Activity() {
         refreshHandler.postDelayed(periodicRefresh, 120_000)
         // Returning from Samsung notification/full-screen settings must
         // re-read actual OS grants instead of displaying cached checkmarks.
-        if (page=="settings" && token().isNotBlank())
-            refreshHandler.post { if(page=="settings")refreshCurrent(false) }
+        if (page=="settings_permissions" && token().isNotBlank())
+            refreshHandler.post { if(page=="settings_permissions")refreshCurrent(false) }
     }
     override fun onPause() {
         refreshHandler.removeCallbacks(periodicRefresh)
@@ -69,6 +69,16 @@ class MainActivity : Activity() {
             historyPage=1
             navigate("requests")
         }
+    }
+    @Deprecated("Uses platform back handling without an extra dependency")
+    override fun onBackPressed() {
+        val parent=when {
+            page.startsWith("channel_")->"channels"
+            page=="account"||page=="device"||page.startsWith("settings_")->"settings"
+            page!="home"&&page!="login"->"home"
+            else->null
+        }
+        if(parent==null)super.onBackPressed() else navigate(parent)
     }
     private fun px(value: Int) = OwnerUi.dp(this, value)
     private fun spacer(size: Int = 12) {
@@ -100,14 +110,19 @@ class MainActivity : Activity() {
         val top = OwnerUi.horizontal(this).apply {
             setPadding(px(20), px(15), px(20), px(12))
         }
-        val mark = OwnerUi.label(this, "✦", 23f, OwnerUi.green, true).apply {
-            gravity = Gravity.CENTER
-            background = OwnerUi.bg(OwnerUi.softGreen, 16, this@MainActivity)
+        val parent=when {
+            page.startsWith("channel_")->"channels"
+            page=="account"||page.startsWith("settings_")||page=="device"->"settings"
+            else->null
         }
-        top.addView(mark, LinearLayout.LayoutParams(px(44), px(44)))
-        val headingCol = OwnerUi.vertical(this).apply { setPadding(px(12), 0, 0, 0) }
-        headingCol.addView(OwnerUi.label(this, "MOVE CAR  /  OWNER", 10.5f, OwnerUi.muted, true))
-        headingCol.addView(OwnerUi.label(this, heading, 23f, OwnerUi.navy, true))
+        if(parent!=null)top.addView(OwnerUi.label(this,"‹",32f,OwnerUi.navy).apply {
+            gravity=Gravity.CENTER
+            contentDescription="返回"
+            isClickable=true;isFocusable=true
+            setOnClickListener{navigate(parent)}
+        },LinearLayout.LayoutParams(px(40),px(44)))
+        val headingCol = OwnerUi.vertical(this).apply { setPadding(if(parent==null)px(2) else px(8), 0, 0, 0) }
+        headingCol.addView(OwnerUi.label(this, heading, 22f, OwnerUi.navy, true))
         top.addView(headingCol, LinearLayout.LayoutParams(0, -2, 1f))
         if (page != "login") top.addView(OwnerUi.label(this,"↻",24f,OwnerUi.blueDeep,true).apply {
             gravity=Gravity.CENTER
@@ -127,17 +142,15 @@ class MainActivity : Activity() {
         }
         scroll.addView(root, android.widget.FrameLayout.LayoutParams(-1, -2))
         frame.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        if (page != "login") frame.addView(bottomNav(),LinearLayout.LayoutParams(-1,-2).apply {
-            marginStart=px(16);marginEnd=px(16);bottomMargin=px(8)
-        })
+        if (page != "login") frame.addView(bottomNav(),LinearLayout.LayoutParams(-1,-2))
         setContentView(frame)
     }
 
     private fun bottomNav(): LinearLayout {
         val bar=OwnerUi.horizontal(this).apply {
-            background=OwnerUi.bg(OwnerUi.white,28,this@MainActivity,OwnerUi.line)
-            setPadding(px(7), px(7), px(7), px(7))
-            elevation=px(5).toFloat()
+            background=OwnerUi.bg(OwnerUi.white,0,this@MainActivity,OwnerUi.line)
+            setPadding(px(8), px(5), px(8), px(5))
+            elevation=0f
         }
         val tabs=listOf(
             Triple("首页", "home", android.R.drawable.ic_menu_view),
@@ -147,13 +160,14 @@ class MainActivity : Activity() {
             Triple("设置", "settings", android.R.drawable.ic_menu_manage)
         )
         for ((label, route, icon) in tabs) {
-            val selected=page==route || (route=="settings"&&page=="account")
+            val selected=page==route || (route=="settings"&&(page=="account"||page=="device"||page.startsWith("settings_"))) ||
+                (route=="channels"&&page.startsWith("channel_"))
             val color=if(selected) OwnerUi.green else OwnerUi.muted
             val item=OwnerUi.vertical(this).apply {
                 gravity=Gravity.CENTER
                 setPadding(px(3), px(7), px(3), px(5))
                 background=OwnerUi.pressable(this@MainActivity,
-                    if(selected)OwnerUi.softGreen else OwnerUi.white, 19)
+                    if(selected)OwnerUi.softGreen else OwnerUi.white, 12)
                 isClickable=true
                 isFocusable=true
                 contentDescription="切换到"+label
@@ -196,17 +210,22 @@ class MainActivity : Activity() {
         title(heading,17f)
         if(caption.isNotBlank())note(caption)
     }
-    private fun pageBanner(kicker:String,heading:String,description:String,color:Int) {
-        val banner=OwnerUi.vertical(this).apply {
-            background=OwnerUi.bg(color,26,this@MainActivity)
-            setPadding(px(20),px(20),px(20),px(21))
+    private fun menuRow(heading:String,detail:String,onClick:()->Unit) {
+        val row=OwnerUi.horizontal(this).apply {
+            setPadding(px(16),px(15),px(14),px(15))
+            background=OwnerUi.pressable(this@MainActivity,OwnerUi.white,15,OwnerUi.line)
+            isClickable=true;isFocusable=true
+            contentDescription="$heading，$detail"
+            setOnClickListener{onClick()}
         }
-        banner.addView(OwnerUi.label(this,kicker,11.5f,OwnerUi.blueDeep,true))
-        banner.addView(OwnerUi.label(this,heading,24f,OwnerUi.navy,true).apply {
-            setPadding(0,px(7),0,px(5))
+        val labels=OwnerUi.vertical(this)
+        labels.addView(OwnerUi.label(this,heading,15f,OwnerUi.navy,true))
+        if(detail.isNotBlank())labels.addView(OwnerUi.label(this,detail,12.5f,OwnerUi.muted).apply{
+            setPadding(0,px(3),0,0)
         })
-        banner.addView(OwnerUi.label(this,description,13f,OwnerUi.blueDeep))
-        root.addView(banner,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(12)})
+        row.addView(labels,LinearLayout.LayoutParams(0,-2,1f))
+        row.addView(OwnerUi.label(this,"›",25f,OwnerUi.muted))
+        root.addView(row,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(8)})
     }
     private fun field(hint: String, value: String = "", password: Boolean = false): EditText {
         val block=OwnerUi.vertical(this)
@@ -280,7 +299,9 @@ class MainActivity : Activity() {
         when(page) {
             "requests" -> loadRequests(force)
             "calls" -> fetchPage("/api/mobile/calls",force){if(page=="calls")calls(it)}
-            "home","channels","settings","account" -> {
+            "home","channels","settings","account","device","settings_site","settings_calls",
+            "settings_icon","settings_update","settings_permissions","channel_app","channel_bark",
+            "channel_sc3","channel_serverchan" -> {
                 val current=page
                 fetchPage("/api/mobile/config",force){if(page==current)renderConfig(current,it)}
             }
@@ -292,6 +313,13 @@ class MainActivity : Activity() {
             "channels"->channels(data)
             "settings"->settings(data)
             "account"->account(data)
+            "device"->device(data)
+            "settings_site"->settingsSite(data)
+            "settings_calls"->settingsCalls(data)
+            "settings_icon"->settingsIcon(data)
+            "settings_update"->settingsUpdate()
+            "settings_permissions"->settingsPermissions()
+            "channel_app","channel_bark","channel_sc3","channel_serverchan"->channelDetail(destination.removePrefix("channel_"),data)
         }
     }
     private fun token() = VoiceApi.mobileAuth(this)
@@ -408,12 +436,12 @@ class MainActivity : Activity() {
     private fun bindPushAfterLogin(url: String, bearer: String) {
         FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
             if (!task.isSuccessful) {
-                notify("后台已登录；Firebase 推送暂未绑定，可从首页重新绑定")
+                notify("后台已登录；Firebase 推送暂未绑定，可在设置中重新绑定")
                 return@addOnCompleteListener
             }
             val fcmToken = task.result
             if (fcmToken.isNullOrBlank()) {
-                notify("后台已登录；FCM Token 为空，请从首页重新绑定")
+                notify("后台已登录；FCM Token 为空，请在设置中重新绑定")
                 return@addOnCompleteListener
             }
             Thread {
@@ -459,7 +487,7 @@ class MainActivity : Activity() {
         val host=base();val bearer=token()
         Thread {
             val result=runCatching{VoiceApi.putBytes(host,"/api/mobile/site-icon",bytes,mime,bearer)}
-            runOnUiThread{result.onSuccess{notify("站点图标已更新");navigate("settings")}.onFailure{notify("图标上传失败："+it.message)}}
+            runOnUiThread{result.onSuccess{notify("站点图标已更新");navigate("settings_icon")}.onFailure{notify("图标上传失败："+it.message)}}
         }.start()
     }
 
@@ -468,7 +496,11 @@ class MainActivity : Activity() {
         page=next
         val heading=when(next){
             "home"->"概览";"requests"->"挪车请求";"calls"->"来电记录"
-            "channels"->"通知中心";"settings"->"设置";"account"->"账户安全"
+            "channels"->"通知";"settings"->"设置";"account"->"账户安全"
+            "device"->"设备与服务";"settings_site"->"站点与记录";"settings_calls"->"通话规则"
+            "settings_icon"->"网站图标";"settings_update"->"版本更新";"settings_permissions"->"来电权限"
+            "channel_app"->"APP 通知";"channel_bark"->"Bark 通知"
+            "channel_sc3"->"Server酱³";"channel_serverchan"->"微信通知"
             else->"车主中心"
         }
         screen(heading)
@@ -481,41 +513,43 @@ class MainActivity : Activity() {
         val paired=app.optBoolean("configured")&&app.optBoolean("enabled")
         val count=config.optInt("requestCount")
         val limit=config.optInt("requestRetentionLimit",50)
-        val banner=OwnerUi.horizontal(this).apply {
-            background=OwnerUi.gradient(this@MainActivity)
-            setPadding(px(20),px(23),px(18),px(23))
+        val banner=OwnerUi.vertical(this).apply {
+            background=OwnerUi.bg(OwnerUi.white,18,this@MainActivity,OwnerUi.line)
+            setPadding(px(19),px(19),px(19),px(18))
         }
-        val intro=OwnerUi.vertical(this)
-        intro.addView(OwnerUi.label(this,"你的挪车管家",12f,OwnerUi.blueDeep,true))
-        intro.addView(OwnerUi.label(this,config.optString("siteName","呼叫车主挪车"),
-            23f,OwnerUi.navy,true).apply {
+        banner.addView(OwnerUi.label(this,"车主中心",12f,OwnerUi.muted))
+        banner.addView(OwnerUi.label(this,config.optString("siteName","呼叫车主挪车"),
+            22f,OwnerUi.navy,true).apply {
             maxLines=2
-            setPadding(0,px(8),0,px(10))
+            setPadding(0,px(7),0,px(15))
         })
-        intro.addView(OwnerUi.pill(this,if(paired)"● 消息推送已就绪" else "● 检查消息推送",paired))
-        banner.addView(intro,LinearLayout.LayoutParams(0,-2,1f).apply{marginEnd=px(12)})
-        banner.addView(OwnerUi.progressRing(this,count,limit),
-            LinearLayout.LayoutParams(px(112),px(112)))
+        banner.addView(OwnerUi.line(this))
+        val summary=OwnerUi.horizontal(this).apply{setPadding(0,px(14),0,0)}
+        summary.addView(OwnerUi.label(this,if(paired)"●  通知已开启" else "●  通知待配置",
+            13f,if(paired)OwnerUi.green else OwnerUi.amber,true),
+            LinearLayout.LayoutParams(0,-2,1f))
+        summary.addView(OwnerUi.label(this,"$count / $limit 条记录",13f,OwnerUi.muted))
+        banner.addView(summary)
         root.addView(banner,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(10)})
 
-        section("快捷入口","常用事项，一眼就能找到。")
-        fun tile(caption:String,value:String,detail:String,color:Int,icon:Int,click:()->Unit):LinearLayout =
+        section("快捷入口")
+        fun tile(caption:String,value:String,detail:String,icon:Int,click:()->Unit):LinearLayout =
             OwnerUi.vertical(this).apply {
-                background=OwnerUi.pressable(this@MainActivity,color,22)
+                background=OwnerUi.pressable(this@MainActivity,OwnerUi.white,17,OwnerUi.line)
                 setPadding(px(16),px(16),px(16),px(15))
-                minimumHeight=px(138)
+                minimumHeight=px(124)
                 isClickable=true;isFocusable=true
                 contentDescription="$caption，$value，$detail"
                 setOnClickListener { click() }
                 val heading=OwnerUi.horizontal(this@MainActivity)
                 heading.addView(OwnerUi.label(this@MainActivity,caption,13f,OwnerUi.navy,true),
                     LinearLayout.LayoutParams(0,-2,1f))
-                heading.addView(OwnerUi.icon(this@MainActivity,icon,OwnerUi.blueDeep,20))
+                heading.addView(OwnerUi.icon(this@MainActivity,icon,OwnerUi.green,20))
                 addView(heading)
-                addView(OwnerUi.label(this@MainActivity,value,24f,OwnerUi.navy,true).apply {
-                    setPadding(0,px(18),0,px(2))
+                addView(OwnerUi.label(this@MainActivity,value,21f,OwnerUi.navy,true).apply {
+                    setPadding(0,px(13),0,px(2))
                 })
-                addView(OwnerUi.label(this@MainActivity,detail,11.5f,OwnerUi.blueDeep))
+                addView(OwnerUi.label(this@MainActivity,detail,11.5f,OwnerUi.muted))
             }
         fun tileRow(left:LinearLayout,right:LinearLayout) {
             val row=OwnerUi.horizontal(this)
@@ -524,27 +558,18 @@ class MainActivity : Activity() {
             root.addView(row,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(12)})
         }
         tileRow(
-            tile("挪车请求","$count 条","查看与确认留言",OwnerUi.softGreen,
+            tile("挪车请求","$count 条","查看与确认留言",
                 android.R.drawable.ic_menu_agenda){navigate("requests")},
-            tile("来电记录","查看","匿名语音联系",OwnerUi.softAmber,
+            tile("来电记录","查看","匿名语音联系",
                 android.R.drawable.sym_action_call){navigate("calls")}
         )
         tileRow(
-            tile("消息通知",if(paired)"已连接" else "待配置","管理接收渠道",OwnerUi.softBlue,
+            tile("消息通知",if(paired)"已连接" else "待配置","管理接收渠道",
                 android.R.drawable.ic_dialog_email){navigate("channels")},
-            tile("站点设置","管理","名称、联系与安全",OwnerUi.softRed,
+            tile("站点设置","管理","名称、联系与安全",
                 android.R.drawable.ic_menu_manage){navigate("settings")}
         )
 
-        section("设备与服务")
-        inCard {
-            status(if(paired)"● FCM 消息推送已启用" else "● FCM 推送尚未就绪",paired)
-            note("账号  ·  "+config.optString("username","admin"))
-            note("网站："+base())
-            action("发送一条测试通知") {testChannel("app")}
-            action("重新绑定设备推送") {syncFcm()}
-        }
-        action("打开网页管理后台 ↗"){browse(base()+"/admin")}
     }
     private fun syncFcm(){
         FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
@@ -552,6 +577,7 @@ class MainActivity : Activity() {
             api("/api/mobile/device",JSONObject().put("fcmToken",task.result)) {
                 VoiceApi.prefs(this).edit().putString("auth",it.optString("deviceAuth")).apply()
                 notify("FCM 设备重新绑定成功")
+                refreshCurrent(true)
             }
         }
     }
@@ -561,6 +587,18 @@ class MainActivity : Activity() {
             gravity=Gravity.CENTER
             isClickable=true;isFocusable=true
             background=OwnerUi.pressable(this@MainActivity,OwnerUi.white,7)
+            setOnClickListener{task()}
+        }
+    private fun requestButton(text:String,primary:Boolean=false,danger:Boolean=false,task:()->Unit):TextView =
+        OwnerUi.label(this,text,13.5f,
+            if(primary)OwnerUi.white else if(danger)OwnerUi.red else OwnerUi.blueDeep,true).apply {
+            gravity=Gravity.CENTER
+            minHeight=px(44)
+            setPadding(px(10),px(9),px(10),px(9))
+            background=OwnerUi.pressable(this@MainActivity,
+                if(primary)OwnerUi.green else if(danger)OwnerUi.softRed else OwnerUi.white,12,
+                if(primary)null else if(danger)OwnerUi.softRed else OwnerUi.line)
+            isClickable=true;isFocusable=true
             setOnClickListener{task()}
         }
 
@@ -573,10 +611,8 @@ class MainActivity : Activity() {
         fetchPage("/api/mobile/requests?page="+requestedPage+"&size=20",force){result->
             if(page!="requests"||historyPage!=requestedPage)return@fetchPage
             shell("挪车请求")
-            pageBanner("REQUESTS  /  挪车动态","每条留言都看得见",
-                "查看现场照片、确认收到并管理历史记录。",OwnerUi.softGreen)
             val total=result.optInt("total")
-            note("共 "+total+" 条 · 第 "+historyPage+" 页　　右上角 ↻ 同步")
+            note("共 "+total+" 条 · 第 "+historyPage+" 页")
             val items=result.optJSONArray("items")
             if(items==null||items.length()==0){
                 empty("目前没有挪车请求","收到扫码留言后，这里将自动保存记录。")
@@ -587,7 +623,7 @@ class MainActivity : Activity() {
                     val state=item.optString("status")
                     val label=when(state){"waiting"->"待处理";"confirmed"->"已确认";"expired"->"已过期";else->state}
                     val itemRow=OwnerUi.vertical(this@MainActivity).apply {
-                        setPadding(px(0),px(5),px(0),px(5))
+                        setPadding(0,px(3),0,px(3))
                     }
                     val header=OwnerUi.horizontal(this@MainActivity)
                     header.addView(OwnerUi.label(this@MainActivity,
@@ -597,35 +633,28 @@ class MainActivity : Activity() {
                         if(state=="confirmed")true else if(state=="waiting")false else null))
                     itemRow.addView(header)
                     val message=OwnerUi.label(this@MainActivity,
-                        item.optString("message").ifBlank{"有人请求挪车"},13.5f,OwnerUi.navy,true).apply {
-                            setPadding(0,px(3),0,px(1));maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END
+                        item.optString("message").ifBlank{"有人请求挪车"},14f,OwnerUi.navy).apply {
+                            setPadding(0,px(10),0,px(11));maxLines=4;ellipsize=android.text.TextUtils.TruncateAt.END
                         }
                     itemRow.addView(message)
                     val actions=OwnerUi.horizontal(this@MainActivity)
                     val photo=item.optString("photoUrl")
-                    if(photo.startsWith("/"))
-                        actions.addView(compactControl("📷  查看照片"){browse(base()+photo)})
-                    else if(item.optBoolean("photoSent"))
-                        actions.addView(OwnerUi.label(this@MainActivity,"照片已过期",12f,OwnerUi.muted))
-                    if(state=="waiting")actions.addView(compactControl("✓  确认收到") {
+                    if(state=="waiting")actions.addView(requestButton("确认收到",primary=true) {
                         api("/api/mobile/requests/confirm",JSONObject().put("id",id)){
                             notify("已确认");loadRequests(true)
                         }
-                    })
-                    actions.addView(android.view.View(this@MainActivity),LinearLayout.LayoutParams(0,1,1f))
-                    actions.addView(compactControl("删除",OwnerUi.red) {
+                    },LinearLayout.LayoutParams(0,-2,1f).apply{marginEnd=px(7)})
+                    if(photo.startsWith("/"))actions.addView(requestButton("查看照片"){
+                        browse(base()+photo)
+                    },LinearLayout.LayoutParams(0,-2,1f).apply{marginEnd=px(7)})
+                    else if(item.optBoolean("photoSent"))
+                        itemRow.addView(OwnerUi.label(this@MainActivity,"照片已过期",12f,OwnerUi.muted))
+                    actions.addView(requestButton("删除",danger=true) {
                         confirm("删除该条挪车记录及其照片？"){
                             api("/api/mobile/requests/delete",JSONObject().put("id",id)){loadRequests(true)}
                         }
-                    })
-                    actions.visibility=View.GONE
+                    },LinearLayout.LayoutParams(0,-2,1f))
                     itemRow.addView(actions)
-                    itemRow.isClickable=true
-                    itemRow.isFocusable=true
-                    itemRow.contentDescription="查看挪车请求详细操作"
-                    itemRow.setOnClickListener {
-                        actions.visibility=if(actions.visibility==View.VISIBLE)View.GONE else View.VISIBLE
-                    }
                     inCard { root.addView(itemRow) }
                 }
             }
@@ -633,8 +662,7 @@ class MainActivity : Activity() {
             if(historyPage>1)paging.addView(compactControl("← 上一页") {historyPage--;navigate("requests")})
             if(historyPage*20<total)paging.addView(compactControl("下一页 →") {historyPage++;navigate("requests")})
             root.addView(paging,LinearLayout.LayoutParams(-1,-2))
-            spacer(12)
-            action("清空全部挪车记录",danger=true){
+            if(total>0)action("清空全部挪车记录",danger=true){
                 confirm("永久删除所有挪车记录和照片？"){
                     api("/api/mobile/requests/clear",JSONObject().put("confirm",true)){
                         historyPage=1;loadRequests(true)
@@ -651,8 +679,6 @@ class MainActivity : Activity() {
     }
     private fun calls(result:JSONObject){
         shell("来电记录")
-        pageBanner("VOICE  /  匿名联系","来电记录",
-            "语音通话只显示状态和时间，不显示手机号。",OwnerUi.softAmber)
         val items=result.optJSONArray("items")
         val header=OwnerUi.horizontal(this).apply {
             gravity=Gravity.CENTER_VERTICAL
@@ -660,7 +686,7 @@ class MainActivity : Activity() {
         }
         header.addView(OwnerUi.label(this,"共 "+(items?.length()?:0)+" 条通话记录",12.5f,OwnerUi.muted),
             LinearLayout.LayoutParams(0,-2,1f))
-        header.addView(compactControl("清空",OwnerUi.red){
+        if((items?.length()?:0)>0)header.addView(compactControl("清空",OwnerUi.red){
             confirm("确定清空全部通话记录吗？此操作无法撤销。"){
                 api("/api/mobile/calls/clear",JSONObject().put("confirm",true)){
                     notify("通话记录已清空")
@@ -701,75 +727,61 @@ class MainActivity : Activity() {
         }
     }
     private fun channels(config:JSONObject){
-        shell("通知中心")
-        pageBanner("NOTIFICATIONS  /  消息","不错过每次联系",
-            "按需启用渠道，并用测试通知确认手机已收到。",OwnerUi.softBlue)
-        section("通知渠道","自由选择接收消息的方式，来电功能独立运行。")
+        shell("通知")
         val state=config.getJSONObject("channels")
-        fun configured(key:String)=state.getJSONObject(key).optBoolean("configured")
-        fun enabled(key:String)=state.getJSONObject(key).optBoolean("enabled")
-
-        val app=inCard{
-            title("MoveCar · 原生 FCM",17f)
-            status(if(configured("app"))"● 手机设备已绑定" else "● 尚未绑定手机",configured("app"))
-            note("直接接收扫码留言，不依赖 Bark 或微信；语音来电仍可独立响铃。")
-            val selected=check("接收 APP 挪车通知",enabled("app"))
-            action("发送测试通知"){testChannel("app")}
-            if(!configured("app"))action("重新绑定当前手机"){syncFcm()}
-            selected
-        }
-        val bark=inCard{
-            title("Bark · iPhone / iPad",17f)
-            status(if(configured("bark"))"已保存渠道密钥" else "尚未配置",configured("bark"))
-            val selected=check("启用 Bark 通知",enabled("bark"))
-            action("单独测试 Bark"){testChannel("bark")}
-            selected
-        }
-        val barkKey=inCard{
-            title("Bark 配置",15f)
-            note("输入新的 HTTPS Bark API 地址；留空将保留旧值。")
-            field("Bark API 地址（可选）",password=true)
-        }
-        val clearBark=inCard{ check("移除现有 Bark 密钥",false) }
-
-        val sc3=inCard{
-            title("Server酱³ · Android",17f)
-            status(if(configured("sc3"))"已保存渠道密钥" else "尚未配置",configured("sc3"))
-            val selected=check("启用 Server酱³ 通知",enabled("sc3"))
-            action("单独测试 SC3"){testChannel("sc3")}
-            selected
-        }
-        val sc3Key=inCard{field("新的 Server酱³ SendKey（留空保持）",password=true)}
-        val clearSc3=inCard{check("移除现有 Server酱³ 密钥",false)}
-
-        val turbo=inCard{
-            title("微信 · Server酱",17f)
-            status(if(configured("serverchan"))"已保存渠道密钥" else "尚未配置",configured("serverchan"))
-            val selected=check("启用微信推送",enabled("serverchan"))
-            action("单独测试微信"){testChannel("serverchan")}
-            selected
-        }
-        val turboKey=inCard{field("新的微信 Server酱 SendKey（留空保持）",password=true)}
-        val clearTurbo=inCard{check("移除现有微信 SendKey",false)}
-        inCard{
-            action("保存全部通知设置",primary=true) {
-                val data=JSONObject()
-                    .put("appEnabled",app.isChecked).put("barkEnabled",bark.isChecked)
-                    .put("sc3Enabled",sc3.isChecked).put("serverchanEnabled",turbo.isChecked)
-                    .put("barkUrl",barkKey.text.toString().trim())
-                    .put("sc3SendKey",sc3Key.text.toString().trim())
-                    .put("serverchanSendKey",turboKey.text.toString().trim())
-                    .put("clearBark",clearBark.isChecked)
-                    .put("clearSc3",clearSc3.isChecked)
-                    .put("clearServerchan",clearTurbo.isChecked)
-                api("/api/mobile/channels",data){notify("通知渠道已保存");navigate("channels")}
+        val options=listOf(
+            Triple("app","APP 推送","本机 FCM 消息"),
+            Triple("bark","Bark","iPhone / iPad"),
+            Triple("sc3","Server酱³","Android 推送"),
+            Triple("serverchan","微信推送","Server酱")
+        )
+        for((key,label,description) in options){
+            val channel=state.getJSONObject(key)
+            val stateText=when {
+                !channel.optBoolean("configured")->"未配置"
+                !channel.optBoolean("enabled")->"已关闭"
+                else->"已启用"
             }
-            action("测试全部已启用渠道"){testChannel("all")}
+            menuRow(label,"$description · $stateText"){navigate("channel_"+key)}
+        }
+        spacer(6)
+        action("测试全部已启用渠道"){testChannel("all")}
+    }
+    private fun channelDetail(key:String,config:JSONObject){
+        val names=mapOf("app" to "APP 推送","bark" to "Bark","sc3" to "Server酱³","serverchan" to "微信推送")
+        val name=names[key]?:return
+        shell(name)
+        val current=config.getJSONObject("channels").getJSONObject(key)
+        inCard {
+            status(if(current.optBoolean("configured"))"已配置" else "未配置",current.optBoolean("configured"))
+            val enabled=check("启用"+name,current.optBoolean("enabled"))
+            val secret=when(key){
+                "bark"->field("新的 HTTPS Bark API 地址（留空保持）",password=true)
+                "sc3"->field("新的 Server酱³ SendKey（留空保持）",password=true)
+                "serverchan"->field("新的微信 Server酱 SendKey（留空保持）",password=true)
+                else->null
+            }
+            val clear=if(secret!=null)check("移除现有密钥",false) else null
+            action("保存设置",primary=true){
+                val data=JSONObject().put(key+"Enabled",enabled.isChecked)
+                if(secret!=null){
+                    val fieldName=when(key){"bark"->"barkUrl";"sc3"->"sc3SendKey";else->"serverchanSendKey"}
+                    val clearName=when(key){"bark"->"clearBark";"sc3"->"clearSc3";else->"clearServerchan"}
+                    data.put(fieldName,secret.text.toString().trim()).put(clearName,clear!!.isChecked)
+                }
+                api("/api/mobile/channels",data){notify("通知设置已保存");navigate("channels")}
+            }
+            action("发送测试通知"){testChannel(key)}
+            if(key=="app")action("重新绑定当前手机"){syncFcm()}
         }
     }
     private fun testChannel(channel:String){
         api("/api/mobile/channels/test",JSONObject().put("channel",channel)){
-            notify("已提交推送："+it.optJSONObject("channels")?.toString())
+            val results=it.optJSONObject("channels")
+            val names=listOf("app","bark","sc3","serverchan")
+                .filter{key->results?.optString(key)=="ok"}
+                .map{key->when(key){"app"->"APP";"bark"->"Bark";"sc3"->"Server酱³";else->"微信"}}
+            notify(if(names.isEmpty())"测试未发送，请检查渠道配置" else "测试通知已发送至："+names.joinToString("、"))
         }
     }
     private fun copySafeCallDiagnostics(){
@@ -881,7 +893,7 @@ class MainActivity : Activity() {
             .setTitle("开启锁屏来电亮屏")
             .setMessage("检测到三星系统尚未完整允许 MoveCar 全屏来电。请在设置中允许全屏提醒、来电通知和锁屏显示，否则只能听到振铃。")
             .setNegativeButton("稍后",null)
-            .setPositiveButton("前往设置"){_,_->navigate("settings")}
+            .setPositiveButton("前往设置"){_,_->navigate("settings_permissions")}
             .show()
     }
     private fun checkAppUpdate(){
@@ -931,8 +943,35 @@ class MainActivity : Activity() {
 
     private fun settings(config:JSONObject){
         shell("设置")
-        pageBanner("PREFERENCES  /  站点","让联系更顺畅",
-            "管理网站信息、语音规则、权限与更新。",OwnerUi.softGreen)
+        menuRow("站点与记录",config.optString("siteName","管理站点信息")){navigate("settings_site")}
+        menuRow("通话规则","次数、间隔与测试模式"){navigate("settings_calls")}
+        menuRow("来电权限与诊断","通知、锁屏与通话质量"){navigate("settings_permissions")}
+        menuRow("网站图标","上传或恢复默认图标"){navigate("settings_icon")}
+        menuRow("设备与服务","推送绑定、测试与管理后台"){navigate("device")}
+        menuRow("版本更新","检查 GitHub 正式版"){navigate("settings_update")}
+        menuRow("账户安全","管理员账号与退出登录"){navigate("account")}
+        spacer(8)
+        action("更换服务器或域名"){
+            confirm("切换后将返回登录界面，请输入新服务器 HTTPS 域名，使用管理员账号重新登录。原服务器数据不会删除。"){
+                clearLogin()
+            }
+        }
+    }
+    private fun device(config:JSONObject){
+        shell("设备与服务")
+        val app=config.getJSONObject("channels").getJSONObject("app")
+        val paired=app.optBoolean("configured")&&app.optBoolean("enabled")
+        inCard {
+            status(if(paired)"FCM 消息推送已启用" else "FCM 推送尚未就绪",paired)
+            note("账号："+config.optString("username","admin"))
+            note("网站："+base())
+            action("发送测试通知"){testChannel("app")}
+            action("重新绑定设备推送"){syncFcm()}
+            action("打开网页管理后台 ↗"){browse(base()+"/admin")}
+        }
+    }
+    private fun settingsPermissions(){
+        shell("来电权限")
         showCallPermissionStatus()
         action("查看最近 60 条通话网络诊断") {
             api("/api/mobile/voice/quality") { response ->
@@ -953,6 +992,9 @@ class MainActivity : Activity() {
                     .setPositiveButton("关闭",null).show()
             }
         }
+    }
+    private fun settingsSite(config:JSONObject){
+        shell("站点与记录")
         section("网站信息","更改后同时应用于扫码网页和车主 APP。")
         val fields=inCard{
             val site=field("站点名称",config.optString("siteName"))
@@ -979,9 +1021,12 @@ class MainActivity : Activity() {
                     .put("wechatId",fields[3].text.toString())
                     .put("rateLimitSeconds",rate)
                     .put("requestRetentionLimit",limit)
-                api("/api/mobile/settings",data){notify("基本设置保存成功");navigate("settings")}
+                api("/api/mobile/settings",data){notify("基本设置保存成功");navigate("settings_site")}
             }
         }
+    }
+    private fun settingsCalls(config:JSONObject){
+        shell("通话规则")
         section("语音呼叫限制")
         val voicePolicy=config.optJSONObject("voicePolicy") ?: JSONObject()
         inCard {
@@ -1007,7 +1052,7 @@ class MainActivity : Activity() {
                     api("/api/mobile/voice-policy",JSONObject()
                         .put("dailyLimit",a).put("cooldownSeconds",b)
                         .put("maxFastRetries",c).put("testMode",testing.isChecked)){
-                        notify("语音规则已保存");navigate("settings")
+                        notify("语音规则已保存");navigate("settings_calls")
                     }
                 }
                 if(testing.isChecked)confirm("开启测试模式后，陌生扫码者也可以连续呼叫，确认吗？",send)
@@ -1021,6 +1066,9 @@ class MainActivity : Activity() {
                 }
             }
         }
+    }
+    private fun settingsIcon(config:JSONObject){
+        shell("网站图标")
         section("品牌与图标")
         inCard{
             status(if(config.optBoolean("siteIconConfigured"))"● 已设置自定义图标" else "使用默认网站图标",
@@ -1034,48 +1082,25 @@ class MainActivity : Activity() {
             }
             action("恢复默认图标",danger=true){confirm("确定恢复默认图标？"){
                 api("/api/mobile/site-icon/clear",JSONObject()){
-                    notify("图标已恢复");navigate("settings")
+                    notify("图标已恢复");navigate("settings_icon")
                 }
             }}
         }
-        section("APP 版本更新","仅从 GitHub Releases 下载固定签名的正式 APK，安装前由系统确认。")
+    }
+    private fun settingsUpdate(){
+        shell("版本更新")
+        section("APP 版本更新")
         inCard{
             @Suppress("DEPRECATION")
             val installed=packageManager.getPackageInfo(packageName,0).versionName?:"未知"
             status("已安装 MoveCar Owner v"+installed,true)
             action("检查 Android APP 更新",primary=true){checkAppUpdate()}
             action("查看 GitHub Releases ↗"){browse(ReleaseUpdates.RELEASES_PAGE)}
-            note("首次从 Debug 测试版迁移到正式签名版本可能无法覆盖安装。请先保留服务器账号与设置，并核对已安装包的签名。")
-        }
-        section("账户及更多")
-        inCard{
-            action("管理员账号与安全"){navigate("account")}
-            if(Build.VERSION.SDK_INT>=34){
-                val notifications=getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
-                val allowed=notifications.canUseFullScreenIntent()
-                status(if(allowed)"✓ 锁屏来电全屏权限已允许" else "锁屏亮屏权限需要开启",allowed)
-                if(!allowed)action("开启锁屏来电亮屏权限"){
-                    try{
-                        val settingsIntent=Intent("android.settings.MANAGE_APP_USE_FULL_SCREEN_INTENT")
-                            .setData(Uri.parse("package:"+packageName))
-                        startActivity(settingsIntent)
-                    }catch(_:Exception){
-                        startActivity(Intent("android.settings.APPLICATION_DETAILS_SETTINGS")
-                            .setData(Uri.parse("package:"+packageName)))
-                    }
-                }
-            }
-            action("打开网页管理后台 ↗"){browse(base()+"/admin")}
-            action("更换服务器或域名"){confirm("切换后将返回登录界面，请输入新服务器 HTTPS 域名，使用管理员账号重新登录。原服务器数据不会删除。"){
-                clearLogin()
-            }}
-            note("MoveCar Owner v"+packageManager.getPackageInfo(packageName,0).versionName+" · GitHub Releases 正式更新")
+            note("正式版由系统确认安装；测试版的签名可能不同。")
         }
     }
     private fun account(config:JSONObject){
         shell("账户安全")
-        pageBanner("ACCOUNT  /  安全","保护你的车主中心",
-            "修改管理员账号或退出当前设备。",OwnerUi.softBlue)
         section("管理员账号","与网页版后台共用身份，修改后会注销现有登录会话。")
         val inputs=inCard{
             val name=field("管理员用户名",config.optString("username","admin"))

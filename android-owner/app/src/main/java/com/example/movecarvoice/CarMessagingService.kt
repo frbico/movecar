@@ -181,7 +181,12 @@ class CarMessagingService : FirebaseMessagingService() {
             lockscreenVisibility = Notification.VISIBILITY_PRIVATE
         })
         val title = message.data["title"]?.take(90) ?: "有人请求挪车"
-        val text = message.data["message"]?.take(1000) ?: "点击查看挪车请求"
+        val text = (message.data["message"] ?: "点击查看挪车请求")
+            .replace(Regex("!\\[[^]]*]\\([^)]*\\)"), "现场照片已上传")
+            .replace(Regex("\\[([^]]+)]\\([^)]*\\)"), "\$1")
+            .replace(Regex("(?m)^\\s{0,3}#{1,6}\\s*"), "")
+            .replace("**", "")
+            .trim().take(1000)
         val view = PendingIntent.getActivity(this, 11,
             Intent(this, MainActivity::class.java).apply {
                 putExtra("openPage","requests")

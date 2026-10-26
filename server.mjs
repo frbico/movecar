@@ -238,7 +238,7 @@ async function sendSc3(key,title,message,ownerUrl,richMarkdown=false) {
   const result = await r.json().catch(()=>({}));
   if(result.code!==0) throw Error('Server酱³ 返回失败，请检查 SendKey 和手机注册状态');
 }
-async function notifyChannels({title,message,ownerUrl,query='',channel='all',richMarkdown=false}) {
+async function notifyChannels({title,message,ownerUrl,query='',channel='all',richMarkdown=false,appTitle,appMessage}) {
   const tasks=[];
   const names=[];
   const wanted = name => (channel==='all' || channel===name) && setting('notify_'+name+'_enabled','1')==='1';
@@ -246,7 +246,10 @@ async function notifyChannels({title,message,ownerUrl,query='',channel='all',ric
   if(bark && wanted('bark')) { names.push('bark'); tasks.push(sendBark(bark,title,message,ownerUrl,query)); }
   if(turbo && wanted('serverchan')) { names.push('serverchan'); tasks.push(sendWeChat(turbo,title,message,ownerUrl)); }
   if(sc3 && wanted('sc3')) { names.push('sc3'); tasks.push(sendSc3(sc3,title,message,ownerUrl,richMarkdown)); }
-  if(voice.isDeviceReady() && wanted('app')) {names.push('app');tasks.push(voice.notifyOwner({title,message,ownerUrl}));}
+  if(voice.isDeviceReady() && wanted('app')) {
+    names.push('app');
+    tasks.push(voice.notifyOwner({title:appTitle||title,message:appMessage||message,ownerUrl}));
+  }
   if(!tasks.length) throw Object.assign(Error(channel==='all'?'尚未配置推送渠道，请先进入 /admin 设置':'所选渠道尚未配置，请先保存密钥'),{status:503});
   const results=await Promise.allSettled(tasks);
   const statuses=Object.fromEntries(results.map((item,index)=>[names[index],item.status==='fulfilled'?'ok':'failed']));
@@ -583,7 +586,8 @@ const server=http.createServer(async(req,res)=>{
       const imageUrl=`${origin}/api/photo/${id}`;
       const message=`现场照片已上传。\n\n![现场照片](${imageUrl})\n\n[查看现场照片](${imageUrl})`;
       try {
-        await notifyChannels({title:'📷 挪车现场照片',message,ownerUrl:signedOwnerLink(origin),richMarkdown:true});
+        await notifyChannels({title:'📷 挪车现场照片',message,ownerUrl:signedOwnerLink(origin),richMarkdown:true,
+          appTitle:'收到挪车现场照片',appMessage:'对方补充了一张现场照片，打开 APP 查看。'});
         return json(res,200,{ok:true});
       }catch(e){
         console.error('Photo saved but push failed (credentials hidden):',e.status||'unknown');

@@ -147,7 +147,8 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
         lines.push('**请点击下方确认链接，告知对方你已收到通知。**');
         insert.run(id,hash(ownerToken),hash(pollToken),text,null,now,now+3600000);
         try{
-          const channels=await notifyChannels({title:'🚗 MoveCar · 有人请求挪车',message:lines.join('\n'),ownerUrl,richMarkdown:true});
+          const channels=await notifyChannels({title:'🚗 MoveCar · 有人请求挪车',message:lines.join('\n'),ownerUrl,richMarkdown:true,
+            appTitle:'有人请求挪车',appMessage:`留言：${text}\n打开 APP 查看并确认收到。`});
           grantInsert.run(hash(photoToken),id,Date.now()+20*60000);
           if(seconds>0)ratePut.run(addr,Date.now()+seconds*1000);
           trimRetention();
@@ -172,7 +173,8 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
         const message=`## 📷 挪车现场照片\n\n![现场照片](${imageUrl})\n\n[点击查看原图](${imageUrl})`;
         const ownerUrl=`${origin}/owner-confirm/${ownerTokenFor(record.id)}`;
         try{
-          await notifyChannels({title:'📷 MoveCar · 现场照片',message,ownerUrl,richMarkdown:true});
+          await notifyChannels({title:'📷 MoveCar · 现场照片',message,ownerUrl,richMarkdown:true,
+            appTitle:'收到挪车现场照片',appMessage:'对方补充了一张现场照片，打开 APP 查看。'});
           if(photoUsed.run(record.id,Date.now()).changes===1){associatePhoto.run(record.id,photoId);dropGrant.run(hash(token));}
           json(res,200,{success:true,photoUrl:imageUrl});return true;
         }catch(e){
