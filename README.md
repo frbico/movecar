@@ -142,4 +142,3 @@ npm test
 感谢 [lesnolie/movecar](https://github.com/lesnolie/movecar) 提供挪车页面与 Worker 实现，为本项目的页面交互提供了基础。相关源码在安装时下载至 `upstream/`，其许可见下载后的 `upstream/LICENSE`。
 
 本仓库新增代码采用 [MIT License](LICENSE)。第三方代码及依赖分别遵循各自的许可证。
-
