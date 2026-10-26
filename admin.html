@@ -173,27 +173,23 @@
  </table></div>
 </section></section>
 <section id="view-updates" class="view" hidden>
-<div class="page-title"><h1>版本更新</h1><p>统一检查与升级 MoveCar，保留现有账号、Firebase、TURN 和挪车记录。以后新版本从这里更新，无需反复 SSH。</p></div>
-<div class="card">
-  <h2>当前版本</h2>
+<div class="page-title"><h1>版本更新</h1></div>
+<div class="card update-panel">
+  <div class="update-head"><div><h2>稳定版更新</h2><p>查看版本并完成服务器升级</p></div><button id="updateCheck" type="button" class="primary">检查更新</button></div>
   <div class="update-versions">
-    <div><span>正在运行</span><strong id="updateCurrentVersion">读取中…</strong><small id="updateCurrentSha">—</small></div>
-    <div><span>稳定版发布</span><strong id="updateLatestVersion">点击检查更新</strong><small id="updateLatestSha">—</small></div>
+    <div><span>当前运行</span><strong id="updateCurrentVersion">读取中…</strong><small id="updateCurrentSha">—</small></div>
+    <div class="update-arrow" aria-hidden="true">→</div>
+    <div><span>最新稳定版</span><strong id="updateLatestVersion">尚未检查</strong><small id="updateLatestSha">—</small></div>
   </div>
-  <div class="form-actions"><button id="updateCheck" type="button" class="primary">检查更新</button><button id="updateRefresh" type="button" class="outline">刷新升级状态</button></div>
-  <p id="updateStatus" class="notice" role="status">升级前会备份数据库与本地代码差异；若更新后服务不健康，将尝试回退。</p>
-</div>
-<div class="card" id="updateReleaseCard" hidden>
-  <h2>更新内容</h2>
-  <ul id="updateChanges" class="update-changes"></ul>
-  <div id="updateConfirmArea" hidden>
-    <p class="notice">确认升级前请检查当前服务是否正在通话。重建容器可能短暂中断正在进行的语音通话。</p>
-    <label>输入当前管理员密码，再确认一键升级
-      <input id="updatePassword" type="password" autocomplete="current-password" placeholder="管理员密码" maxlength="200">
-    </label>
-    <button id="updateStart" type="button" class="primary">确认备份并升级</button>
+  <div class="update-state"><div><span id="updateAvailability" class="update-badge">等待检查</span><p id="updateStatus" role="status">正在读取升级状态…</p></div><button id="updateRefresh" type="button" class="outline">刷新状态</button></div>
+  <div id="updateReleaseCard" class="update-release" hidden>
+    <h3>本次更新</h3>
+    <ul id="updateChanges" class="update-changes"></ul>
+    <div id="updateConfirmArea" hidden>
+      <div class="update-confirm"><label for="updatePassword">管理员密码<input id="updatePassword" type="password" autocomplete="current-password" placeholder="输入当前密码" maxlength="200"></label><button id="updateStart" type="button" class="primary">备份并升级</button></div>
+      <p class="update-tip">升级会自动备份数据；正在进行的通话可能短暂中断。</p>
+    </div>
   </div>
 </div>
-<div class="card"><h2>安全与备份</h2><p>升级任务在服务器上的专用服务中执行，后台没有 Docker 操作权限。仅使用项目官方固定稳定版发布通道，不接受自定义下载地址或命令。</p><p>备份保存在 <code>/root/movecar-update-backups/</code>；升级失败会保留错误状态，便于排查。任何时候都不要使用 Docker 全局清理命令。</p></div>
 </section>
 <section id="view-security" class="view" hidden><div class="page-title"><h1>账户安全</h1><p>建议使用 HTTPS 访问管理后台。</p></div><form id="passwordForm" class="card"><h2>修改管理员密码</h2><label>当前密码<input id="oldPassword" type="password" required autocomplete="current-password"></label><label>新密码（至少 12 位）<input id="newPassword" type="password" minlength="12" maxlength="128" required autocomplete="new-password"></label><button type="submit" class="primary">更新管理员密码</button></form></section></main><footer>MoveCar · Linux / Docker 自部署版</footer></div></div><div id="toast" role="status" aria-live="polite"></div></body></html>

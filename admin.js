@@ -356,10 +356,11 @@ async function refreshUpdater(){
   try{
     const u=await api('/api/admin/update/status');
     $('updateCurrentVersion').textContent='MoveCar '+u.version;
-    $('updateCurrentSha').textContent='运行版本：'+shortSha(u.sha);
+    $('updateCurrentSha').textContent=shortSha(u.sha);
     const h=u.host||{};
     const state={idle:'等待更新',queued:'升级任务已排队',running:'正在备份并部署，页面可以关闭后再查看',rollback:'新版本失败，正在验证旧版本恢复',stalled:'升级任务长时间未执行',offline:'主机更新助手离线',success:'更新完成',error:'更新失败',not_configured:'宿主机更新助手尚未安装'}[h.state]||'等待状态';
     $('updateStatus').textContent=state+'。'+(h.message||'');
+    if(['queued','running','rollback'].includes(h.state))$('updateAvailability').textContent='升级处理中';
     if(['queued','running','rollback','stalled','offline','not_configured'].includes(h.state)){
       $('updateStart').disabled=true;
     }else if(h.state==='success' && h.targetSha && h.targetSha===u.sha){
@@ -367,6 +368,7 @@ async function refreshUpdater(){
       if(latestUpdateSha===u.sha) {
         latestUpdateSha='';
         $('updateConfirmArea').hidden=true;
+        $('updateAvailability').textContent='已是最新版本';
         toast('升级成功，最新版本已启用');
       }
     }else $('updateStart').disabled=false;
@@ -378,9 +380,9 @@ $('updateCheck').onclick=async()=>{
   const u=await api('/api/admin/update/check',{});
   latestUpdateSha=u.latest.sha;
   $('updateCurrentVersion').textContent='MoveCar '+u.current.version;
-  $('updateCurrentSha').textContent='运行版本：'+shortSha(u.current.sha);
+  $('updateCurrentSha').textContent=shortSha(u.current.sha);
   $('updateLatestVersion').textContent='MoveCar '+u.latest.version;
-  $('updateLatestSha').textContent='发布版本：'+shortSha(u.latest.sha);
+  $('updateLatestSha').textContent=shortSha(u.latest.sha);
   const changes=$('updateChanges');changes.replaceChildren();
   for(const item of u.latest.changes||[]){
     const li=document.createElement('li');li.textContent=item;changes.appendChild(li);
@@ -390,8 +392,9 @@ $('updateCheck').onclick=async()=>{
   }
   $('updateReleaseCard').hidden=false;
   $('updateConfirmArea').hidden=!u.available&&!u.needsVersionDetection;
+  $('updateAvailability').textContent=u.needsVersionDetection?'待识别运行版本':u.available?'有可用更新':'已是最新版本';
   if(!u.available&&!u.needsVersionDetection)toast('已经是最新稳定版本');
-  else toast('检查成功：有可用的稳定版更新');
+  else toast(u.needsVersionDetection?'检查成功：可进行首次版本识别与升级':'检查成功：有可用的稳定版更新');
   await refreshUpdater();
  }catch(e){toast('检查失败：'+e.message,true)}
  finally{btn.disabled=false;}
@@ -407,6 +410,7 @@ $('updateStart').onclick=async()=>{
   const r=await api('/api/admin/update/start',{sha:latestUpdateSha,password});
   $('updatePassword').value='';
   $('updateStatus').textContent=r.message||'已提交升级任务';
+  $('updateAvailability').textContent='升级处理中';
   toast('更新任务已提交，请等待服务器完成备份和健康检查');
  }catch(e){btn.disabled=false;toast('无法启动更新：'+e.message,true)}
 };
