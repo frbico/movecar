@@ -349,7 +349,7 @@ class MainActivity : Activity() {
         val state=if(enabled)"已开启" else "去开启"
         val main=OwnerUi.horizontal(this).apply {
             gravity=Gravity.CENTER_VERTICAL
-            minHeight=px(60)
+            minimumHeight=px(60)
             isClickable=true;isFocusable=true
             contentDescription="$label，$state"
             setOnClickListener{onClick()}
@@ -607,7 +607,7 @@ class MainActivity : Activity() {
                 val warning=OwnerUi.horizontal(this).apply {
                     gravity=Gravity.CENTER_VERTICAL
                     setPadding(px(14),px(10),px(14),px(10))
-                    minHeight=px(48)
+                    minimumHeight=px(48)
                     background=OwnerUi.pressable(this@MainActivity,OwnerUi.warningSurface,14)
                     isClickable=true;isFocusable=true
                     contentDescription="来电亮屏权限未开启，前往设置"
