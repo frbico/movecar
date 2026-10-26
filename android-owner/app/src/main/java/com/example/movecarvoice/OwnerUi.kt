@@ -63,13 +63,18 @@ internal object OwnerUi {
             if (weight) typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         }
 
+    fun headline(ctx: Context, text: String, size: Float, color: Int = navy): TextView =
+        label(ctx, text, size, color).apply {
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        }
+
     fun pill(ctx: Context, text: String, good: Boolean? = null): TextView {
         val colors = when (good) {
             true -> softGreen to success
             false -> softAmber to amber
             else -> Color.rgb(241, 243, 245) to muted
         }
-        return label(ctx, text, 12f, colors.second, true).apply {
+        return headline(ctx, text, 13f, colors.second).apply {
             gravity = Gravity.CENTER
             minHeight = dp(ctx, 30)
             background = bg(colors.first, 50, ctx)
@@ -119,7 +124,7 @@ internal object OwnerUi {
                 background=bg(softGreen,14,ctx)
                 setPadding(dp(ctx,10),dp(ctx,10),dp(ctx,10),dp(ctx,10))
             },LinearLayout.LayoutParams(dp(ctx,48),dp(ctx,48)))
-            addView(label(ctx, heading, 18f, navy, true).apply {
+            addView(headline(ctx, heading, 18f).apply {
                 gravity = Gravity.CENTER
                 setPadding(0, dp(ctx,13), 0, dp(ctx, 5))
             })
