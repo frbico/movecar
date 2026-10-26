@@ -647,7 +647,7 @@ class MainActivity : Activity() {
         }
     private fun deleteControl(text:String,task:()->Unit):LinearLayout =
         OwnerUi.horizontal(this).apply {
-            minHeight=px(44)
+            minimumHeight=px(44)
             setPadding(px(2),px(8),px(6),px(8))
             background=OwnerUi.pressable(this@MainActivity,OwnerUi.white,10)
             addView(OwnerUi.icon(this@MainActivity,R.drawable.ic_trash,OwnerUi.red,19))
@@ -726,7 +726,7 @@ class MainActivity : Activity() {
             root.addView(paging,LinearLayout.LayoutParams(-1,-2))
             if(total>0){
                 val clear=OwnerUi.horizontal(this).apply{
-                    minHeight=px(54)
+                    minimumHeight=px(54)
                     setPadding(px(17),px(8),px(17),px(8))
                     background=OwnerUi.pressable(this@MainActivity,OwnerUi.white,18,OwnerUi.line)
                     isClickable=true;isFocusable=true
@@ -826,7 +826,7 @@ class MainActivity : Activity() {
                 root.isClickable=true;root.isFocusable=true
                 root.contentDescription="$label，$stateText，打开配置"
                 root.setOnClickListener{navigate("channel_"+key)}
-                val row=OwnerUi.horizontal(this@MainActivity).apply{minHeight=px(58)}
+                val row=OwnerUi.horizontal(this@MainActivity).apply{minimumHeight=px(58)}
                 row.addView(OwnerUi.iconCircle(this@MainActivity,icon,tint,48),
                     LinearLayout.LayoutParams(px(48),px(48)).apply{marginEnd=px(14)})
                 val info=OwnerUi.vertical(this@MainActivity)
@@ -844,7 +844,7 @@ class MainActivity : Activity() {
         }
         spacer(10)
         val test=OwnerUi.horizontal(this).apply{
-            minHeight=px(56)
+            minimumHeight=px(56)
             setPadding(px(16),px(8),px(16),px(8))
             background=OwnerUi.pressable(this@MainActivity,OwnerUi.white,18,OwnerUi.line)
             isClickable=true;isFocusable=true
