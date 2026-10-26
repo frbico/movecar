@@ -113,7 +113,7 @@ class CarMessagingService : FirebaseMessagingService() {
         try {
             nm.notify(if(testing) TEST_NOTIFICATION_ID else NOTIFICATION_ID, builder.build())
             // Strictly gated by the user's full-screen call entitlement; a
-            // short timeout gives Samsung/One UI a chance to wake the display
+            // A short timeout lets the system wake the display before opening the call UI.
             // before Android starts the full-screen incoming-call Activity.
             if (IncomingCallPolicy.mayUseWakeFallback(fullScreenAllowed,
                     nm.areNotificationsEnabled(),nm.getNotificationChannel(CHANNEL)?.importance?:0)) {

@@ -61,9 +61,6 @@ class VoiceActivity : Activity() {
             setBackgroundColor(OwnerUi.canvas)
             setPadding(dp(24),dp(35),dp(24),dp(35))
         }
-        panel.addView(OwnerUi.label(this,"MOVE CAR  /  LIVE CALL",12f,OwnerUi.blueDeep,true).apply{
-            gravity=Gravity.CENTER
-        },LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(32)})
         val avatar=OwnerUi.label(this,"☎",42f,OwnerUi.green,true).apply{
             gravity=Gravity.CENTER
             background=OwnerUi.gradient(this@VoiceActivity)
@@ -97,10 +94,6 @@ class VoiceActivity : Activity() {
         actions.addView(speaker,LinearLayout.LayoutParams(0,dp(64),1f).apply{marginEnd=dp(9)})
         actions.addView(hang,LinearLayout.LayoutParams(0,dp(64),1f).apply{marginStart=dp(9)})
         panel.addView(actions,LinearLayout.LayoutParams(-1,-2))
-        panel.addView(OwnerUi.label(this,"锁屏后语音仍由后台通话服务维护",12f,OwnerUi.muted).apply{
-            gravity=Gravity.CENTER
-            setPadding(0,dp(28),0,0)
-        })
         setContentView(panel)
         speaker.setOnClickListener {
             if(!CallUiState.matchesActiveCall(id,OngoingCallService.currentCallId))return@setOnClickListener

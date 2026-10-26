@@ -67,9 +67,6 @@ class IncomingCallActivity : Activity() {
             setBackgroundColor(OwnerUi.canvas)
             setPadding(dp(24),dp(35),dp(24),dp(35))
         }
-        panel.addView(OwnerUi.label(this,"MOVE CAR  /  INCOMING",12f,OwnerUi.blueDeep,true).apply{
-            gravity=Gravity.CENTER
-        },LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(32)})
         val caller=OwnerUi.label(this,"🚙",39f,OwnerUi.green,true).apply{
             gravity=Gravity.CENTER
             background=OwnerUi.gradient(this@IncomingCallActivity)
@@ -82,7 +79,7 @@ class IncomingCallActivity : Activity() {
             gravity=Gravity.CENTER
         }
         panel.addView(state)
-        panel.addView(OwnerUi.label(this,if(testIncoming)"可关闭此界面，测试不会真的呼叫" else "匿名网络语音来电 · 不显示手机号",14f,OwnerUi.muted).apply{
+        panel.addView(OwnerUi.label(this,if(testIncoming)"模拟来电" else "匿名语音来电",14f,OwnerUi.muted).apply{
             gravity=Gravity.CENTER
             setPadding(0,dp(12),0,dp(46))
         })
