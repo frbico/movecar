@@ -51,35 +51,38 @@ class VoiceActivity : Activity() {
         super.onCreate(savedInstanceState)
         val d=resources.displayMetrics.density
         fun dp(x:Int)=(x*d+0.5f).toInt()
-        window.statusBarColor=OwnerUi.blueDeep
-        window.navigationBarColor=OwnerUi.blueDeep
+        window.statusBarColor=OwnerUi.canvas
+        window.navigationBarColor=OwnerUi.canvas
+        @Suppress("DEPRECATION")
+        window.decorView.systemUiVisibility=android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or
+            android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
         val panel=OwnerUi.vertical(this).apply{
             gravity=Gravity.CENTER
-            background=OwnerUi.gradient(this@VoiceActivity)
+            setBackgroundColor(OwnerUi.canvas)
             setPadding(dp(24),dp(35),dp(24),dp(35))
         }
-        panel.addView(OwnerUi.label(this,"MOVE CAR · 通话中",13f,0xFFD9E8FF.toInt(),true).apply{
+        panel.addView(OwnerUi.label(this,"MOVE CAR  /  LIVE CALL",12f,OwnerUi.blueDeep,true).apply{
             gravity=Gravity.CENTER
-        },LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(30)})
-        val avatar=OwnerUi.label(this,"CAR",28f,OwnerUi.white,true).apply{
+        },LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(32)})
+        val avatar=OwnerUi.label(this,"☎",42f,OwnerUi.green,true).apply{
             gravity=Gravity.CENTER
-            background=OwnerUi.bg(0xFF4D8BEE.toInt(),70,this@VoiceActivity)
+            background=OwnerUi.gradient(this@VoiceActivity)
         }
-        panel.addView(avatar,LinearLayout.LayoutParams(dp(108),dp(108)).apply{
+        panel.addView(avatar,LinearLayout.LayoutParams(dp(132),dp(132)).apply{
             gravity=Gravity.CENTER_HORIZONTAL
-            bottomMargin=dp(32)
+            bottomMargin=dp(30)
         })
-        panel.addView(OwnerUi.label(this,"挪车网络通话",25f,OwnerUi.white,true).apply{
+        panel.addView(OwnerUi.label(this,"挪车网络通话",25f,OwnerUi.navy,true).apply{
             gravity=Gravity.CENTER
         })
-        duration=OwnerUi.label(this,"等待接通",30f,OwnerUi.white,true).apply{
+        duration=OwnerUi.label(this,"等待接通",32f,OwnerUi.green,true).apply{
             gravity=Gravity.CENTER
             setPadding(0,dp(24),0,dp(4))
         }
         panel.addView(duration)
-        status=OwnerUi.label(this,"连接中…",15f,0xFFDEE9FF.toInt()).apply{
+        status=OwnerUi.label(this,"连接中…",15f,OwnerUi.muted).apply{
             gravity=Gravity.CENTER
-            setPadding(0,dp(10),0,dp(40))
+            setPadding(0,dp(10),0,dp(44))
         }
         panel.addView(status)
         val actions=OwnerUi.horizontal(this)
@@ -88,7 +91,7 @@ class VoiceActivity : Activity() {
             isAllCaps=false
             textSize=16f
             setTextColor(OwnerUi.blueDeep)
-            background=OwnerUi.pressable(this@VoiceActivity,OwnerUi.white,20)
+            background=OwnerUi.pressable(this@VoiceActivity,OwnerUi.softBlue,20)
             minHeight=dp(64)
         }
         hang=Button(this).apply{
@@ -102,7 +105,7 @@ class VoiceActivity : Activity() {
         actions.addView(speaker,LinearLayout.LayoutParams(0,dp(64),1f).apply{marginEnd=dp(9)})
         actions.addView(hang,LinearLayout.LayoutParams(0,dp(64),1f).apply{marginStart=dp(9)})
         panel.addView(actions,LinearLayout.LayoutParams(-1,-2))
-        panel.addView(OwnerUi.label(this,"锁屏后语音仍由后台通话服务维护",12f,0xFFDAE7FF.toInt()).apply{
+        panel.addView(OwnerUi.label(this,"锁屏后语音仍由后台通话服务维护",12f,OwnerUi.muted).apply{
             gravity=Gravity.CENTER
             setPadding(0,dp(28),0,0)
         })

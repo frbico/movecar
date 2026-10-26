@@ -57,31 +57,34 @@ class IncomingCallActivity : Activity() {
         }
         val d=resources.displayMetrics.density
         fun dp(x:Int)=(x*d+0.5f).toInt()
-        window.statusBarColor=OwnerUi.blueDeep
-        window.navigationBarColor=OwnerUi.blueDeep
+        window.statusBarColor=OwnerUi.canvas
+        window.navigationBarColor=OwnerUi.canvas
+        @Suppress("DEPRECATION")
+        window.decorView.systemUiVisibility=android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or
+            android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
         val panel=OwnerUi.vertical(this).apply{
             gravity=Gravity.CENTER
-            background=OwnerUi.gradient(this@IncomingCallActivity)
+            setBackgroundColor(OwnerUi.canvas)
             setPadding(dp(24),dp(35),dp(24),dp(35))
         }
-        panel.addView(OwnerUi.label(this,"MOVE CAR · 来电提醒",13f,0xFFD9E8FF.toInt(),true).apply{
+        panel.addView(OwnerUi.label(this,"MOVE CAR  /  INCOMING",12f,OwnerUi.blueDeep,true).apply{
             gravity=Gravity.CENTER
-        },LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(30)})
-        val caller=OwnerUi.label(this,"CAR",28f,OwnerUi.white,true).apply{
+        },LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(32)})
+        val caller=OwnerUi.label(this,"🚙",39f,OwnerUi.green,true).apply{
             gravity=Gravity.CENTER
-            background=OwnerUi.bg(0xFF4D8BEE.toInt(),70,this@IncomingCallActivity)
+            background=OwnerUi.gradient(this@IncomingCallActivity)
         }
-        panel.addView(caller,LinearLayout.LayoutParams(dp(108),dp(108)).apply{
+        panel.addView(caller,LinearLayout.LayoutParams(dp(132),dp(132)).apply{
             gravity=Gravity.CENTER_HORIZONTAL
-            bottomMargin=dp(32)
+            bottomMargin=dp(30)
         })
-        state=OwnerUi.label(this,if(testIncoming)"测试：来电界面已显示" else "有人请求你挪车",25f,OwnerUi.white,true).apply{
+        state=OwnerUi.label(this,if(testIncoming)"测试：来电界面已显示" else "有人请求你挪车",25f,OwnerUi.navy,true).apply{
             gravity=Gravity.CENTER
         }
         panel.addView(state)
-        panel.addView(OwnerUi.label(this,if(testIncoming)"可关闭此界面，测试不会真的呼叫" else "匿名网络语音来电 · 不显示手机号",14f,0xFFDEE9FF.toInt()).apply{
+        panel.addView(OwnerUi.label(this,if(testIncoming)"可关闭此界面，测试不会真的呼叫" else "匿名网络语音来电 · 不显示手机号",14f,OwnerUi.muted).apply{
             gravity=Gravity.CENTER
-            setPadding(0,dp(12),0,dp(52))
+            setPadding(0,dp(12),0,dp(46))
         })
         val buttons=OwnerUi.horizontal(this)
         val accept=Button(this).apply{
@@ -89,15 +92,15 @@ class IncomingCallActivity : Activity() {
             isAllCaps=false
             textSize=18f
             setTextColor(OwnerUi.white)
-            background=OwnerUi.pressable(this@IncomingCallActivity,OwnerUi.green,24)
+            background=OwnerUi.pressable(this@IncomingCallActivity,OwnerUi.green,22)
             minHeight=dp(64)
         }
         val reject=Button(this).apply{
             text=if(testIncoming)"关闭" else "拒绝"
             isAllCaps=false
             textSize=18f
-            setTextColor(OwnerUi.white)
-            background=OwnerUi.pressable(this@IncomingCallActivity,OwnerUi.red,24)
+            setTextColor(OwnerUi.red)
+            background=OwnerUi.pressable(this@IncomingCallActivity,OwnerUi.softRed,22)
             minHeight=dp(64)
         }
         acceptButton=accept

@@ -98,25 +98,24 @@ class MainActivity : Activity() {
             }
         }
         val top = OwnerUi.horizontal(this).apply {
-            setPadding(px(16), px(9), px(16), px(9))
-            setBackgroundColor(OwnerUi.white)
+            setPadding(px(20), px(15), px(20), px(12))
         }
-        val mark = OwnerUi.label(this, "🚙", 23f, OwnerUi.white, true).apply {
+        val mark = OwnerUi.label(this, "✦", 23f, OwnerUi.green, true).apply {
             gravity = Gravity.CENTER
-            background = OwnerUi.gradient(this@MainActivity)
+            background = OwnerUi.bg(OwnerUi.softGreen, 16, this@MainActivity)
         }
-        top.addView(mark, LinearLayout.LayoutParams(px(40), px(40)))
-        val headingCol = OwnerUi.vertical(this).apply { setPadding(px(9), 0, 0, 0) }
-        headingCol.addView(OwnerUi.label(this, "MOVE CAR · 车主中心", 10.5f, OwnerUi.blueDeep, true))
-        headingCol.addView(OwnerUi.label(this, heading, 20f, OwnerUi.navy, true))
+        top.addView(mark, LinearLayout.LayoutParams(px(44), px(44)))
+        val headingCol = OwnerUi.vertical(this).apply { setPadding(px(12), 0, 0, 0) }
+        headingCol.addView(OwnerUi.label(this, "MOVE CAR  /  OWNER", 10.5f, OwnerUi.muted, true))
+        headingCol.addView(OwnerUi.label(this, heading, 23f, OwnerUi.navy, true))
         top.addView(headingCol, LinearLayout.LayoutParams(0, -2, 1f))
-        if (page != "login") top.addView(OwnerUi.label(this,"↻",25f,OwnerUi.blue,true).apply {
+        if (page != "login") top.addView(OwnerUi.label(this,"↻",24f,OwnerUi.blueDeep,true).apply {
             gravity=Gravity.CENTER
-            setPadding(px(9),px(4),px(4),px(4))
+            background=OwnerUi.pressable(this@MainActivity,OwnerUi.white,16)
             isClickable=true;isFocusable=true
             contentDescription="手动同步当前页面"
             setOnClickListener{refreshCurrent(true);notify("已请求同步最新数据")}
-        })
+        },LinearLayout.LayoutParams(px(44),px(44)))
         frame.addView(top)
 
         val scroll = ScrollView(this).apply {
@@ -124,19 +123,21 @@ class MainActivity : Activity() {
             clipToPadding = false
         }
         root = OwnerUi.vertical(this).apply {
-            setPadding(px(14), px(3), px(14), px(15))
+            setPadding(px(18), px(3), px(18), px(22))
         }
         scroll.addView(root, android.widget.FrameLayout.LayoutParams(-1, -2))
         frame.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        if (page != "login") frame.addView(bottomNav())
+        if (page != "login") frame.addView(bottomNav(),LinearLayout.LayoutParams(-1,-2).apply {
+            marginStart=px(16);marginEnd=px(16);bottomMargin=px(8)
+        })
         setContentView(frame)
     }
 
     private fun bottomNav(): LinearLayout {
         val bar=OwnerUi.horizontal(this).apply {
-            setBackgroundColor(OwnerUi.white)
-            setPadding(px(5), px(4), px(5), px(5))
-            elevation=0f
+            background=OwnerUi.bg(OwnerUi.white,28,this@MainActivity,OwnerUi.line)
+            setPadding(px(7), px(7), px(7), px(7))
+            elevation=px(5).toFloat()
         }
         val tabs=listOf(
             Triple("首页", "home", android.R.drawable.ic_menu_view),
@@ -147,24 +148,24 @@ class MainActivity : Activity() {
         )
         for ((label, route, icon) in tabs) {
             val selected=page==route || (route=="settings"&&page=="account")
-            val color=if(selected) OwnerUi.blue else OwnerUi.muted
+            val color=if(selected) OwnerUi.green else OwnerUi.muted
             val item=OwnerUi.vertical(this).apply {
                 gravity=Gravity.CENTER
-                setPadding(px(3), px(5), px(3), px(3))
+                setPadding(px(3), px(7), px(3), px(5))
                 background=OwnerUi.pressable(this@MainActivity,
-                    if(selected)OwnerUi.softGreen else OwnerUi.white, 10)
+                    if(selected)OwnerUi.softGreen else OwnerUi.white, 19)
                 isClickable=true
                 isFocusable=true
                 contentDescription="切换到"+label
                 setOnClickListener { if(page!=route)navigate(route) }
             }
-            val iconView=OwnerUi.icon(this,icon,color,21)
+            val iconView=OwnerUi.icon(this,icon,color,22)
             item.addView(iconView)
             item.addView(OwnerUi.label(this,label,11f,color,selected).apply {
                 gravity=Gravity.CENTER
                 setPadding(0,px(5),0,0)
             })
-            bar.addView(item,LinearLayout.LayoutParams(0,px(52),1f).apply {
+            bar.addView(item,LinearLayout.LayoutParams(0,px(58),1f).apply {
                 marginStart=px(2);marginEnd=px(2)
             })
         }
@@ -172,8 +173,8 @@ class MainActivity : Activity() {
     }
 
     private fun title(value: String, size: Float = 18f) {
-        root.addView(OwnerUi.label(this, value, size, OwnerUi.blueDeep, true).apply {
-            setPadding(0, px(8), 0, px(4))
+        root.addView(OwnerUi.label(this, value, size, OwnerUi.navy, true).apply {
+            setPadding(0, px(11), 0, px(5))
         },LinearLayout.LayoutParams(-1,-2))
     }
     private fun note(value: String) {
@@ -195,6 +196,18 @@ class MainActivity : Activity() {
         title(heading,17f)
         if(caption.isNotBlank())note(caption)
     }
+    private fun pageBanner(kicker:String,heading:String,description:String,color:Int) {
+        val banner=OwnerUi.vertical(this).apply {
+            background=OwnerUi.bg(color,26,this@MainActivity)
+            setPadding(px(20),px(20),px(20),px(21))
+        }
+        banner.addView(OwnerUi.label(this,kicker,11.5f,OwnerUi.blueDeep,true))
+        banner.addView(OwnerUi.label(this,heading,24f,OwnerUi.navy,true).apply {
+            setPadding(0,px(7),0,px(5))
+        })
+        banner.addView(OwnerUi.label(this,description,13f,OwnerUi.blueDeep))
+        root.addView(banner,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(12)})
+    }
     private fun field(hint: String, value: String = "", password: Boolean = false): EditText {
         val block=OwnerUi.vertical(this)
         block.addView(OwnerUi.label(this,hint,13f,OwnerUi.navy,true))
@@ -204,7 +217,7 @@ class MainActivity : Activity() {
             textSize=15f
             setTextColor(OwnerUi.navy)
             setHintTextColor(OwnerUi.muted)
-            background=OwnerUi.bg(OwnerUi.canvas,12,this@MainActivity,OwnerUi.line)
+            background=OwnerUi.bg(OwnerUi.canvas,16,this@MainActivity,OwnerUi.line)
             setPadding(px(13),px(12),px(13),px(12))
             minHeight=px(46)
             if(password)inputType=InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
@@ -224,13 +237,13 @@ class MainActivity : Activity() {
             root.addView(it,LinearLayout.LayoutParams(-1,-2))
         }
     private fun action(label:String,primary:Boolean=false,danger:Boolean=false,callback:()->Unit) {
-        val surface=if(primary)OwnerUi.blue else if(danger)OwnerUi.softRed else OwnerUi.white
-        val foreground=if(primary)OwnerUi.white else if(danger)OwnerUi.red else OwnerUi.blue
+        val surface=if(primary)OwnerUi.green else if(danger)OwnerUi.softRed else OwnerUi.white
+        val foreground=if(primary)OwnerUi.white else if(danger)OwnerUi.red else OwnerUi.blueDeep
         val button=OwnerUi.label(this,label,14f,foreground,true).apply {
             gravity=Gravity.CENTER
-            minHeight=px(43)
+            minHeight=px(48)
             setPadding(px(14),px(12),px(14),px(12))
-            background=OwnerUi.pressable(this@MainActivity,surface,13,
+            background=OwnerUi.pressable(this@MainActivity,surface,17,
                 if(primary)null else if(danger)OwnerUi.softRed else OwnerUi.line)
             isClickable=true
             isFocusable=true
@@ -305,22 +318,31 @@ class MainActivity : Activity() {
         page = "login"
         screen("安全登录")
         val welcome=OwnerUi.vertical(this).apply {
-            background=OwnerUi.bg(OwnerUi.white,12,this@MainActivity,OwnerUi.line)
-            setPadding(px(18),px(18),px(18),px(18))
+            background=OwnerUi.gradient(this@MainActivity)
+            setPadding(px(24),px(25),px(24),px(25))
         }
-        welcome.addView(OwnerUi.label(this,"安心联系，随时挪车",21f,OwnerUi.navy,true))
-        welcome.addView(OwnerUi.label(this,"消息通知、匿名语音与挪车记录",13f,OwnerUi.muted).apply {
-            setPadding(0,px(6),0,0)
+        welcome.addView(OwnerUi.label(this,"✦",28f,OwnerUi.green,true))
+        welcome.addView(OwnerUi.label(this,"安心联系，随时挪车",25f,OwnerUi.navy,true).apply {
+            setPadding(0,px(18),0,0)
         })
-        root.addView(welcome,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(12)})
+        welcome.addView(OwnerUi.label(this,"消息通知 · 匿名语音 · 挪车记录",13f,OwnerUi.blueDeep).apply {
+            setPadding(0,px(7),0,0)
+        })
+        root.addView(welcome,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(17)})
         section("欢迎回来","使用与网页版后台相同的管理员账号。")
-        val site = field("HTTPS 服务器地址", base())
-        val username = field("管理员账号", VoiceApi.username(this))
-        val password = field("管理员密码", password = true)
+        val credentials=inCard {
+            Triple(field("HTTPS 服务器地址", base()),
+                field("管理员账号", VoiceApi.username(this)),
+                field("管理员密码", password = true))
+        }
+        val site=credentials.first
+        val username=credentials.second
+        val password=credentials.third
         val status = TextView(this).apply {
             text = "先登录后台，成功后自动尝试绑定 Firebase 推送。"
-            textSize = 15f
-            setPadding(0, 12, 0, 12)
+            textSize = 13f
+            setTextColor(OwnerUi.muted)
+            setPadding(px(5), px(8), px(5), px(12))
         }
         root.addView(status)
         val login=Button(this).apply {
@@ -328,7 +350,7 @@ class MainActivity : Activity() {
             isAllCaps=false
             textSize=16f
             setTextColor(OwnerUi.white)
-            background=OwnerUi.pressable(this@MainActivity,OwnerUi.blue,15)
+            background=OwnerUi.pressable(this@MainActivity,OwnerUi.green,18)
             minHeight=px(54)
             elevation=0f
         }
@@ -457,62 +479,72 @@ class MainActivity : Activity() {
         val channel=config.getJSONObject("channels")
         val app=channel.getJSONObject("app")
         val paired=app.optBoolean("configured")&&app.optBoolean("enabled")
-        val banner=OwnerUi.vertical(this).apply {
-            background=OwnerUi.bg(OwnerUi.white,16,this@MainActivity,OwnerUi.line)
-            setPadding(px(17),px(15),px(17),px(13))
+        val count=config.optInt("requestCount")
+        val limit=config.optInt("requestRetentionLimit",50)
+        val banner=OwnerUi.horizontal(this).apply {
+            background=OwnerUi.gradient(this@MainActivity)
+            setPadding(px(20),px(23),px(18),px(23))
         }
-        val brand=OwnerUi.horizontal(this)
-        brand.addView(OwnerUi.label(this,"🚙",27f,OwnerUi.blueDeep,true))
-        brand.addView(OwnerUi.label(this,config.optString("siteName","呼叫车主挪车"),
-            20f,OwnerUi.navy,true).apply {setPadding(px(9),0,0,0)})
-        banner.addView(brand)
-        banner.addView(OwnerUi.label(this,
-            if(paired)"● 推送已连接" else "● 推送未绑定 · 请检查通知设置",
-            12.5f,if(paired)OwnerUi.green else OwnerUi.amber).apply{
-            setPadding(0,px(7),0,px(8))
+        val intro=OwnerUi.vertical(this)
+        intro.addView(OwnerUi.label(this,"你的挪车管家",12f,OwnerUi.blueDeep,true))
+        intro.addView(OwnerUi.label(this,config.optString("siteName","呼叫车主挪车"),
+            23f,OwnerUi.navy,true).apply {
+            maxLines=2
+            setPadding(0,px(8),0,px(10))
         })
-        val stats=OwnerUi.horizontal(this)
-        stats.addView(OwnerUi.label(this,
-            "挪车请求 "+config.optInt("requestCount").toString()+" 条",
-            12.5f,OwnerUi.muted))
-        banner.addView(stats)
-        root.addView(banner,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(8)})
+        intro.addView(OwnerUi.pill(this,if(paired)"● 消息推送已就绪" else "● 检查消息推送",paired))
+        banner.addView(intro,LinearLayout.LayoutParams(0,-2,1f).apply{marginEnd=px(12)})
+        banner.addView(OwnerUi.progressRing(this,count,limit),
+            LinearLayout.LayoutParams(px(112),px(112)))
+        root.addView(banner,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(10)})
 
-        section("快捷操作")
-        fun shortcut(caption:String,detail:String,icon:Int,click:()->Unit):LinearLayout =
-            OwnerUi.vertical(this).apply{
-                background=OwnerUi.pressable(this@MainActivity,OwnerUi.white,12,OwnerUi.line)
-                setPadding(px(12),px(10),px(12),px(10))
-                elevation=px(1).toFloat()
-                isClickable=true;isFocusable=true;setOnClickListener{click()}
-                addView(OwnerUi.icon(this@MainActivity,icon,OwnerUi.green,20))
-                addView(OwnerUi.label(this@MainActivity,caption,15f,OwnerUi.navy,true).apply{
-                    setPadding(0,px(5),0,px(1))
+        section("快捷入口","常用事项，一眼就能找到。")
+        fun tile(caption:String,value:String,detail:String,color:Int,icon:Int,click:()->Unit):LinearLayout =
+            OwnerUi.vertical(this).apply {
+                background=OwnerUi.pressable(this@MainActivity,color,22)
+                setPadding(px(16),px(16),px(16),px(15))
+                minHeight=px(138)
+                isClickable=true;isFocusable=true
+                contentDescription="$caption，$value，$detail"
+                setOnClickListener { click() }
+                val heading=OwnerUi.horizontal(this@MainActivity)
+                heading.addView(OwnerUi.label(this@MainActivity,caption,13f,OwnerUi.navy,true),
+                    LinearLayout.LayoutParams(0,-2,1f))
+                heading.addView(OwnerUi.icon(this@MainActivity,icon,OwnerUi.blueDeep,20))
+                addView(heading)
+                addView(OwnerUi.label(this@MainActivity,value,24f,OwnerUi.navy,true).apply {
+                    setPadding(0,px(18),0,px(2))
                 })
-                addView(OwnerUi.label(this@MainActivity,detail,12f,OwnerUi.muted))
+                addView(OwnerUi.label(this@MainActivity,detail,11.5f,OwnerUi.blueDeep))
             }
-        val grid1=OwnerUi.horizontal(this)
-        grid1.addView(shortcut("挪车请求","确认或处理留言",android.R.drawable.ic_menu_agenda){navigate("requests")},
-            LinearLayout.LayoutParams(0,px(90),1f).apply{marginEnd=px(7)})
-        grid1.addView(shortcut("匿名通话","查看来电历史",android.R.drawable.sym_action_call){navigate("calls")},
-            LinearLayout.LayoutParams(0,px(90),1f).apply{marginStart=px(7)})
-        root.addView(grid1,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(7)})
-        val grid2=OwnerUi.horizontal(this)
-        grid2.addView(shortcut("测试通知","确认推送已送达",android.R.drawable.ic_dialog_email){testChannel("app")},
-            LinearLayout.LayoutParams(0,px(90),1f).apply{marginEnd=px(7)})
-        grid2.addView(shortcut("渠道设置","选择推送方式",android.R.drawable.ic_menu_manage){navigate("channels")},
-            LinearLayout.LayoutParams(0,px(90),1f).apply{marginStart=px(7)})
-        root.addView(grid2,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(9)})
+        fun tileRow(left:LinearLayout,right:LinearLayout) {
+            val row=OwnerUi.horizontal(this)
+            row.addView(left,LinearLayout.LayoutParams(0,-2,1f).apply{marginEnd=px(6)})
+            row.addView(right,LinearLayout.LayoutParams(0,-2,1f).apply{marginStart=px(6)})
+            root.addView(row,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(12)})
+        }
+        tileRow(
+            tile("挪车请求","$count 条","查看与确认留言",OwnerUi.softGreen,
+                android.R.drawable.ic_menu_agenda){navigate("requests")},
+            tile("来电记录","查看","匿名语音联系",OwnerUi.softAmber,
+                android.R.drawable.sym_action_call){navigate("calls")}
+        )
+        tileRow(
+            tile("消息通知",if(paired)"已连接" else "待配置","管理接收渠道",OwnerUi.softBlue,
+                android.R.drawable.ic_dialog_email){navigate("channels")},
+            tile("站点设置","管理","名称、联系与安全",OwnerUi.softRed,
+                android.R.drawable.ic_menu_manage){navigate("settings")}
+        )
 
-        section("连接与同步")
+        section("设备与服务")
         inCard {
             status(if(paired)"● FCM 消息推送已启用" else "● FCM 推送尚未就绪",paired)
             note("账号  ·  "+config.optString("username","admin"))
             note("网站："+base())
-            note("设备推送："+if(app.optBoolean("configured"))"已绑定" else "尚未绑定")
-            action("重新绑定推送") {syncFcm()}
+            action("发送一条测试通知") {testChannel("app")}
+            action("重新绑定设备推送") {syncFcm()}
         }
-        action("打开网页版管理后台 ↗"){browse(base()+"/admin")}
+        action("打开网页管理后台 ↗"){browse(base()+"/admin")}
     }
     private fun syncFcm(){
         FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
@@ -541,14 +573,15 @@ class MainActivity : Activity() {
         fetchPage("/api/mobile/requests?page="+requestedPage+"&size=20",force){result->
             if(page!="requests"||historyPage!=requestedPage)return@fetchPage
             shell("挪车请求")
+            pageBanner("REQUESTS  /  挪车动态","每条留言都看得见",
+                "查看现场照片、确认收到并管理历史记录。",OwnerUi.softGreen)
             val total=result.optInt("total")
             note("共 "+total+" 条 · 第 "+historyPage+" 页　　右上角 ↻ 同步")
             val items=result.optJSONArray("items")
             if(items==null||items.length()==0){
                 empty("目前没有挪车请求","收到扫码留言后，这里将自动保存记录。")
-            }else inCard {
+            }else {
                 for(i in 0 until items.length()){
-                    if(i>0)root.addView(OwnerUi.line(this@MainActivity))
                     val item=items.getJSONObject(i)
                     val id=item.optString("id")
                     val state=item.optString("status")
@@ -593,7 +626,7 @@ class MainActivity : Activity() {
                     itemRow.setOnClickListener {
                         actions.visibility=if(actions.visibility==View.VISIBLE)View.GONE else View.VISIBLE
                     }
-                    root.addView(itemRow)
+                    inCard { root.addView(itemRow) }
                 }
             }
             val paging=OwnerUi.horizontal(this).apply{gravity=Gravity.CENTER}
@@ -618,6 +651,8 @@ class MainActivity : Activity() {
     }
     private fun calls(result:JSONObject){
         shell("来电记录")
+        pageBanner("VOICE  /  匿名联系","来电记录",
+            "语音通话只显示状态和时间，不显示手机号。",OwnerUi.softAmber)
         val items=result.optJSONArray("items")
         val header=OwnerUi.horizontal(this).apply {
             gravity=Gravity.CENTER_VERTICAL
@@ -667,6 +702,8 @@ class MainActivity : Activity() {
     }
     private fun channels(config:JSONObject){
         shell("通知中心")
+        pageBanner("NOTIFICATIONS  /  消息","不错过每次联系",
+            "按需启用渠道，并用测试通知确认手机已收到。",OwnerUi.softBlue)
         section("通知渠道","自由选择接收消息的方式，来电功能独立运行。")
         val state=config.getJSONObject("channels")
         fun configured(key:String)=state.getJSONObject(key).optBoolean("configured")
@@ -894,6 +931,8 @@ class MainActivity : Activity() {
 
     private fun settings(config:JSONObject){
         shell("设置")
+        pageBanner("PREFERENCES  /  站点","让联系更顺畅",
+            "管理网站信息、语音规则、权限与更新。",OwnerUi.softGreen)
         showCallPermissionStatus()
         action("查看最近 60 条通话网络诊断") {
             api("/api/mobile/voice/quality") { response ->
@@ -1035,6 +1074,8 @@ class MainActivity : Activity() {
     }
     private fun account(config:JSONObject){
         shell("账户安全")
+        pageBanner("ACCOUNT  /  安全","保护你的车主中心",
+            "修改管理员账号或退出当前设备。",OwnerUi.softBlue)
         section("管理员账号","与网页版后台共用身份，修改后会注销现有登录会话。")
         val inputs=inCard{
             val name=field("管理员用户名",config.optString("username","admin"))
