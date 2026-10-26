@@ -108,7 +108,7 @@ class MainActivity : Activity() {
             }
         }
         val top = OwnerUi.horizontal(this).apply {
-            setPadding(px(20), px(15), px(20), px(12))
+            setPadding(px(20), px(24), px(20), px(20))
         }
         val parent=when {
             page.startsWith("channel_")->"channels"
@@ -122,11 +122,14 @@ class MainActivity : Activity() {
             setOnClickListener{navigate(parent)}
         },LinearLayout.LayoutParams(px(40),px(44)))
         val headingCol = OwnerUi.vertical(this).apply { setPadding(if(parent==null)px(2) else px(8), 0, 0, 0) }
-        headingCol.addView(OwnerUi.label(this, heading, 22f, OwnerUi.navy, true))
+        if(page=="home")headingCol.addView(OwnerUi.label(this,"车主中心",13f,OwnerUi.muted).apply{
+            setPadding(0,0,0,px(6))
+        })
+        headingCol.addView(OwnerUi.label(this,heading,if(parent==null)30f else 25f,OwnerUi.navy,true))
         top.addView(headingCol, LinearLayout.LayoutParams(0, -2, 1f))
-        if (page != "login") top.addView(OwnerUi.label(this,"↻",24f,OwnerUi.blueDeep,true).apply {
-            gravity=Gravity.CENTER
-            background=OwnerUi.pressable(this@MainActivity,OwnerUi.white,16)
+        if (page != "login") top.addView(OwnerUi.icon(this,R.drawable.ic_refresh,OwnerUi.navy,21).apply {
+            setPadding(px(11),px(11),px(11),px(11))
+            background=OwnerUi.pressable(this@MainActivity,OwnerUi.white,16,OwnerUi.line)
             isClickable=true;isFocusable=true
             contentDescription="手动同步当前页面"
             setOnClickListener{refreshCurrent(true);notify("已请求同步最新数据")}
@@ -138,7 +141,7 @@ class MainActivity : Activity() {
             clipToPadding = false
         }
         root = OwnerUi.vertical(this).apply {
-            setPadding(px(18), px(3), px(18), px(22))
+            setPadding(px(20), px(2), px(20), px(24))
         }
         scroll.addView(root, android.widget.FrameLayout.LayoutParams(-1, -2))
         frame.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -149,37 +152,40 @@ class MainActivity : Activity() {
     private fun bottomNav(): LinearLayout {
         val bar=OwnerUi.horizontal(this).apply {
             background=OwnerUi.bg(OwnerUi.white,0,this@MainActivity,OwnerUi.line)
-            setPadding(px(8), px(5), px(8), px(5))
+            setPadding(px(8), px(5), px(8), px(4))
             elevation=0f
         }
         val tabs=listOf(
-            Triple("首页", "home", android.R.drawable.ic_menu_view),
-            Triple("挪车", "requests", android.R.drawable.ic_menu_agenda),
-            Triple("通话", "calls", android.R.drawable.sym_action_call),
-            Triple("通知", "channels", android.R.drawable.ic_dialog_email),
-            Triple("设置", "settings", android.R.drawable.ic_menu_manage)
+            Triple("首页", "home", R.drawable.ic_nav_home),
+            Triple("挪车", "requests", R.drawable.ic_nav_car),
+            Triple("通话", "calls", R.drawable.ic_nav_call),
+            Triple("通知", "channels", R.drawable.ic_nav_bell),
+            Triple("设置", "settings", R.drawable.ic_nav_settings)
         )
         for ((label, route, icon) in tabs) {
             val selected=page==route || (route=="settings"&&(page=="account"||page=="device"||page.startsWith("settings_"))) ||
                 (route=="channels"&&page.startsWith("channel_"))
-            val color=if(selected) OwnerUi.green else OwnerUi.muted
+            val color=if(selected) OwnerUi.navy else OwnerUi.muted
             val item=OwnerUi.vertical(this).apply {
                 gravity=Gravity.CENTER
-                setPadding(px(3), px(7), px(3), px(5))
-                background=OwnerUi.pressable(this@MainActivity,
-                    if(selected)OwnerUi.softGreen else OwnerUi.white, 12)
+                setPadding(px(3), px(5), px(3), px(3))
+                background=OwnerUi.pressable(this@MainActivity,OwnerUi.white,12)
                 isClickable=true
                 isFocusable=true
                 contentDescription="切换到"+label
                 setOnClickListener { if(page!=route)navigate(route) }
             }
-            val iconView=OwnerUi.icon(this,icon,color,22)
-            item.addView(iconView)
+            val iconBox=OwnerUi.horizontal(this).apply{
+                gravity=Gravity.CENTER
+                background=OwnerUi.bg(if(selected)OwnerUi.softAmber else OwnerUi.white,23,this@MainActivity)
+            }
+            iconBox.addView(OwnerUi.icon(this,icon,color,23))
+            item.addView(iconBox,LinearLayout.LayoutParams(px(42),px(42)))
             item.addView(OwnerUi.label(this,label,11f,color,selected).apply {
                 gravity=Gravity.CENTER
-                setPadding(0,px(5),0,0)
+                setPadding(0,px(3),0,0)
             })
-            bar.addView(item,LinearLayout.LayoutParams(0,px(58),1f).apply {
+            bar.addView(item,LinearLayout.LayoutParams(0,px(68),1f).apply {
                 marginStart=px(2);marginEnd=px(2)
             })
         }
@@ -200,20 +206,30 @@ class MainActivity : Activity() {
     private inline fun <T> inCard(block: () -> T): T {
         val holder=OwnerUi.card(this)
         root.addView(holder,LinearLayout.LayoutParams(-1,-2).apply{
-            bottomMargin=px(7)
+            bottomMargin=px(12)
         })
         val previous=root
         root=holder
         return try{block()}finally{root=previous}
     }
     private fun section(heading:String,caption:String="") {
-        title(heading,17f)
+        title(heading,20f)
         if(caption.isNotBlank())note(caption)
     }
-    private fun menuRow(heading:String,detail:String,onClick:()->Unit) {
+    private inline fun menuGroup(block:()->Unit){
+        val holder=OwnerUi.vertical(this).apply{
+            background=OwnerUi.bg(OwnerUi.white,18,this@MainActivity,OwnerUi.line)
+            clipToOutline=true
+        }
+        root.addView(holder,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(10)})
+        val previous=root
+        root=holder
+        try{block()}finally{root=previous}
+    }
+    private fun menuRow(heading:String,detail:String,last:Boolean=false,onClick:()->Unit) {
         val row=OwnerUi.horizontal(this).apply {
-            setPadding(px(16),px(15),px(14),px(15))
-            background=OwnerUi.pressable(this@MainActivity,OwnerUi.white,15,OwnerUi.line)
+            setPadding(px(17),px(14),px(17),px(14))
+            background=OwnerUi.pressable(this@MainActivity,OwnerUi.white,0)
             isClickable=true;isFocusable=true
             contentDescription="$heading，$detail"
             setOnClickListener{onClick()}
@@ -224,8 +240,11 @@ class MainActivity : Activity() {
             setPadding(0,px(3),0,0)
         })
         row.addView(labels,LinearLayout.LayoutParams(0,-2,1f))
-        row.addView(OwnerUi.label(this,"›",25f,OwnerUi.muted))
-        root.addView(row,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(8)})
+        row.addView(OwnerUi.label(this,"›",23f,OwnerUi.muted))
+        root.addView(row,LinearLayout.LayoutParams(-1,-2))
+        if(!last)root.addView(OwnerUi.line(this),LinearLayout.LayoutParams(-1,px(1)).apply{
+            marginStart=px(17);marginEnd=px(17)
+        })
     }
     private fun field(hint: String, value: String = "", password: Boolean = false): EditText {
         val block=OwnerUi.vertical(this)
@@ -236,14 +255,27 @@ class MainActivity : Activity() {
             textSize=15f
             setTextColor(OwnerUi.navy)
             setHintTextColor(OwnerUi.muted)
-            background=OwnerUi.bg(OwnerUi.canvas,16,this@MainActivity,OwnerUi.line)
+            background=OwnerUi.bg(OwnerUi.white,14,this@MainActivity,OwnerUi.inputLine)
             setPadding(px(13),px(12),px(13),px(12))
-            minHeight=px(46)
+            minHeight=px(51)
             if(password)inputType=InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
         block.addView(edit,LinearLayout.LayoutParams(-1,-2).apply{topMargin=px(7)})
         root.addView(block,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(10)})
         return edit
+    }
+    private fun iconField(hint:String,value:String,icon:Int,surface:Int):EditText {
+        val row=OwnerUi.horizontal(this).apply{gravity=Gravity.TOP}
+        row.addView(OwnerUi.iconCircle(this,icon,surface,40),
+            LinearLayout.LayoutParams(px(40),px(40)).apply{marginEnd=px(14)})
+        val content=OwnerUi.vertical(this)
+        val previous=root
+        root=content
+        val input=try{field(hint,value)}finally{root=previous}
+        input.inputType=InputType.TYPE_CLASS_NUMBER
+        row.addView(content,LinearLayout.LayoutParams(0,-2,1f))
+        root.addView(row,LinearLayout.LayoutParams(-1,-2).apply{topMargin=px(15)})
+        return input
     }
     private fun check(label:String,enabled:Boolean):CheckBox =
         CheckBox(this).also {
@@ -251,19 +283,19 @@ class MainActivity : Activity() {
             it.textSize=14f
             it.setTextColor(OwnerUi.navy)
             it.isChecked=enabled
-            it.minHeight=px(44)
-            it.buttonTintList=android.content.res.ColorStateList.valueOf(OwnerUi.blue)
+            it.minHeight=px(48)
+            it.buttonTintList=android.content.res.ColorStateList.valueOf(OwnerUi.green)
             root.addView(it,LinearLayout.LayoutParams(-1,-2))
         }
     private fun action(label:String,primary:Boolean=false,danger:Boolean=false,callback:()->Unit) {
-        val surface=if(primary)OwnerUi.green else if(danger)OwnerUi.softRed else OwnerUi.white
+        val surface=if(primary)OwnerUi.green else OwnerUi.white
         val foreground=if(primary)OwnerUi.white else if(danger)OwnerUi.red else OwnerUi.blueDeep
         val button=OwnerUi.label(this,label,14f,foreground,true).apply {
             gravity=Gravity.CENTER
-            minHeight=px(48)
+            minHeight=px(50)
             setPadding(px(14),px(12),px(14),px(12))
             background=OwnerUi.pressable(this@MainActivity,surface,17,
-                if(primary)null else if(danger)OwnerUi.softRed else OwnerUi.line)
+                if(primary)null else if(danger)OwnerUi.inputLine else OwnerUi.line)
             isClickable=true
             isFocusable=true
             setOnClickListener{callback()}
@@ -347,13 +379,13 @@ class MainActivity : Activity() {
         screen("安全登录")
         val welcome=OwnerUi.vertical(this).apply {
             background=OwnerUi.gradient(this@MainActivity)
-            setPadding(px(24),px(25),px(24),px(25))
+            setPadding(px(22),px(24),px(22),px(24))
         }
-        welcome.addView(OwnerUi.label(this,"✦",28f,OwnerUi.green,true))
-        welcome.addView(OwnerUi.label(this,"安心联系，随时挪车",25f,OwnerUi.navy,true).apply {
-            setPadding(0,px(18),0,0)
+        welcome.addView(OwnerUi.label(this,"MoveCar 车主端",12f,OwnerUi.blueDeep,true))
+        welcome.addView(OwnerUi.label(this,"安心联系，及时挪车",24f,OwnerUi.navy,true).apply {
+            setPadding(0,px(10),0,0)
         })
-        welcome.addView(OwnerUi.label(this,"消息通知 · 匿名语音 · 挪车记录",13f,OwnerUi.blueDeep).apply {
+        welcome.addView(OwnerUi.label(this,"登录后管理通知、通话和挪车记录",13f,OwnerUi.blueDeep).apply {
             setPadding(0,px(7),0,0)
         })
         root.addView(welcome,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(17)})
@@ -514,42 +546,53 @@ class MainActivity : Activity() {
         val count=config.optInt("requestCount")
         val limit=config.optInt("requestRetentionLimit",50)
         val banner=OwnerUi.vertical(this).apply {
-            background=OwnerUi.bg(OwnerUi.white,18,this@MainActivity,OwnerUi.line)
-            setPadding(px(19),px(19),px(19),px(18))
+            background=OwnerUi.pressable(this@MainActivity,OwnerUi.white,22,OwnerUi.line)
+            setPadding(px(20),px(22),px(20),px(17))
+            isClickable=true;isFocusable=true
+            contentDescription="查看挪车记录，共 $count 条"
+            setOnClickListener{navigate("requests")}
         }
-        banner.addView(OwnerUi.label(this,"车主中心",12f,OwnerUi.muted))
-        banner.addView(OwnerUi.label(this,config.optString("siteName","呼叫车主挪车"),
-            22f,OwnerUi.navy,true).apply {
-            maxLines=2
-            setPadding(0,px(7),0,px(15))
-        })
-        banner.addView(OwnerUi.line(this))
-        val summary=OwnerUi.horizontal(this).apply{setPadding(0,px(14),0,0)}
-        summary.addView(OwnerUi.label(this,if(paired)"●  通知已开启" else "●  通知待配置",
-            13f,if(paired)OwnerUi.green else OwnerUi.amber,true),
-            LinearLayout.LayoutParams(0,-2,1f))
-        summary.addView(OwnerUi.label(this,"$count / $limit 条记录",13f,OwnerUi.muted))
-        banner.addView(summary)
-        root.addView(banner,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(10)})
+        val hero=OwnerUi.horizontal(this)
+        val heroText=OwnerUi.vertical(this)
+        heroText.addView(OwnerUi.label(this,config.optString("siteName","呼叫车主挪车"),
+            23f,OwnerUi.navy,true).apply{maxLines=2})
+        heroText.addView(OwnerUi.pill(this,if(paired)"●  通知已开启" else "●  通知待配置",paired).apply{
+            setPadding(px(11),px(6),px(11),px(6))
+        },LinearLayout.LayoutParams(-2,-2).apply{topMargin=px(15)})
+        hero.addView(heroText,LinearLayout.LayoutParams(0,-2,1f))
+        hero.addView(OwnerUi.iconCircle(this,R.drawable.ic_nav_car,OwnerUi.softBlue,54),
+            LinearLayout.LayoutParams(px(54),px(54)).apply{marginStart=px(8)})
+        banner.addView(hero)
+        banner.addView(OwnerUi.line(this),LinearLayout.LayoutParams(-1,px(1)).apply{topMargin=px(20)})
+        val footer=OwnerUi.horizontal(this).apply{gravity=Gravity.RIGHT or Gravity.CENTER_VERTICAL}
+        footer.addView(OwnerUi.label(this,"$count / $limit 条记录",13f,OwnerUi.muted))
+        footer.addView(OwnerUi.label(this,"›",23f,OwnerUi.muted).apply{setPadding(px(8),0,0,0)})
+        banner.addView(footer,LinearLayout.LayoutParams(-1,-2).apply{topMargin=px(10)})
+        root.addView(banner,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(20)})
 
         section("快捷入口")
-        fun tile(caption:String,value:String,detail:String,icon:Int,click:()->Unit):LinearLayout =
+        fun tile(caption:String,value:String,detail:String,tint:Int,icon:Int,click:()->Unit):LinearLayout =
             OwnerUi.vertical(this).apply {
-                background=OwnerUi.pressable(this@MainActivity,OwnerUi.white,17,OwnerUi.line)
-                setPadding(px(16),px(16),px(16),px(15))
-                minimumHeight=px(124)
+                background=OwnerUi.pressable(this@MainActivity,OwnerUi.white,20,OwnerUi.line)
+                setPadding(px(16),px(17),px(16),px(16))
+                minimumHeight=px(148)
                 isClickable=true;isFocusable=true
                 contentDescription="$caption，$value，$detail"
                 setOnClickListener { click() }
-                val heading=OwnerUi.horizontal(this@MainActivity)
-                heading.addView(OwnerUi.label(this@MainActivity,caption,13f,OwnerUi.navy,true),
-                    LinearLayout.LayoutParams(0,-2,1f))
-                heading.addView(OwnerUi.icon(this@MainActivity,icon,OwnerUi.green,20))
-                addView(heading)
-                addView(OwnerUi.label(this@MainActivity,value,21f,OwnerUi.navy,true).apply {
-                    setPadding(0,px(13),0,px(2))
+                addView(OwnerUi.iconCircle(this@MainActivity,icon,tint,44),
+                    LinearLayout.LayoutParams(px(44),px(44)))
+                addView(OwnerUi.label(this@MainActivity,caption,14f,OwnerUi.navy,true).apply {
+                    setPadding(0,px(14),0,px(4))
                 })
-                addView(OwnerUi.label(this@MainActivity,detail,11.5f,OwnerUi.muted))
+                val valueRow=OwnerUi.horizontal(this@MainActivity)
+                valueRow.addView(OwnerUi.label(this@MainActivity,value,22f,OwnerUi.navy,true),
+                    LinearLayout.LayoutParams(0,-2,1f))
+                valueRow.addView(OwnerUi.label(this@MainActivity,"›",22f,OwnerUi.muted))
+                addView(valueRow)
+                addView(OwnerUi.label(this@MainActivity,detail,11.5f,OwnerUi.muted).apply{
+                    maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END
+                    setPadding(0,px(5),0,0)
+                })
             }
         fun tileRow(left:LinearLayout,right:LinearLayout) {
             val row=OwnerUi.horizontal(this)
@@ -558,16 +601,16 @@ class MainActivity : Activity() {
             root.addView(row,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(12)})
         }
         tileRow(
-            tile("挪车请求","$count 条","查看与确认留言",
-                android.R.drawable.ic_menu_agenda){navigate("requests")},
-            tile("来电记录","查看","匿名语音联系",
-                android.R.drawable.sym_action_call){navigate("calls")}
+            tile("挪车请求","$count 条","查看与确认留言",OwnerUi.softBlue,
+                R.drawable.ic_nav_car){navigate("requests")},
+            tile("来电记录","查看","匿名语音联系",OwnerUi.softGreen,
+                R.drawable.ic_nav_call){navigate("calls")}
         )
         tileRow(
-            tile("消息通知",if(paired)"已连接" else "待配置","管理接收渠道",
-                android.R.drawable.ic_dialog_email){navigate("channels")},
-            tile("站点设置","管理","名称、联系与安全",
-                android.R.drawable.ic_menu_manage){navigate("settings")}
+            tile("消息通知",if(paired)"已连接" else "待配置","管理接收渠道",OwnerUi.softAmber,
+                R.drawable.ic_nav_bell){navigate("channels")},
+            tile("站点设置","管理","名称、联系与安全",OwnerUi.softRed,
+                R.drawable.ic_nav_settings){navigate("settings")}
         )
 
     }
@@ -583,7 +626,8 @@ class MainActivity : Activity() {
     }
     private fun compactControl(text:String, color:Int=OwnerUi.blue, task:()->Unit):TextView =
         OwnerUi.label(this,text,12.5f,color,true).apply {
-            setPadding(px(7),px(7),px(7),px(7))
+            minHeight=px(44)
+            setPadding(px(12),px(8),px(12),px(8))
             gravity=Gravity.CENTER
             isClickable=true;isFocusable=true
             background=OwnerUi.pressable(this@MainActivity,OwnerUi.white,7)
@@ -601,6 +645,19 @@ class MainActivity : Activity() {
             isClickable=true;isFocusable=true
             setOnClickListener{task()}
         }
+    private fun deleteControl(text:String,task:()->Unit):LinearLayout =
+        OwnerUi.horizontal(this).apply {
+            minHeight=px(44)
+            setPadding(px(2),px(8),px(6),px(8))
+            background=OwnerUi.pressable(this@MainActivity,OwnerUi.white,10)
+            addView(OwnerUi.icon(this@MainActivity,R.drawable.ic_trash,OwnerUi.red,19))
+            addView(OwnerUi.label(this@MainActivity,text,13.5f,OwnerUi.red,true).apply{
+                setPadding(px(8),0,0,0)
+            })
+            isClickable=true;isFocusable=true
+            contentDescription=text
+            setOnClickListener{task()}
+        }
 
     private fun formattedTime(time:Long):String =
         DateFormat.getDateTimeInstance(DateFormat.MEDIUM,DateFormat.SHORT)
@@ -612,7 +669,7 @@ class MainActivity : Activity() {
             if(page!="requests"||historyPage!=requestedPage)return@fetchPage
             shell("挪车请求")
             val total=result.optInt("total")
-            note("共 "+total+" 条 · 第 "+historyPage+" 页")
+            note("共 $total 条 · 第 $historyPage 页")
             val items=result.optJSONArray("items")
             if(items==null||items.length()==0){
                 empty("目前没有挪车请求","收到扫码留言后，这里将自动保存记录。")
@@ -622,39 +679,44 @@ class MainActivity : Activity() {
                     val id=item.optString("id")
                     val state=item.optString("status")
                     val label=when(state){"waiting"->"待处理";"confirmed"->"已确认";"expired"->"已过期";else->state}
-                    val itemRow=OwnerUi.vertical(this@MainActivity).apply {
-                        setPadding(0,px(3),0,px(3))
-                    }
+                    val itemRow=OwnerUi.vertical(this@MainActivity)
                     val header=OwnerUi.horizontal(this@MainActivity)
+                    header.addView(OwnerUi.iconCircle(this@MainActivity,R.drawable.ic_nav_car,OwnerUi.softBlue,42),
+                        LinearLayout.LayoutParams(px(42),px(42)).apply{marginEnd=px(12)})
                     header.addView(OwnerUi.label(this@MainActivity,
-                        formattedTime(item.optLong("createdAt")),11.5f,OwnerUi.muted),
+                        formattedTime(item.optLong("createdAt")),12f,OwnerUi.muted).apply{
+                            maxLines=2
+                        },
                         LinearLayout.LayoutParams(0,-2,1f))
                     header.addView(OwnerUi.pill(this@MainActivity,label,
-                        if(state=="confirmed")true else if(state=="waiting")false else null))
+                        if(state=="confirmed")true else if(state=="waiting")false else null),
+                        LinearLayout.LayoutParams(-2,-2).apply{marginStart=px(6)})
                     itemRow.addView(header)
                     val message=OwnerUi.label(this@MainActivity,
-                        item.optString("message").ifBlank{"有人请求挪车"},14f,OwnerUi.navy).apply {
-                            setPadding(0,px(10),0,px(11));maxLines=4;ellipsize=android.text.TextUtils.TruncateAt.END
+                        item.optString("message").ifBlank{"有人请求挪车"},15.5f,OwnerUi.navy).apply {
+                            setPadding(0,px(17),0,px(17));maxLines=5;ellipsize=android.text.TextUtils.TruncateAt.END
                         }
                     itemRow.addView(message)
+                    itemRow.addView(OwnerUi.line(this@MainActivity))
                     val actions=OwnerUi.horizontal(this@MainActivity)
                     val photo=item.optString("photoUrl")
                     if(state=="waiting")actions.addView(requestButton("确认收到",primary=true) {
                         api("/api/mobile/requests/confirm",JSONObject().put("id",id)){
                             notify("已确认");loadRequests(true)
                         }
-                    },LinearLayout.LayoutParams(0,-2,1f).apply{marginEnd=px(7)})
+                    },LinearLayout.LayoutParams(-2,-2).apply{marginEnd=px(8)})
                     if(photo.startsWith("/"))actions.addView(requestButton("查看照片"){
                         browse(base()+photo)
-                    },LinearLayout.LayoutParams(0,-2,1f).apply{marginEnd=px(7)})
+                    },LinearLayout.LayoutParams(-2,-2).apply{marginEnd=px(8)})
                     else if(item.optBoolean("photoSent"))
                         itemRow.addView(OwnerUi.label(this@MainActivity,"照片已过期",12f,OwnerUi.muted))
-                    actions.addView(requestButton("删除",danger=true) {
+                    actions.addView(android.view.View(this@MainActivity),LinearLayout.LayoutParams(0,1,1f))
+                    actions.addView(deleteControl("删除") {
                         confirm("删除该条挪车记录及其照片？"){
                             api("/api/mobile/requests/delete",JSONObject().put("id",id)){loadRequests(true)}
                         }
-                    },LinearLayout.LayoutParams(0,-2,1f))
-                    itemRow.addView(actions)
+                    })
+                    itemRow.addView(actions,LinearLayout.LayoutParams(-1,-2).apply{topMargin=px(8)})
                     inCard { root.addView(itemRow) }
                 }
             }
@@ -662,12 +724,27 @@ class MainActivity : Activity() {
             if(historyPage>1)paging.addView(compactControl("← 上一页") {historyPage--;navigate("requests")})
             if(historyPage*20<total)paging.addView(compactControl("下一页 →") {historyPage++;navigate("requests")})
             root.addView(paging,LinearLayout.LayoutParams(-1,-2))
-            if(total>0)action("清空全部挪车记录",danger=true){
-                confirm("永久删除所有挪车记录和照片？"){
-                    api("/api/mobile/requests/clear",JSONObject().put("confirm",true)){
-                        historyPage=1;loadRequests(true)
+            if(total>0){
+                val clear=OwnerUi.horizontal(this).apply{
+                    minHeight=px(54)
+                    setPadding(px(17),px(8),px(17),px(8))
+                    background=OwnerUi.pressable(this@MainActivity,OwnerUi.white,18,OwnerUi.line)
+                    isClickable=true;isFocusable=true
+                    contentDescription="清空全部挪车记录"
+                    setOnClickListener{
+                        confirm("永久删除所有挪车记录和照片？"){
+                            api("/api/mobile/requests/clear",JSONObject().put("confirm",true)){
+                                historyPage=1;loadRequests(true)
+                            }
+                        }
                     }
                 }
+                clear.addView(OwnerUi.icon(this,R.drawable.ic_trash,OwnerUi.red,20))
+                clear.addView(OwnerUi.label(this,"清空全部挪车记录",14f,OwnerUi.red,true).apply{
+                    setPadding(px(12),0,0,0)
+                },LinearLayout.LayoutParams(0,-2,1f))
+                clear.addView(OwnerUi.label(this,"›",23f,OwnerUi.muted))
+                root.addView(clear,LinearLayout.LayoutParams(-1,-2).apply{topMargin=px(17)})
             }
         }
     }
@@ -699,30 +776,28 @@ class MainActivity : Activity() {
             empty("暂无通话记录","接收到的语音来电会显示在这里。")
             return
         }
-        inCard {
-            for(i in 0 until items.length()){
-                val item=items.getJSONObject(i)
-                val raw=item.optString("status")
-                val state=when(raw){
-                    "ringing"->"振铃中";"active"->"通话中";"missed"->"未接听"
-                    "ended"->"已结束";"rejected"->"已拒绝";"failed"->"连接失败";else->raw
-                }
-                val problem=raw=="missed"||raw=="rejected"||raw=="failed"
-                val row=OwnerUi.horizontal(this@MainActivity).apply {
-                    setPadding(px(3),px(7),px(2),px(7))
-                }
-                val icon=OwnerUi.label(this@MainActivity,if(problem)"↙" else "↗",
-                    24f,if(problem)OwnerUi.red else OwnerUi.green,true).apply{gravity=Gravity.CENTER}
-                row.addView(icon,LinearLayout.LayoutParams(px(40),px(40)))
+        for(i in 0 until items.length()){
+            val item=items.getJSONObject(i)
+            val raw=item.optString("status")
+            val state=when(raw){
+                "ringing"->"振铃中";"active"->"通话中";"missed"->"未接听"
+                "ended"->"已结束";"rejected"->"已拒绝";"failed"->"连接失败";else->raw
+            }
+            val problem=raw=="missed"||raw=="rejected"||raw=="failed"
+            inCard {
+                val row=OwnerUi.horizontal(this@MainActivity)
+                row.addView(OwnerUi.iconCircle(this@MainActivity,R.drawable.ic_nav_call,OwnerUi.softBlue,44),
+                    LinearLayout.LayoutParams(px(44),px(44)).apply{marginEnd=px(14)})
                 val info=OwnerUi.vertical(this@MainActivity)
-                info.addView(OwnerUi.label(this@MainActivity,"语音来电",14.5f,OwnerUi.navy,true))
+                info.addView(OwnerUi.label(this@MainActivity,"语音来电",16f,OwnerUi.navy,true))
                 info.addView(OwnerUi.label(this@MainActivity,
-                    formattedTime(item.optLong("startedAt")),12f,OwnerUi.muted))
+                    formattedTime(item.optLong("startedAt")),12.5f,OwnerUi.muted).apply{
+                    setPadding(0,px(6),0,0);maxLines=2
+                })
                 row.addView(info,LinearLayout.LayoutParams(0,-2,1f))
-                row.addView(OwnerUi.label(this@MainActivity,state,12f,
-                    if(problem)OwnerUi.red else OwnerUi.muted,true))
+                row.addView(OwnerUi.pill(this@MainActivity,state,if(raw=="active")true else if(problem)false else null),
+                    LinearLayout.LayoutParams(-2,-2).apply{marginStart=px(7)})
                 root.addView(row)
-                if(i<items.length()-1)root.addView(OwnerUi.line(this@MainActivity))
             }
         }
     }
@@ -742,10 +817,46 @@ class MainActivity : Activity() {
                 !channel.optBoolean("enabled")->"已关闭"
                 else->"已启用"
             }
-            menuRow(label,"$description · $stateText"){navigate("channel_"+key)}
+            val icon=when(key){"app"->R.drawable.ic_nav_bell;"bark"->R.drawable.ic_devices;
+                "sc3"->R.drawable.ic_android;else->R.drawable.ic_chat}
+            val tint=when(key){"app"->OwnerUi.softBlue;"bark"->OwnerUi.softAmber;
+                "sc3"->OwnerUi.softGreen;else->OwnerUi.softRed}
+            inCard {
+                root.background=OwnerUi.pressable(this@MainActivity,OwnerUi.white,20,OwnerUi.line)
+                root.isClickable=true;root.isFocusable=true
+                root.contentDescription="$label，$stateText，打开配置"
+                root.setOnClickListener{navigate("channel_"+key)}
+                val row=OwnerUi.horizontal(this@MainActivity).apply{minHeight=px(58)}
+                row.addView(OwnerUi.iconCircle(this@MainActivity,icon,tint,48),
+                    LinearLayout.LayoutParams(px(48),px(48)).apply{marginEnd=px(14)})
+                val info=OwnerUi.vertical(this@MainActivity)
+                info.addView(OwnerUi.label(this@MainActivity,label,16f,OwnerUi.navy,true))
+                info.addView(OwnerUi.label(this@MainActivity,"$description · $stateText",12.5f,
+                    if(stateText=="已启用")OwnerUi.success else OwnerUi.muted).apply{
+                    setPadding(0,px(6),0,0);maxLines=2
+                })
+                row.addView(info,LinearLayout.LayoutParams(0,-2,1f))
+                row.addView(OwnerUi.label(this@MainActivity,"›",24f,OwnerUi.muted).apply{
+                    setPadding(px(8),0,0,0)
+                })
+                root.addView(row)
+            }
         }
-        spacer(6)
-        action("测试全部已启用渠道"){testChannel("all")}
+        spacer(10)
+        val test=OwnerUi.horizontal(this).apply{
+            minHeight=px(56)
+            setPadding(px(16),px(8),px(16),px(8))
+            background=OwnerUi.pressable(this@MainActivity,OwnerUi.white,18,OwnerUi.line)
+            isClickable=true;isFocusable=true
+            contentDescription="测试全部已启用渠道"
+            setOnClickListener{testChannel("all")}
+        }
+        test.addView(OwnerUi.iconCircle(this,R.drawable.ic_send,OwnerUi.softPurple,40),
+            LinearLayout.LayoutParams(px(40),px(40)).apply{marginEnd=px(13)})
+        test.addView(OwnerUi.label(this,"测试全部已启用渠道",15f,OwnerUi.navy,true),
+            LinearLayout.LayoutParams(0,-2,1f))
+        test.addView(OwnerUi.label(this,"›",23f,OwnerUi.muted))
+        root.addView(test)
     }
     private fun channelDetail(key:String,config:JSONObject){
         val names=mapOf("app" to "APP 推送","bark" to "Bark","sc3" to "Server酱³","serverchan" to "微信推送")
@@ -943,17 +1054,22 @@ class MainActivity : Activity() {
 
     private fun settings(config:JSONObject){
         shell("设置")
-        menuRow("站点与记录",config.optString("siteName","管理站点信息")){navigate("settings_site")}
-        menuRow("通话规则","次数、间隔与测试模式"){navigate("settings_calls")}
-        menuRow("来电权限与诊断","通知、锁屏与通话质量"){navigate("settings_permissions")}
-        menuRow("网站图标","上传或恢复默认图标"){navigate("settings_icon")}
-        menuRow("设备与服务","推送绑定、测试与管理后台"){navigate("device")}
-        menuRow("版本更新","检查 GitHub 正式版"){navigate("settings_update")}
-        menuRow("账户安全","管理员账号与退出登录"){navigate("account")}
-        spacer(8)
-        action("更换服务器或域名"){
-            confirm("切换后将返回登录界面，请输入新服务器 HTTPS 域名，使用管理员账号重新登录。原服务器数据不会删除。"){
-                clearLogin()
+        section("管理")
+        menuGroup {
+            menuRow("站点与记录",config.optString("siteName","管理站点信息")){navigate("settings_site")}
+            menuRow("通话规则","次数、间隔与测试模式"){navigate("settings_calls")}
+            menuRow("来电权限与诊断","通知、锁屏与通话质量"){navigate("settings_permissions")}
+            menuRow("网站图标","上传或恢复默认图标"){navigate("settings_icon")}
+            menuRow("设备与服务","推送绑定、测试与管理后台",last=true){navigate("device")}
+        }
+        section("账户与版本")
+        menuGroup {
+            menuRow("版本更新","检查 GitHub 正式版"){navigate("settings_update")}
+            menuRow("账户安全","管理员账号与退出登录"){navigate("account")}
+            menuRow("更换服务器或域名","使用其他服务器登录",last=true){
+                confirm("切换后将返回登录界面，请输入新服务器 HTTPS 域名，使用管理员账号重新登录。原服务器数据不会删除。"){
+                    clearLogin()
+                }
             }
         }
     }
@@ -1004,42 +1120,47 @@ class MainActivity : Activity() {
             listOf(site,url,phone,wechat)
         }
         section("通知与数据")
-        val settings=inCard{
+        inCard{
             val rate=field("通知间隔（秒，0–3600）",config.optInt("rateLimitSeconds",60).toString())
             val limit=field("记录保留数量（1–500）",config.optInt("requestRetentionLimit",50).toString())
-            rate to limit
-        }
-        inCard{
             action("保存基本设置",primary=true){
-                val rate=settings.first.text.toString().toIntOrNull()
-                val limit=settings.second.text.toString().toIntOrNull()
-                if(rate==null||limit==null){notify("请输入有效的数字");return@action}
+                val rateValue=rate.text.toString().toIntOrNull()
+                val limitValue=limit.text.toString().toIntOrNull()
+                if(rateValue==null||limitValue==null){notify("请输入有效的数字");return@action}
                 val data=JSONObject()
                     .put("siteName",fields[0].text.toString())
                     .put("publicUrl",fields[1].text.toString())
                     .put("phoneNumber",fields[2].text.toString())
                     .put("wechatId",fields[3].text.toString())
-                    .put("rateLimitSeconds",rate)
-                    .put("requestRetentionLimit",limit)
+                    .put("rateLimitSeconds",rateValue)
+                    .put("requestRetentionLimit",limitValue)
                 api("/api/mobile/settings",data){notify("基本设置保存成功");navigate("settings_site")}
             }
         }
     }
     private fun settingsCalls(config:JSONObject){
         shell("通话规则")
-        section("语音呼叫限制")
         val voicePolicy=config.optJSONObject("voicePolicy") ?: JSONObject()
         inCard {
-            note("扫码语音通话：设置后立即生效，不影响挪车留言")
-            val daily=field("24 小时最多尝试次数（0=不限）",
-                voicePolicy.optInt("dailyLimit",8).toString())
-            val cooldown=field("两次拨打间隔（秒，0=无等待）",
-                voicePolicy.optInt("cooldownSeconds",90).toString())
-            val retries=field("网络失败可立即重拨次数（0–10）",
-                voicePolicy.optInt("maxFastRetries",2).toString())
+            title("语音呼叫限制",20f)
+            root.addView(OwnerUi.label(this,"扫码语音通话设置后立即生效，不影响挪车留言",12.5f,OwnerUi.blueDeep).apply{
+                background=OwnerUi.bg(OwnerUi.softBlue,12,this@MainActivity)
+                setPadding(px(14),px(12),px(14),px(12))
+            },LinearLayout.LayoutParams(-1,-2).apply{topMargin=px(7);bottomMargin=px(8)})
+            val daily=iconField("24 小时最多尝试次数（0=不限）",
+                voicePolicy.optInt("dailyLimit",8).toString(),R.drawable.ic_nav_call,OwnerUi.softBlue)
+            val cooldown=iconField("两次拨打间隔（秒，0=无等待）",
+                voicePolicy.optInt("cooldownSeconds",90).toString(),R.drawable.ic_clock,OwnerUi.softGreen)
+            val retries=iconField("网络失败可立即重拨次数（0–10）",
+                voicePolicy.optInt("maxFastRetries",2).toString(),R.drawable.ic_refresh,OwnerUi.softRed)
             val testing=check("测试模式：不限制普通拨打次数与间隔",
                 voicePolicy.optBoolean("testMode",false))
-            note("测试模式公开生效，仍保留单路并发保护；正式投入使用后请关闭。")
+            root.addView(OwnerUi.label(this,
+                "测试模式公开生效，仍保留单路并发保护；正式投入使用后请关闭。",
+                12.5f,OwnerUi.navy).apply{
+                background=OwnerUi.bg(OwnerUi.warningSurface,12,this@MainActivity)
+                setPadding(px(14),px(12),px(14),px(12))
+            },LinearLayout.LayoutParams(-1,-2).apply{topMargin=px(9);bottomMargin=px(15)})
             action("保存语音通话规则",primary=true) {
                 val a=daily.text.toString().toIntOrNull()
                 val b=cooldown.text.toString().toIntOrNull()
@@ -1058,7 +1179,7 @@ class MainActivity : Activity() {
                 if(testing.isChecked)confirm("开启测试模式后，陌生扫码者也可以连续呼叫，确认吗？",send)
                 else send()
             }
-            action("清除今日测试次数与冷却记录") {
+            action("清除今日测试次数与冷却记录",danger=true) {
                 confirm("清除当前呼叫次数和冷却状态？不会删除通话历史。"){
                     api("/api/mobile/voice-policy/reset",JSONObject()){
                         notify("已清除测试次数，可以立即继续拨打")

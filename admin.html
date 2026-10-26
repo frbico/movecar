@@ -193,9 +193,13 @@
     <h3>本次更新</h3>
     <ul id="updateChanges" class="update-changes"></ul>
     <div id="updateConfirmArea" hidden>
-      <div class="update-confirm"><label for="updatePassword">管理员密码<input id="updatePassword" type="password" autocomplete="current-password" placeholder="输入当前密码" maxlength="200"></label><button id="updateStart" type="button" class="primary">备份并升级</button></div>
+      <div class="update-confirm"><button id="updateStart" type="button" class="primary">备份并升级</button></div>
       <p class="update-tip">升级会自动备份数据；正在进行的通话可能短暂中断。</p>
     </div>
+  </div>
+  <div class="update-backup">
+    <div><h3>最近一次备份</h3><p id="updateBackupInfo">暂无可恢复的升级备份</p></div>
+    <button id="updateRollback" type="button" class="outline" disabled>恢复上一个版本</button>
   </div>
 </div>
 </section>

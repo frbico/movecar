@@ -14,23 +14,25 @@ import android.widget.TextView
 
 /** Shared native surfaces for the owner console and call screens. */
 internal object OwnerUi {
-    val navy = Color.rgb(31, 52, 49)
-    val blue = Color.rgb(39, 115, 124)
-    val blueDeep = Color.rgb(33, 91, 87)
-    val canvas = Color.rgb(248, 249, 248)
-    val muted = Color.rgb(111, 131, 127)
-    val line = Color.rgb(229, 233, 230)
+    val navy = Color.rgb(24, 38, 48)
+    val blue = Color.rgb(31, 102, 134)
+    val blueDeep = Color.rgb(35, 75, 94)
+    val canvas = Color.rgb(247, 248, 250)
+    val muted = Color.rgb(119, 131, 144)
+    val line = Color.rgb(233, 237, 241)
     val white = Color.WHITE
 
-    val softBlue = Color.rgb(233, 243, 245)
-    val cyan = Color.rgb(175, 228, 237)
-    val green = Color.rgb(56, 136, 105)
-    val softGreen = Color.rgb(234, 244, 236)
-    val lime = Color.rgb(189, 231, 152)
-    val amber = Color.rgb(155, 107, 42)
-    val softAmber = Color.rgb(250, 244, 231)
-    val red = Color.rgb(178, 76, 80)
-    val softRed = Color.rgb(251, 239, 238)
+    val softBlue = Color.rgb(221, 243, 250)
+    val green = Color.rgb(23, 110, 104)
+    val success = Color.rgb(19, 133, 104)
+    val softGreen = Color.rgb(232, 246, 220)
+    val amber = Color.rgb(190, 135, 55)
+    val softAmber = Color.rgb(255, 242, 184)
+    val red = Color.rgb(217, 74, 74)
+    val softRed = Color.rgb(251, 227, 220)
+    val softPurple = Color.rgb(238, 234, 251)
+    val warningSurface = Color.rgb(255, 249, 230)
+    val inputLine = Color.rgb(220, 228, 234)
 
     fun dp(context: Context, value: Int): Int =
         (context.resources.displayMetrics.density * value + 0.5f).toInt()
@@ -42,11 +44,11 @@ internal object OwnerUi {
             if (stroke != null) setStroke(dp(ctx, 1), stroke)
         }
 
-    fun gradient(context: Context): GradientDrawable = bg(softGreen, 18, context)
+    fun gradient(context: Context): GradientDrawable = bg(softBlue, 20, context)
 
     fun pressable(context: Context, color: Int, radius: Int = 18, border: Int? = null): RippleDrawable =
         RippleDrawable(
-            ColorStateList.valueOf(Color.argb(32, 44, 129, 111)),
+            ColorStateList.valueOf(Color.argb(28, 23, 110, 104)),
             bg(color, radius, context, border),
             null
         )
@@ -57,15 +59,15 @@ internal object OwnerUi {
             this.text = text
             textSize = size
             setTextColor(color)
-            includeFontPadding = true
-            if (weight) typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            includeFontPadding = false
+            if (weight) typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         }
 
     fun pill(ctx: Context, text: String, good: Boolean? = null): TextView {
         val colors = when (good) {
-            true -> softGreen to green
+            true -> softGreen to success
             false -> softAmber to amber
-            else -> softBlue to blue
+            else -> Color.rgb(241, 243, 245) to muted
         }
         return label(ctx, text, 12f, colors.second, true).apply {
             gravity = Gravity.CENTER
@@ -85,8 +87,8 @@ internal object OwnerUi {
     }
 
     fun card(ctx: Context): LinearLayout = vertical(ctx).apply {
-        background = bg(white, 18, ctx, line)
-        setPadding(dp(ctx, 16), dp(ctx, 15), dp(ctx, 16), dp(ctx, 15))
+        background = bg(white, 20, ctx, line)
+        setPadding(dp(ctx, 18), dp(ctx, 18), dp(ctx, 18), dp(ctx, 18))
         elevation = 0f
     }
 
@@ -96,6 +98,12 @@ internal object OwnerUi {
             setColorFilter(tint)
             layoutParams = LinearLayout.LayoutParams(dp(ctx, sizeDp), dp(ctx, sizeDp))
             contentDescription = null
+        }
+    fun iconCircle(ctx:Context,res:Int,surface:Int,sizeDp:Int=42):LinearLayout =
+        horizontal(ctx).apply {
+            gravity=Gravity.CENTER
+            background=bg(surface,sizeDp/2,ctx)
+            addView(icon(ctx,res,navy,23),LinearLayout.LayoutParams(dp(ctx,23),dp(ctx,23)))
         }
 
     fun line(ctx: Context): View = View(ctx).apply {
@@ -107,9 +115,13 @@ internal object OwnerUi {
         vertical(ctx).apply {
             setPadding(dp(ctx, 22), dp(ctx, 24), dp(ctx, 22), dp(ctx, 24))
             gravity = Gravity.CENTER
+            addView(icon(ctx,R.drawable.ic_nav_car,green,26).apply{
+                background=bg(softGreen,14,ctx)
+                setPadding(dp(ctx,10),dp(ctx,10),dp(ctx,10),dp(ctx,10))
+            },LinearLayout.LayoutParams(dp(ctx,48),dp(ctx,48)))
             addView(label(ctx, heading, 18f, navy, true).apply {
                 gravity = Gravity.CENTER
-                setPadding(0, 0, 0, dp(ctx, 5))
+                setPadding(0, dp(ctx,13), 0, dp(ctx, 5))
             })
             addView(label(ctx, description, 13f, muted).apply { gravity = Gravity.CENTER })
         }

@@ -20,8 +20,16 @@ export function createUpdateService({
 }={}){
   const statusFile=path.join(runtimeDir,'update-status.json');
   const requestFile=path.join(runtimeDir,'update-request.json');
+  const backupFile=path.join(runtimeDir,'update-backup.json');
   const current=safeRead(releasePath)||{version:'unknown',changes:[]};
   const version=()=>({version:String(current.version||'unknown'),sha:localSha||'',channel:'stable'});
+  const backup=()=>{
+    const item=safeRead(backupFile);
+    if(!item||!(/^[0-9]{8}T[0-9]{6}Z-[0-9]+$/).test(item.id||'')||
+       !hashRegex.test(item.previousSha||'')||!hashRegex.test(item.targetSha||'')||
+       !Number.isSafeInteger(item.createdAt))return null;
+    return {id:item.id,previousSha:item.previousSha,targetSha:item.targetSha,createdAt:item.createdAt};
+  };
   const status=()=>{
     const saved=safeRead(statusFile);
     const host=saved||{state:'not_configured',message:'请先安装服务器后台更新助手'};
@@ -34,12 +42,12 @@ export function createUpdateService({
       // A stale request file is a stalled queue even if its status file was
       // touched more recently (e.g. host helper restarted but never consumed it).
       if(age>=20*60*1000 || age<0)
-        return {...version(),host:{...host,state:'stalled',
-          message:'更新任务超过 20 分钟仍未处理，请检查主机更新服务及日志',
+        return {...version(),backup:backup(),host:{...host,state:'stalled',
+          message:'操作超过 20 分钟仍未处理，请检查主机更新服务及日志',
           targetSha:pending.sha,queuedAt:pending.createdAt}};
       if(Number(host.updatedAt||0)<pending.createdAt)
-        return {...version(),host:{...host,state:'queued',
-          message:'更新任务已排队，等待宿主机更新助手执行',
+        return {...version(),backup:backup(),host:{...host,state:'queued',
+          message:(pending.operation==='rollback'?'恢复':'更新')+'任务已排队，等待宿主机更新助手执行',
           targetSha:pending.sha,queuedAt:pending.createdAt}};
     }
     // Older host agents do not write a heartbeat; remain compatible during
@@ -47,9 +55,9 @@ export function createUpdateService({
     if(Number.isSafeInteger(host.lastHeartbeatAt)&&
        Date.now()-host.lastHeartbeatAt>120000 &&
        !['running','rollback'].includes(host.state))
-      return {...version(),host:{...host,state:'offline',
+      return {...version(),backup:backup(),host:{...host,state:'offline',
         message:'主机更新助手超过 2 分钟没有心跳，请检查 systemd timer'}};
-    return {...version(),host};
+    return {...version(),backup:backup(),host};
   };
   async function check(){
     // The release source and branch are pinned; no user-supplied URLs,
@@ -75,20 +83,16 @@ export function createUpdateService({
         changes:textArray,date:String(notes?.releasedAt||'').slice(0,24)},
       available:!!localSha&&sha!==localSha,
       needsVersionDetection:!localSha,
-      host:status().host
+      host:status().host,backup:backup()
     };
   }
-  async function requestUpdate(sha){
-    if(!hashRegex.test(sha||''))throw err('更新版本 ID 无效');
-    const latest=await check();
-    if(latest.latest.sha!==sha)throw err('发现更新版本已经变化，请重新检查后确认');
-    if(localSha===sha)return {ok:false,message:'当前已经是最新版'};
+  function queue(request){
     if(!fs.existsSync(runtimeDir))throw err('更新任务目录尚未配置，请先安装后台升级助手',503);
     if(!safeRead(statusFile))throw err('宿主机更新助手尚未安装，请先在服务器完成一次初始化',503);
-    if(status().host.state==='offline')throw err('主机更新助手已离线，请检查 systemd 服务后再提交更新',503);
+    if(['offline','not_configured'].includes(status().host.state))throw err('主机更新助手已离线，请检查 systemd 服务后再提交操作',503);
+    if(['queued','running','rollback','stalled'].includes(status().host.state))throw err('已有更新任务正在处理，请先查看状态',409);
     if(fs.existsSync(requestFile))
       throw err('已有更新任务尚未处理，请检查主机更新助手状态，不会覆盖原任务',409);
-    const request={sha,channel:CHANNEL,id:crypto.randomUUID(),createdAt:Date.now()};
     const temp=path.join(runtimeDir,'.update-request-'+crypto.randomBytes(5).toString('hex'));
     try{
       fs.writeFileSync(temp,JSON.stringify(request),{mode:0o600,flag:'wx'});
@@ -99,7 +103,23 @@ export function createUpdateService({
         throw e;
       }
     }finally{try{fs.unlinkSync(temp);}catch{}}
-    return {ok:true,message:'更新已排队：主机将先备份，再部署并验证；请在本页查看状态',requestId:request.id};
+    return {ok:true,requestId:request.id};
   }
-  return {version,status,check,requestUpdate};
+  async function requestUpdate(sha){
+    if(!hashRegex.test(sha||''))throw err('更新版本 ID 无效');
+    const latest=await check();
+    if(latest.latest.sha!==sha)throw err('发现更新版本已经变化，请重新检查后确认');
+    if(localSha===sha)return {ok:false,message:'当前已经是最新版'};
+    const queued=queue({operation:'update',sha,channel:CHANNEL,id:crypto.randomUUID(),createdAt:Date.now()});
+    return {...queued,message:'更新已排队：主机将先备份，再部署并验证；请在本页查看状态'};
+  }
+  function requestRollback(backupId){
+    const item=backup();
+    if(!item||backupId!==item.id)throw err('找不到可恢复的最近一次备份，请刷新页面',409);
+    if(!localSha||localSha!==item.targetSha)throw err('当前版本与备份不匹配，无法执行一键恢复',409);
+    const queued=queue({operation:'rollback',sha:item.previousSha,backupId:item.id,
+      channel:CHANNEL,id:crypto.randomUUID(),createdAt:Date.now()});
+    return {...queued,message:'恢复任务已排队，将用最近一次备份恢复旧版代码和数据'};
+  }
+  return {version,status,check,requestUpdate,requestRollback};
 }

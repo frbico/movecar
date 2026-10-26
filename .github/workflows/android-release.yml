@@ -111,8 +111,8 @@ jobs:
           - 固定签名的车主端正式 APK（包名：com.example.movecarvoice）
           - 「设置 → 版本更新」可检查并下载后续 GitHub Releases
           - 保留 FCM 锁屏来电、WebRTC 和 TURN 通话功能
-          - 精简首页、通知和设置；挪车记录操作直接显示
-          - 修正启动图标白边、卡片阴影和通知 Markdown 标记
+          - 重整首页信息卡、快捷入口和底部导航，统一线性图标
+          - 通知渠道改为独立紧凑卡片，设置采用分组列表；优化挪车与来电记录
           - Android 版本代码：${APP_VERSION_CODE}；源代码：$(git rev-parse --short HEAD)
           - 附带 APK SHA-256 校验文件
           

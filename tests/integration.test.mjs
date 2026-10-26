@@ -83,10 +83,10 @@ test('one-click bootstrap, admin login, two channels, secure owner action and pe
     assert.equal(updateStatus.status,200);
     const version=(await updateStatus.json()).version;
     assert.ok(version);
-    const emptyPassword=await admin('/api/admin/update/start',{sha:'a'.repeat(40),password:''});
-    assert.equal(emptyPassword.status,400);
-    const badPassword=await admin('/api/admin/update/start',{sha:'a'.repeat(40),password:'incorrect'});
-    assert.equal(badPassword.status,403);
+    const invalidRelease=await admin('/api/admin/update/start',{sha:'invalid'});
+    assert.equal(invalidRelease.status,400);
+    const unavailableBackup=await admin('/api/admin/update/rollback',{backupId:'missing'});
+    assert.equal(unavailableBackup.status,409);
     assert.equal((await call('/api/admin/voice/quality')).status,401);
     const voiceQuality=await call('/api/admin/voice/quality',{headers:{Cookie:adminCookie}});
     assert.equal(voiceQuality.status,200);

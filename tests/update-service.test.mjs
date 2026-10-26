@@ -115,3 +115,22 @@ test('new host heartbeats allow updates; an offline helper blocks them safely',a
   assert.equal((await f.service.requestUpdate(SHA2)).ok,true);
  }finally{f.clean();}
 });
+
+test('rollback accepts only the latest backup for the running release',()=>{
+ const f=fixture();
+ try{
+  const id='20261026T120000Z-1234';
+  fs.writeFileSync(path.join(f.dir,'update-backup.json'),JSON.stringify({
+   id,previousSha:SHA2,targetSha:SHA1,createdAt:Date.now()
+  }));
+  assert.equal(f.service.status().backup.id,id);
+  assert.throws(()=>f.service.requestRollback('20261025T120000Z-1'),/最近一次备份/);
+  const queued=f.service.requestRollback(id);
+  assert.equal(queued.ok,true);
+  const job=JSON.parse(fs.readFileSync(path.join(f.dir,'update-request.json'),'utf8'));
+  assert.equal(job.operation,'rollback');
+  assert.equal(job.backupId,id);
+  assert.equal(job.sha,SHA2);
+  assert.throws(()=>f.service.requestRollback(id),/已有更新任务/);
+ }finally{f.clean();}
+});

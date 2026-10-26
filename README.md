@@ -238,7 +238,7 @@ APP 当前一次只保存**一部**车主手机的 FCM 绑定；新手机重新�
 
 ## 九、更新、备份和排障
 
-- **更新服务器：** 后台“检查更新”读取 `release/stable`，输入当前管理员密码后由主机更新助手备份并升级。升级前避开正在进行的语音通话；详见 [网页后台更新说明](WEB-UPDATE.md)。推送到 GitHub 不代表你的 VPS 已升级。
+- **更新服务器：** 后台“检查更新”读取 `release/stable`。已登录的管理员确认后，由主机更新助手备份并升级；“版本更新”还可用最近一次升级备份恢复旧版代码与数据。成功升级后只保留最近一次备份。升级与恢复前避开正在进行的语音通话；详见 [网页后台更新说明](WEB-UPDATE.md)。推送到 GitHub 不代表你的 VPS 已升级。
 - **更新自建 Android APP：** 继续使用**同一个 Firebase 项目、相同包名和相同签名密钥**构建新版本；本仓库公共 Releases 不会携带你的 Firebase 客户端配置。签名与分发细节见 [Android 发布说明](ANDROID-RELEASES.md)。
 - **查看服务状态：** 在服务器运行 `cd /opt/movecar && sudo docker compose -f compose.yaml -f compose.portable.yaml ps`、`sudo docker logs --tail=80 movecar`、`sudo bash scripts/check-portable.sh`。
 - **备份与迁移：** 数据在 Compose 逻辑卷 `movecar_data`（实际 Docker 卷名可能带项目名前缀）；`docker compose down` 不删除数据卷，`docker compose down -v` 会删除。跨服务器迁移请使用 [部署与迁移说明](DEPLOY-ANYWHERE.md)中的 `scripts/export-db.sh` 和 `scripts/restore-db.sh`，不要直接在运行中的服务上复制 SQLite 文件。

@@ -10,8 +10,8 @@ android {
         applicationId = "com.example.movecarvoice"
         minSdk = 26
         targetSdk = 35
-        versionCode = 18
-        versionName = "0.8.3"
+        versionCode = 19
+        versionName = "0.8.4"
     }
     // Release builds use a persistent keystore supplied via Actions secrets.
     // Local debug builds do not need it; we never publish debug-signed APKs.

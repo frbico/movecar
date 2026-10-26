@@ -349,6 +349,7 @@ $('resetVoiceCounters').onclick=async()=>{
 };
 
 let latestUpdateSha='';
+let latestBackup=null;
 let updatePolling=null;
 function shortSha(sha){return sha?String(sha).slice(0,12):'等待首次安装版本识别'}
 async function refreshUpdater(){
@@ -358,10 +359,17 @@ async function refreshUpdater(){
     $('updateCurrentVersion').textContent='MoveCar '+u.version;
     $('updateCurrentSha').textContent=shortSha(u.sha);
     const h=u.host||{};
-    const state={idle:'等待更新',queued:'升级任务已排队',running:'正在备份并部署，页面可以关闭后再查看',rollback:'新版本失败，正在验证旧版本恢复',stalled:'升级任务长时间未执行',offline:'主机更新助手离线',success:'更新完成',error:'更新失败',not_configured:'宿主机更新助手尚未安装'}[h.state]||'等待状态';
+    latestBackup=u.backup||null;
+    const state={idle:'等待更新',queued:'任务已排队',running:'正在备份并部署，页面可以关闭后再查看',rollback:'正在恢复备份并验证服务',stalled:'任务长时间未执行',offline:'主机更新助手离线',success:'操作完成',error:'操作失败',not_configured:'宿主机更新助手尚未安装'}[h.state]||'等待状态';
     $('updateStatus').textContent=state+'。'+(h.message||'');
+    const busy=['queued','running','rollback','stalled','offline','not_configured'].includes(h.state);
+    const canRestore=!!latestBackup&&latestBackup.targetSha===u.sha&&!busy;
+    $('updateRollback').disabled=!canRestore;
+    $('updateBackupInfo').textContent=latestBackup?
+      '升级前版本 '+shortSha(latestBackup.previousSha)+' · '+new Date(latestBackup.createdAt).toLocaleString()+(canRestore?'':' · 当前不可恢复'):
+      '暂无可恢复的升级备份';
     if(['queued','running','rollback'].includes(h.state))$('updateAvailability').textContent='升级处理中';
-    if(['queued','running','rollback','stalled','offline','not_configured'].includes(h.state)){
+    if(busy){
       $('updateStart').disabled=true;
     }else if(h.state==='success' && h.targetSha && h.targetSha===u.sha){
       $('updateStart').disabled=false;
@@ -402,16 +410,24 @@ $('updateCheck').onclick=async()=>{
 $('updateRefresh').onclick=()=>void refreshUpdater();
 $('updateStart').onclick=async()=>{
  if(!latestUpdateSha){toast('请先点击检查更新',true);return;}
- const password=$('updatePassword').value;
- if(!password){toast('需要当前管理员密码确认',true);return;}
  if(!confirm('确定从官方稳定版升级？过程将备份数据库和旧程序，并短暂重启 MoveCar（现有通话可能中断）。'))return;
  const btn=$('updateStart');btn.disabled=true;
  try{
-  const r=await api('/api/admin/update/start',{sha:latestUpdateSha,password});
-  $('updatePassword').value='';
+  const r=await api('/api/admin/update/start',{sha:latestUpdateSha});
   $('updateStatus').textContent=r.message||'已提交升级任务';
   $('updateAvailability').textContent='升级处理中';
   toast('更新任务已提交，请等待服务器完成备份和健康检查');
  }catch(e){btn.disabled=false;toast('无法启动更新：'+e.message,true)}
+};
+$('updateRollback').onclick=async()=>{
+ if(!latestBackup){toast('没有可恢复的备份',true);return;}
+ if(!confirm('恢复上一次升级前的代码和数据？备份之后收到的挪车记录、设置变更和附件会被覆盖。服务将短暂中断。'))return;
+ const btn=$('updateRollback');btn.disabled=true;
+ try{
+  const r=await api('/api/admin/update/rollback',{backupId:latestBackup.id});
+  $('updateStatus').textContent=r.message||'恢复任务已排队';
+  $('updateAvailability').textContent='恢复处理中';
+  toast('恢复任务已提交，请等待健康检查完成');
+ }catch(e){btn.disabled=false;toast('无法恢复：'+e.message,true)}
 };
 updatePolling=setInterval(()=>{if(view==='updates')void refreshUpdater()},5000);

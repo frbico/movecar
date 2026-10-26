@@ -451,12 +451,12 @@ const server=http.createServer(async(req,res)=>{
       if(route==='/api/admin/update/start'&&req.method==='POST'){
         if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});
         const data=await inputJson(req);
-        if(typeof data.password!=='string'||data.password.length>200||!data.password)
-          return json(res,400,{error:'请输入当前管理员密码确认升级'});
-        const digest=crypto.scryptSync(data.password,setting('admin_salt'),64).toString('hex');
-        if(!constantEq(digest,setting('admin_hash')))
-          return json(res,403,{error:'管理员密码错误，升级已取消'});
         return json(res,200,await updater.requestUpdate(data.sha));
+      }
+      if(route==='/api/admin/update/rollback'&&req.method==='POST'){
+        if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});
+        const data=await inputJson(req);
+        return json(res,200,updater.requestRollback(data.backupId));
       }
       if(route==='/api/admin/voice-policy'&&req.method==='POST'){
          if(!trustedAdminOrigin(req))return json(res,403,{error:'来源不可信'});
