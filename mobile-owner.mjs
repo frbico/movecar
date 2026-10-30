@@ -41,6 +41,7 @@ export function createMobileOwner({db,setting,save,deleteSetting,inputJson,json,
     return {
       username:username(),siteIconConfigured:!!iconGet.get(),siteName:setting('site_name','呼叫车主挪车'),publicUrl:setting('public_url'),
       phoneNumber:setting('phone_number'),wechatId:setting('wechat_id'),
+      visitorPhoneEnabled:setting('visitor_phone_enabled','0')==='1',
       voicePolicy:voice.getCallPolicy(),
       rateLimitSeconds:Number(setting('rate_limit_seconds','60')),
       requestRetentionLimit:requestFlow.retentionLimit(),requestCount:requestFlow.count(),
@@ -173,11 +174,13 @@ export function createMobileOwner({db,setting,save,deleteSetting,inputJson,json,
       if(typeof data.publicUrl!=='string'||data.publicUrl.length>300)throw fail(400,'公网 URL 错误');
       if(typeof data.phoneNumber!=='string'||data.phoneNumber.length>35)throw fail(400,'电话格式错误');
       if(typeof data.wechatId!=='string'||data.wechatId.length>60||!(/^[\x20-\x7e]*$/).test(data.wechatId.trim()))throw fail(400,'微信号格式错误');
+      if(data.visitorPhoneEnabled!==undefined&&typeof data.visitorPhoneEnabled!=='boolean')throw fail(400,'留下电话开关格式错误');
       if(!Number.isInteger(data.rateLimitSeconds)||data.rateLimitSeconds<0||data.rateLimitSeconds>3600)throw fail(400,'通知限流须在 0–3600 秒');
       if(!Number.isInteger(data.requestRetentionLimit)||data.requestRetentionLimit<1||data.requestRetentionLimit>500)throw fail(400,'记录保留须在 1–500 条');
       let publicUrl;try{publicUrl=validateOrigin(data.publicUrl.trim());}catch{throw fail(400,'请使用有效的站点根地址');}
       save('site_name',data.siteName.trim());save('public_url',publicUrl);save('phone_number',data.phoneNumber.trim());
       save('wechat_id',data.wechatId.trim());save('rate_limit_seconds',data.rateLimitSeconds);
+      if(data.visitorPhoneEnabled!==undefined)save('visitor_phone_enabled',data.visitorPhoneEnabled?'1':'0');
       save('request_retention_limit',data.requestRetentionLimit);requestFlow.trimRetention();
       json(res,200,{ok:true});return true;
     }

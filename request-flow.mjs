@@ -16,6 +16,7 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
       location_json TEXT,
       status TEXT NOT NULL DEFAULT 'waiting',
       photo_sent INTEGER NOT NULL DEFAULT 0,
+      visitor_phone TEXT,
       created_at INTEGER NOT NULL,
       expires_at INTEGER NOT NULL,
       confirmed_at INTEGER
@@ -31,10 +32,16 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
       photo_id TEXT NOT NULL UNIQUE
     );
   `);
+  // Existing installations need the new optional contact field without losing history.
+  if(!db.prepare('PRAGMA table_info(move_requests)').all().some(column=>column.name==='visitor_phone'))
+    db.exec('ALTER TABLE move_requests ADD COLUMN visitor_phone TEXT');
   const insert=db.prepare('INSERT INTO move_requests(id,owner_digest,poll_digest,message,location_json,created_at,expires_at) VALUES(?,?,?,?,?,?,?)');
   const remove=db.prepare('DELETE FROM move_requests WHERE id=?');
   const byOwner=db.prepare('SELECT * FROM move_requests WHERE owner_digest=? AND expires_at>?');
   const byPoll=db.prepare('SELECT status,confirmed_at FROM move_requests WHERE id=? AND poll_digest=? AND expires_at>?');
+  const byPollForPhone=db.prepare('SELECT id,visitor_phone FROM move_requests WHERE id=? AND poll_digest=? AND expires_at>?');
+  const reservePhone=db.prepare('UPDATE move_requests SET visitor_phone=? WHERE id=? AND poll_digest=? AND expires_at>? AND visitor_phone IS NULL');
+  const releasePhone=db.prepare('UPDATE move_requests SET visitor_phone=NULL WHERE id=? AND visitor_phone=?');
   const byId=db.prepare('SELECT * FROM move_requests WHERE id=? AND expires_at>?');
   const confirm=db.prepare("UPDATE move_requests SET status='confirmed', confirmed_at=COALESCE(confirmed_at,?) WHERE owner_digest=? AND expires_at>?");
   const confirmById=db.prepare("UPDATE move_requests SET status='confirmed',confirmed_at=COALESCE(confirmed_at,?) WHERE id=? AND expires_at>? AND status='waiting'");
@@ -50,7 +57,7 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
   const deleteGrantsByRequest=db.prepare('DELETE FROM move_photo_grants WHERE request_id=?');
   const countRequests=db.prepare('SELECT COUNT(*) AS total FROM move_requests');
   const oldestRequests=db.prepare('SELECT id FROM move_requests ORDER BY created_at DESC,rowid DESC LIMIT -1 OFFSET ?');
-  const listRequests=db.prepare(`SELECT id,message,status,created_at,expires_at,confirmed_at,photo_sent FROM move_requests ORDER BY created_at DESC,rowid DESC LIMIT ? OFFSET ?`);
+  const listRequests=db.prepare(`SELECT id,message,status,created_at,expires_at,confirmed_at,photo_sent,visitor_phone FROM move_requests ORDER BY created_at DESC,rowid DESC LIMIT ? OFFSET ?`);
   const knownRequest=db.prepare('SELECT id FROM move_requests WHERE id=?');
   const dropGrant=db.prepare('DELETE FROM move_photo_grants WHERE digest=?');
   const isToken=t=>typeof t==='string'&&/^[A-Za-z0-9_-]{43}$/.test(t);
@@ -83,7 +90,7 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
     cleanup,trimRetention,retentionLimit,count:()=>countRequests.get().total,
     listHistory(page=1,size=20){
       const total=countRequests.get().total;
-      return {total,page,size,items:listRequests.all(size,(page-1)*size).map(item=>({id:item.id,message:item.message,status:item.status==='waiting' && item.expires_at<=Date.now()?'expired':item.status,createdAt:item.created_at,expiresAt:item.expires_at,confirmedAt:item.confirmed_at,photoSent:!!item.photo_sent,photoUrl:(()=>{const pic=availablePhoto.get(item.id,Date.now());return pic?'/api/photo/'+pic.id:null;})()}))};
+      return {total,page,size,items:listRequests.all(size,(page-1)*size).map(item=>({id:item.id,message:item.message,status:item.status==='waiting' && item.expires_at<=Date.now()?'expired':item.status,createdAt:item.created_at,expiresAt:item.expires_at,confirmedAt:item.confirmed_at,visitorPhone:item.visitor_phone||null,photoSent:!!item.photo_sent,photoUrl:(()=>{const pic=availablePhoto.get(item.id,Date.now());return pic?'/api/photo/'+pic.id:null;})()}))};
     },
     confirmHistory(id){return confirmById.run(Date.now(),id,Date.now()).changes===1;},
     deleteHistory(id){if(!knownRequest.get(id))return false;removeRequest(id);return true;},
@@ -112,7 +119,7 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
         if(method!=='GET')return reply(res,405,'Method not allowed'),true;
         const record=byOwner.get(hash(infoMatch[1]),Date.now());
         if(!record){deny(res,410);return true;}
-        json(res,200,{status:record.status,message:record.message});return true;
+        json(res,200,{status:record.status,message:record.message,visitorPhone:record.visitor_phone||null});return true;
       }
       if(route==='/api/confirm-move') {
         if(method!=='POST')return reply(res,405,'Method not allowed'),true;
@@ -130,6 +137,29 @@ export function createRequestFlow({db,setting,random,hash,notifyChannels,inputJs
         const record=byPoll.get(data.requestId,hash(data.pollToken),Date.now());
         if(!record){deny(res,410);return true;}
         json(res,200,{status:record.status,confirmedAt:record.confirmed_at||null});return true;
+      }
+      if(route==='/api/visitor-phone') {
+        if(method!=='POST')return reply(res,405,'Method not allowed'),true;
+        if(setting('visitor_phone_enabled','0')!=='1')return json(res,403,{error:'车主未开启留下电话功能'}),true;
+        const data=await inputJson(req);
+        if(!isToken(data.requestId)||!isToken(data.pollToken))return deny(res,403),true;
+        if(typeof data.phone!=='string'||!/^\d{11}$/.test(data.phone))
+          return json(res,400,{error:'请输入 11 位电话号码'}),true;
+        const record=byPollForPhone.get(data.requestId,hash(data.pollToken),Date.now());
+        if(!record)return deny(res,410),true;
+        if(record.visitor_phone)return json(res,409,{error:'电话号码已经发送给车主'}),true;
+        if(reservePhone.run(data.phone,record.id,hash(data.pollToken),Date.now()).changes!==1)
+          return json(res,409,{error:'电话号码已经发送给车主'}),true;
+        const ownerUrl=`${origin}/owner-confirm/${ownerTokenFor(record.id)}`;
+        try{
+          const channels=await notifyChannels({title:'MoveCar · 路人留下联系电话',
+            message:`路人电话：${data.phone}\n\n打开挪车请求，可直接拨打联系对方。`,ownerUrl,
+            appTitle:'路人留下联系电话',appMessage:'打开挪车请求，即可拨打联系对方。'});
+          json(res,200,{success:true,channels});return true;
+        }catch(e){
+          releasePhone.run(record.id,data.phone);
+          throw e;
+        }
       }
       if(route==='/api/notify') {
         if(method!=='POST')return reply(res,405,'Method not allowed'),true;

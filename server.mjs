@@ -367,7 +367,7 @@ const server=http.createServer(async(req,res)=>{
     }
     if(route==='/api/site-config'){
       if(req.method!=='GET')return reply(res,405,'Method not allowed');
-      return json(res,200,{wechatId:setting('wechat_id'),siteName:setting('site_name','呼叫车主挪车')});
+      return json(res,200,{wechatId:setting('wechat_id'),siteName:setting('site_name','呼叫车主挪车'),visitorPhoneEnabled:setting('visitor_phone_enabled','0')==='1'});
     }
     if(route==='/admin'||route==='/admin/')return req.method==='GET'?staticFile(res,'admin.html','text/html; charset=utf-8'):reply(res,405,'Method not allowed');
     if(route==='/admin.js')return req.method==='GET'?staticFile(res,'admin.js','text/javascript; charset=utf-8'):reply(res,405,'Method not allowed');
@@ -401,7 +401,7 @@ const server=http.createServer(async(req,res)=>{
         return json(res,200,infrastructure.config());
       if(route==='/api/admin/deployment/verify'&&req.method==='GET')
         return json(res,200,await infrastructure.verify());
-      if(route==='/api/admin/config'&&req.method==='GET')return json(res,200,{voicePolicy:voice.getCallPolicy(),publicUrl:setting('public_url'),phoneNumber:setting('phone_number'),rateLimitSeconds:Number(setting('rate_limit_seconds','60')),requestRetentionLimit:requestFlow.retentionLimit(),requestCount:requestFlow.count(),siteName:setting('site_name','呼叫车主挪车'),wechatId:setting('wechat_id'),adminUsername:setting('admin_username','admin'),appConfigured:voice.isDeviceReady(),appEnabled:setting('notify_app_enabled','1')==='1',barkEnabled:setting('notify_bark_enabled','1')==='1',sc3Enabled:setting('notify_sc3_enabled','1')==='1',serverchanEnabled:setting('notify_serverchan_enabled','1')==='1',siteIconConfigured:!!iconGet.get(),siteIconUpdatedAt:iconGet.get()?.updated_at||null,barkConfigured:!!setting('bark_url'),serverchanConfigured:!!setting('serverchan_sendkey'),sc3Configured:!!setting('sc3_sendkey')});
+      if(route==='/api/admin/config'&&req.method==='GET')return json(res,200,{voicePolicy:voice.getCallPolicy(),publicUrl:setting('public_url'),phoneNumber:setting('phone_number'),visitorPhoneEnabled:setting('visitor_phone_enabled','0')==='1',rateLimitSeconds:Number(setting('rate_limit_seconds','60')),requestRetentionLimit:requestFlow.retentionLimit(),requestCount:requestFlow.count(),siteName:setting('site_name','呼叫车主挪车'),wechatId:setting('wechat_id'),adminUsername:setting('admin_username','admin'),appConfigured:voice.isDeviceReady(),appEnabled:setting('notify_app_enabled','1')==='1',barkEnabled:setting('notify_bark_enabled','1')==='1',sc3Enabled:setting('notify_sc3_enabled','1')==='1',serverchanEnabled:setting('notify_serverchan_enabled','1')==='1',siteIconConfigured:!!iconGet.get(),siteIconUpdatedAt:iconGet.get()?.updated_at||null,barkConfigured:!!setting('bark_url'),serverchanConfigured:!!setting('serverchan_sendkey'),sc3Configured:!!setting('sc3_sendkey')});
       if(route==='/api/admin/voice/quality'&&req.method==='GET')
         return json(res,200,{items:voice.listQuality()});
       if(route==='/api/admin/requests'&&req.method==='GET'){
@@ -512,6 +512,7 @@ const server=http.createServer(async(req,res)=>{
         if(data.requestRetentionLimit!==undefined && (!Number.isInteger(data.requestRetentionLimit)||data.requestRetentionLimit<1||data.requestRetentionLimit>500))throw Object.assign(Error('挪车记录保留条数须在 1-500 之间'),{status:400});
         if(data.siteName!==undefined && (typeof data.siteName!=='string'||data.siteName.trim().length<1||data.siteName.trim().length>40))throw Object.assign(Error('站点名称须在 1-40 字以内'),{status:400});
         if(data.wechatId!==undefined && (typeof data.wechatId!=='string'||data.wechatId.trim().length>60||(!/^[\x20-\x7E]*$/.test(data.wechatId.trim()))))throw Object.assign(Error('微信号长度最多 60，且须为普通英文/数字字符'),{status:400});
+        if(data.visitorPhoneEnabled!==undefined&&typeof data.visitorPhoneEnabled!=='boolean')throw Object.assign(Error('留下电话开关格式错误'),{status:400});
         let publicUrl;
         try { publicUrl=validateOrigin(data.publicUrl.trim()); } catch { throw Object.assign(Error('公网地址格式不正确'),{status:400}); }
         let bark=null,key=null;
@@ -526,6 +527,7 @@ const server=http.createServer(async(req,res)=>{
         if(data.requestRetentionLimit!==undefined){save('request_retention_limit',data.requestRetentionLimit);requestFlow.trimRetention();}
         if(data.siteName!==undefined)save('site_name',data.siteName.trim());
         if(data.wechatId!==undefined)save('wechat_id',data.wechatId.trim());
+        if(data.visitorPhoneEnabled!==undefined)save('visitor_phone_enabled',data.visitorPhoneEnabled?'1':'0');
         if(bark)save('bark_url',bark);else if(data.clearBark===true)delSettingStmt.run('bark_url');
         if(key)save('serverchan_sendkey',key);else if(data.clearServerchan===true)delSettingStmt.run('serverchan_sendkey');
         if(sc3Key)save('sc3_sendkey',sc3Key);else if(data.clearSc3===true)delSettingStmt.run('sc3_sendkey');
@@ -621,7 +623,12 @@ const server=http.createServer(async(req,res)=>{
   } catch(err) {
     const status=err.status||500;
     if(status>=500)console.error('Request failed:',err.message?.replace(/(?:SCT[A-Za-z0-9_-]+|sctp[0-9]+t[A-Za-z0-9_-]+)/g,'[redacted]'));
-    if(!res.headersSent) return (req.url||'').startsWith('/api/voice/') ? json(res,status,{error:status===500?'内部错误':err.message}) : (req.url||'').startsWith('/api/admin/')|| (req.url||'')==='/api/admin/config' ? json(res,status,{error:status===500?'内部错误':err.message}) : reply(res,status,status===500?'服务暂时不可用':err.message);
+    if(!res.headersSent){
+      const path=req.url||'',message=status===500?'内部错误':err.message;
+      if(path.startsWith('/api/voice/')||path.startsWith('/api/admin/')||path.startsWith('/api/visitor-phone'))
+        return json(res,status,{error:message});
+      return reply(res,status,status===500?'服务暂时不可用':message);
+    }
     res.end();
   }
 });

@@ -3,6 +3,7 @@
  const token=location.pathname.split('/').pop();
  const message=document.getElementById('message');
  const button=document.getElementById('confirm');
+ const callback=document.getElementById('callback');
  const status=document.getElementById('state');
 
  async function json(url,options){const res=await fetch(url,{cache:'no-store',...options});const data=await res.json().catch(()=>({}));if(!res.ok)throw Error(data.error||'请求失败');return data}
@@ -10,6 +11,11 @@
    try{
      const data=await json('/api/owner-request/'+encodeURIComponent(token));
      message.textContent='💬 '+data.message;
+     if(/^\d{11}$/.test(data.visitorPhone||'')){
+       callback.href='tel:'+data.visitorPhone;
+       callback.textContent='☎ 拨打路人电话 · '+data.visitorPhone;
+       callback.hidden=false;
+     }else callback.hidden=true;
      if(data.status==='confirmed'){button.textContent='✅ 已确认';status.textContent='已通知请求挪车的人';button.disabled=true;}
      else button.disabled=false;
    }catch(e){message.textContent=e.message;button.disabled=true;}
@@ -23,4 +29,5 @@
    }catch(e){status.textContent='❌ '+e.message;button.disabled=false;button.textContent='重新确认';}
  });
  init();
+ window.addEventListener('focus',init);
 })();

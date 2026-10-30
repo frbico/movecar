@@ -16,6 +16,9 @@
 .history-table th{color:#9099a4;background:#fafbfd;font-weight:600}
 .history-table tr:hover td{background:#fafcff}
 .history-message{max-width:280px;min-width:170px;white-space:pre-wrap;overflow-wrap:anywhere;color:#4c5868}
+.history-phone{display:inline-block;margin-top:7px;font-weight:700;color:#087e6f}
+.visitor-phone-toggle{display:flex;align-items:center;gap:10px;margin:8px 0 4px;font-size:13px}
+.visitor-phone-toggle input{width:18px;height:18px;margin:0;accent-color:#087e6f}
 .history-page{display:flex;gap:12px;justify-content:flex-end;align-items:center;margin-top:17px;font-size:12px;color:#6f7d8c}
 .muted{color:#a0a8b3;font-size:12px;font-weight:500}
 .danger-text{color:#c23c45}

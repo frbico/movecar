@@ -59,6 +59,7 @@ test('native owner sign-in, authentication, notifications, records, and account 
     assert.equal(login.status,200);assert.ok(login.data.deviceAuth);const token=login.data.token;
     const config=await call('config',undefined,token);
     assert.equal(config.status,200);assert.equal(config.data.channels.app.configured,true);
+    assert.equal(config.data.visitorPhoneEnabled,false);
     const quality=await call('voice/quality',undefined,token);
     assert.equal(quality.status,200);
     assert.equal(quality.data.items[0].route,'turn-udp');
@@ -92,8 +93,9 @@ test('native owner sign-in, authentication, notifications, records, and account 
     assert.equal((await call('requests/delete',{id:'A'.repeat(43)},token)).status,200);
     assert.equal(deletedId,'A'.repeat(43));
     assert.deepEqual((await call('calls',undefined,token)).data.items,[],'clearing history persists across other settings updates');
-    assert.equal((await call('settings',{siteName:'My MoveCar',publicUrl:'https://car.example.com',phoneNumber:'',wechatId:'',rateLimitSeconds:10,requestRetentionLimit:75},token)).status,200);
+    assert.equal((await call('settings',{siteName:'My MoveCar',publicUrl:'https://car.example.com',phoneNumber:'',wechatId:'',visitorPhoneEnabled:true,rateLimitSeconds:10,requestRetentionLimit:75},token)).status,200);
     assert.equal(settings.get('site_name'),'My MoveCar');
+    assert.equal(settings.get('visitor_phone_enabled'),'1');
     assert.equal((await call('account',{newUsername:'owner01',currentPassword:'wrong'},token)).status,403);
     assert.equal((await call('account',{newUsername:'owner01',currentPassword:'correct-password',newPassword:'new-secure-password',deviceAuth:login.data.deviceAuth},token)).status,200);
     assert.equal((await call('config',undefined,token)).status,401);

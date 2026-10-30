@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
+import {DatabaseSync} from 'node:sqlite';
 import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -12,10 +13,15 @@ const close=s=>new Promise(r=>s.close(r));
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 test('two independent requests, clickable maps, owner tokens, SC3 formatting and no login',async()=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'movecar-isolated-'));
+  const oldDb=new DatabaseSync(path.join(dir,'test.sqlite'));
+  oldDb.exec("CREATE TABLE move_requests(id TEXT PRIMARY KEY,owner_digest TEXT NOT NULL UNIQUE,poll_digest TEXT NOT NULL UNIQUE,message TEXT NOT NULL,location_json TEXT,status TEXT NOT NULL DEFAULT 'waiting',photo_sent INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,confirmed_at INTEGER)");
+  oldDb.close();
   const calls=[];
+  let failNextPush=false;
   const mock=http.createServer(async(req,res)=>{
     let body='';for await(const chunk of req)body+=chunk;
-    calls.push(JSON.parse(body));res.setHeader('Content-Type','application/json');res.end('{"code":0}');
+    calls.push(JSON.parse(body));res.setHeader('Content-Type','application/json');
+    res.end(failNextPush?'{"code":1}':'{"code":0}');failNextPush=false;
   });
   await listen(mock);
   const probe=http.createServer();await listen(probe);const port=probe.address().port;await close(probe);
@@ -70,6 +76,25 @@ test('two independent requests, clickable maps, owner tokens, SC3 formatting and
     assert.equal(await status(second),'waiting');
     assert.equal((await api('/api/confirm-move',{token:firstToken})).status,200);
     assert.equal(await status(second),'waiting');
+    const visitorPhone=()=>api('/api/visitor-phone',{requestId:first.requestId,pollToken:first.pollToken,phone:'13800138000'});
+    assert.equal((await visitorPhone()).status,403,'phone option is off by default');
+    const enablePhone=await fetch(origin+'/api/admin/settings',{method:'POST',
+      headers:{Origin:origin,Cookie:cookie,'X-CSRF-Token':csrf,'Content-Type':'application/json'},
+      body:JSON.stringify({publicUrl:'',phoneNumber:'',rateLimitSeconds:0,visitorPhoneEnabled:true})});
+    assert.equal(enablePhone.status,200,await enablePhone.clone().text());
+    assert.equal((await(await fetch(origin+'/api/site-config')).json()).visitorPhoneEnabled,true);
+    assert.equal((await api('/api/visitor-phone',{requestId:first.requestId,pollToken:second.pollToken,phone:'13800138000'})).status,410);
+    assert.equal((await api('/api/visitor-phone',{requestId:first.requestId,pollToken:first.pollToken,phone:'1380013800'})).status,400);
+    failNextPush=true;
+    assert.equal((await visitorPhone()).status,502,'failed push can be retried');
+    assert.equal((await(await fetch(origin+'/api/owner-request/'+firstToken)).json()).visitorPhone,null);
+    const sentPhone=await visitorPhone();assert.equal(sentPhone.status,200,await sentPhone.clone().text());
+    assert.match(calls.at(-1).desp,/13800138000/);
+    assert.equal((await visitorPhone()).status,409,'the same request cannot send a second number');
+    assert.equal((await(await fetch(origin+'/api/owner-request/'+firstToken)).json()).visitorPhone,'13800138000');
+    const privateHistory=await(await fetch(origin+'/api/admin/requests',{headers:{Cookie:cookie}})).json();
+    assert.equal(privateHistory.items.find(item=>item.id===first.requestId).visitorPhone,'13800138000');
+    assert.equal(Object.hasOwn(await (await api('/api/request-status',first)).json(),'visitorPhone'),false);
     // Accept original PNG data without a browser Canvas decode or re-encoding step.
     const png=Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),Buffer.alloc(9*1024*1024+77,55)]); // 9+ MiB is valid
     const upload=(token,type,bytes)=>fetch(origin+'/api/photo',{method:'POST',headers:{'Content-Type':type,'X-Photo-Token':token},body:bytes});

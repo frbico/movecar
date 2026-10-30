@@ -5,7 +5,7 @@
  const success=document.getElementById('successView');
  if(!notify||!success)return;
  const waiting=document.getElementById('waitingText');
- let current=null,photo=null,objectUrl=null,pollTimer=null,contactTimer=null,startedAt=0,confirmed=false,wechatId='';
+ let current=null,photo=null,objectUrl=null,pollTimer=null,contactTimer=null,startedAt=0,confirmed=false,wechatId='',visitorPhoneEnabled=false,visitorPhoneSent=false,phoneSubmitting=false;
  const successCard=success.querySelector('.success-card');
  const contactCard=success.querySelector('.action-card');
  const phone=contactCard?.querySelector('.btn-phone');
@@ -29,6 +29,12 @@
  wechatButton.textContent='💬 微信联系';
  wechatButton.className='movecar-contact movecar-wechat unavailable';
  wechatButton.setAttribute('aria-disabled','true');
+ const callbackButton=document.createElement('button');
+ callbackButton.id='visitorPhoneBtn';
+ callbackButton.type='button';
+ callbackButton.textContent='📱 留下电话';
+ callbackButton.className='movecar-contact movecar-callback unavailable';
+ callbackButton.setAttribute('aria-disabled','true');
  function setUnavailable(el,notAvailable){
    if(!el)return;
    el.classList.toggle('unavailable',notAvailable);
@@ -44,8 +50,8 @@
    });
    setUnavailable(phone,!phoneAvailable);
  }
- function refreshContact(){setUnavailable(phone,!phoneAvailable);}
- function beginWait(){if(!startedAt||confirmed)startedAt=Date.now();confirmed=false;}
+ function refreshContact(){setUnavailable(phone,!phoneAvailable);setUnavailable(callbackButton,!visitorPhoneEnabled||visitorPhoneSent);}
+ function beginWait(){if(!startedAt||confirmed)startedAt=Date.now();confirmed=false;visitorPhoneSent=false;callbackButton.textContent='📱 留下电话';refreshContact();}
  async function copyWechat(){
    if(!wechatId){showContactNotice('车主未配置');return;}
    try{
@@ -61,6 +67,7 @@
  if(contactCard){
    // First button is retry; voice-entry.js inserts "语音通话" after retry.
    if(retry)contactCard.append(retry);
+   contactCard.append(callbackButton);
    contactCard.append(wechatButton);
    if(phone)contactCard.append(phone);
    contactCard.append(notice);
@@ -69,8 +76,10 @@
    .then(r=>r.ok?r.json():{})
    .then(c=>{
      wechatId=typeof c.wechatId==='string'?c.wechatId.trim():'';
+     visitorPhoneEnabled=c.visitorPhoneEnabled===true;
+     refreshContact();
      setUnavailable(wechatButton,!wechatId);
-   }).catch(()=>setUnavailable(wechatButton,true));
+   }).catch(()=>{visitorPhoneEnabled=false;refreshContact();setUnavailable(wechatButton,true);});
  const cosmetic=document.createElement('style');
  cosmetic.textContent=`
    #successView .action-card{display:flex;flex-direction:column;gap:10px}
@@ -82,14 +91,67 @@
    }
    #successView .action-card #retryBtn{background:linear-gradient(110deg,#f5a20a,#df7c00);color:#fff}
    #successView .action-card .movecar-voice{background:#087e6f;color:#fff}
+   #successView .action-card .movecar-callback{background:#357fc9;color:#fff}
    #successView .action-card .movecar-wechat{background:#13a879;color:#fff}
    #successView .action-card .movecar-phone{background:#e98b90;color:#fff}
    #successView .action-card .unavailable,
    #successView .action-card [aria-disabled="true"]{background:#e4e7e9!important;color:#88929b!important;cursor:pointer;opacity:1!important}
    #contactNotice:empty{display:none}
    #photoCard{margin-top:14px}
+   .movecar-phone-modal[hidden]{display:none!important}
+   .movecar-phone-modal{position:fixed;inset:0;z-index:10000;display:grid;place-items:center;padding:18px;background:#122d3a99}
+   .movecar-phone-panel{width:min(100%,460px);padding:24px 18px;background:#fff;border-radius:22px;box-shadow:0 22px 70px #0d344044;color:#19303b}
+   .movecar-phone-panel h2{margin:0 0 7px;font-size:21px}
+   .movecar-phone-panel p{margin:0 0 18px;color:#667884;font-size:13px}
+   .movecar-phone-digits{position:relative;display:grid;grid-template-columns:repeat(11,minmax(0,1fr));gap:4px;margin:12px 0 20px;cursor:text}
+   .movecar-phone-digits span{height:43px;display:grid;place-items:center;border:1px solid #cbd7de;border-radius:7px;font-size:18px;font-weight:700;background:#f8fafb}
+   .movecar-phone-digits span.active{border-color:#087e6f;background:#eef9f5}
+   .movecar-phone-digits input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:text;font-size:16px}
+   .movecar-phone-actions{display:flex;gap:10px}
+   .movecar-phone-actions button{flex:1;min-height:48px;border:0;border-radius:12px;font-weight:750;font-size:15px}
+   .movecar-phone-cancel{background:#eef2f4;color:#405665}
+   .movecar-phone-submit{background:#087e6f;color:#fff}
+   .movecar-phone-submit:disabled{background:#dce3e6;color:#8d9ba3;cursor:not-allowed}
+   .movecar-phone-status{min-height:20px;margin:10px 0 0!important;color:#c44747!important}
  `;
  document.head.appendChild(cosmetic);
+ const phoneModal=document.createElement('div');
+ phoneModal.className='movecar-phone-modal';phoneModal.hidden=true;
+ phoneModal.innerHTML='<form class="movecar-phone-panel" role="dialog" aria-modal="true" aria-labelledby="visitorPhoneTitle"><h2 id="visitorPhoneTitle">留下联系电话</h2><p>车主收到号码后可以拨打联系你</p><div class="movecar-phone-digits"><input id="visitorPhoneInput" type="tel" inputmode="numeric" pattern="[0-9]*" autocomplete="tel" maxlength="11" aria-label="11 位电话号码"><span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span></div><div class="movecar-phone-actions"><button type="button" class="movecar-phone-cancel">取消</button><button type="submit" class="movecar-phone-submit" disabled>发送给车主</button></div><p class="movecar-phone-status" role="status" aria-live="polite"></p></form>';
+ document.body.appendChild(phoneModal);
+ const phoneInput=phoneModal.querySelector('#visitorPhoneInput');
+ const digitBoxes=[...phoneModal.querySelectorAll('.movecar-phone-digits span')];
+ const phoneSubmit=phoneModal.querySelector('.movecar-phone-submit');
+ const phoneStatus=phoneModal.querySelector('.movecar-phone-status');
+ const renderPhone=()=>{
+   const digits=phoneInput.value.replace(/\D/g,'').slice(0,11);
+   if(phoneInput.value!==digits)phoneInput.value=digits;
+   digitBoxes.forEach((box,index)=>{box.textContent=digits[index]||'';box.classList.toggle('active',!phoneModal.hidden&&index===digits.length&&digits.length<11);});
+   phoneSubmit.disabled=phoneSubmitting||digits.length!==11;
+ };
+ const closePhone=()=>{phoneModal.hidden=true;phoneInput.blur();phoneStatus.textContent='';};
+ phoneInput.addEventListener('input',renderPhone);
+ phoneModal.querySelector('.movecar-phone-cancel').addEventListener('click',closePhone);
+ phoneModal.addEventListener('click',event=>{if(event.target===phoneModal)closePhone();});
+ phoneModal.addEventListener('keydown',event=>{if(event.key==='Escape')closePhone();});
+ callbackButton.addEventListener('click',()=>{
+   if(!visitorPhoneEnabled){showContactNotice('车主未开启留下电话');return;}
+   if(visitorPhoneSent){showContactNotice('电话号码已发送');return;}
+   if(!current?.requestId||!current?.pollToken){showContactNotice('请先重新发送挪车通知');return;}
+   phoneInput.value='';phoneModal.hidden=false;phoneStatus.textContent='';renderPhone();
+   phoneInput.focus({preventScroll:true});
+ });
+ phoneModal.querySelector('form').addEventListener('submit',async event=>{
+   event.preventDefault();
+   if(phoneSubmit.disabled||!current?.requestId||!current?.pollToken)return;
+   const payload={requestId:current.requestId,pollToken:current.pollToken,phone:phoneInput.value};
+   phoneSubmitting=true;phoneSubmit.disabled=true;phoneStatus.textContent='正在发送…';
+   try{
+     await htmlText(await fetch('/api/visitor-phone',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),cache:'no-store'}));
+     visitorPhoneSent=true;callbackButton.textContent='📱 号码已发送';refreshContact();closePhone();showContactNotice('电话号码已发送给车主');
+   }catch(error){phoneStatus.textContent=error.message;}
+   finally{phoneSubmitting=false;renderPhone();}
+ });
  try{
    const recent=Number(sessionStorage.getItem('movecar-last-notified')||0);
    if(new URLSearchParams(location.search).get('contact')==='1' &&

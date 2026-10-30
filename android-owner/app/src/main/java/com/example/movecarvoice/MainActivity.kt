@@ -786,6 +786,15 @@ class MainActivity : Activity() {
                             setPadding(0,px(17),0,px(17));maxLines=5;ellipsize=android.text.TextUtils.TruncateAt.END
                         }
                     itemRow.addView(message)
+                    val visitorPhone=item.optString("visitorPhone")
+                    if(visitorPhone.length==11&&visitorPhone.all{it in '0'..'9'}){
+                        itemRow.addView(OwnerUi.label(this@MainActivity,"路人电话 · $visitorPhone",13.5f,OwnerUi.muted),
+                            LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(8)})
+                        itemRow.addView(requestButton("拨打路人电话",primary=true){
+                            runCatching { startActivity(Intent(Intent.ACTION_DIAL,Uri.parse("tel:$visitorPhone"))) }
+                                .onFailure { notify("无法打开拨号应用") }
+                        },LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(12)})
+                    }
                     itemRow.addView(OwnerUi.line(this@MainActivity))
                     val actions=OwnerUi.horizontal(this@MainActivity)
                     val photo=item.optString("photoUrl")
@@ -1233,6 +1242,7 @@ class MainActivity : Activity() {
         }
         section("通知与数据")
         inCard{
+            val visitorPhone=check("允许路人留下电话",config.optBoolean("visitorPhoneEnabled",false))
             val rate=field("通知间隔（秒，0–3600）",config.optInt("rateLimitSeconds",60).toString())
             val limit=field("记录保留数量（1–500）",config.optInt("requestRetentionLimit",50).toString())
             action("保存基本设置",primary=true){
@@ -1244,6 +1254,7 @@ class MainActivity : Activity() {
                     .put("publicUrl",fields[1].text.toString())
                     .put("phoneNumber",fields[2].text.toString())
                     .put("wechatId",fields[3].text.toString())
+                    .put("visitorPhoneEnabled",visitorPhone.isChecked)
                     .put("rateLimitSeconds",rateValue)
                     .put("requestRetentionLimit",limitValue)
                 api("/api/mobile/settings",data){notify("基本设置保存成功");navigate("settings_site")}
