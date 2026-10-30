@@ -54,6 +54,17 @@ internal object OwnerUi {
             null
         )
 
+    fun pressableGradient(context: Context, colors: IntArray, radius: Int = 18,
+                          border: Int? = null): RippleDrawable =
+        RippleDrawable(
+            ColorStateList.valueOf(Color.argb(28, 31, 102, 134)),
+            GradientDrawable(GradientDrawable.Orientation.TL_BR, colors).apply {
+                cornerRadius = dp(context, radius).toFloat()
+                if (border != null) setStroke(dp(context, 1), border)
+            },
+            null
+        )
+
     fun flatCallButton(ctx: Context, title: String, foreground: Int, surface: Int,
                        radius: Int = 20): Button = Button(ctx).apply {
         text = title

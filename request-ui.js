@@ -7,6 +7,7 @@
  const waiting=document.getElementById('waitingText');
  let current=null,photo=null,objectUrl=null,pollTimer=null,contactTimer=null,startedAt=0,confirmed=false,wechatId='',visitorPhoneEnabled=false,visitorPhoneSent=false,phoneSubmitting=false;
  const successCard=success.querySelector('.success-card');
+ const successTitle=successCard?.querySelector('h2');
  const contactCard=success.querySelector('.action-card');
  const phone=contactCard?.querySelector('.btn-phone');
  const retry=contactCard?.querySelector('#retryBtn');
@@ -51,7 +52,7 @@
    setUnavailable(phone,!phoneAvailable);
  }
  function refreshContact(){setUnavailable(phone,!phoneAvailable);setUnavailable(callbackButton,!visitorPhoneEnabled||visitorPhoneSent);}
- function beginWait(){if(!startedAt||confirmed)startedAt=Date.now();confirmed=false;visitorPhoneSent=false;callbackButton.textContent='📱 留下电话';refreshContact();}
+ function beginWait(){if(!startedAt||confirmed)startedAt=Date.now();confirmed=false;visitorPhoneSent=false;refreshContact();}
  async function copyWechat(){
    if(!wechatId){showContactNotice('车主未配置');return;}
    try{
@@ -103,8 +104,9 @@
    .movecar-phone-panel{width:min(100%,460px);padding:24px 18px;background:#fff;border-radius:22px;box-shadow:0 22px 70px #0d344044;color:#19303b}
    .movecar-phone-panel h2{margin:0 0 7px;font-size:21px}
    .movecar-phone-panel p{margin:0 0 18px;color:#667884;font-size:13px}
-   .movecar-phone-digits{position:relative;display:grid;grid-template-columns:repeat(11,minmax(0,1fr));gap:4px;margin:12px 0 20px;cursor:text}
-   .movecar-phone-digits span{height:43px;display:grid;place-items:center;border:1px solid #cbd7de;border-radius:7px;font-size:18px;font-weight:700;background:#f8fafb}
+   .movecar-phone-digits{position:relative;display:flex;gap:4px;margin:12px 0 20px;cursor:text}
+   .movecar-phone-digits span{flex:1;min-width:0;height:43px;display:grid;place-items:center;border:1px solid #cbd7de;border-radius:7px;font-size:18px;font-weight:700;background:#f8fafb}
+   .movecar-phone-digits span:nth-of-type(3),.movecar-phone-digits span:nth-of-type(7){margin-right:8px}
    .movecar-phone-digits span.active{border-color:#087e6f;background:#eef9f5}
    .movecar-phone-digits input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:text;font-size:16px}
    .movecar-phone-actions{display:flex;gap:10px}
@@ -148,7 +150,7 @@
    phoneSubmitting=true;phoneSubmit.disabled=true;phoneStatus.textContent='正在发送…';
    try{
      await htmlText(await fetch('/api/visitor-phone',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),cache:'no-store'}));
-     visitorPhoneSent=true;callbackButton.textContent='📱 号码已发送';refreshContact();closePhone();showContactNotice('电话号码已发送给车主');
+     visitorPhoneSent=true;if(successTitle)successTitle.textContent='电话号码已发送';refreshContact();closePhone();showContactNotice('电话号码已发送给车主');
    }catch(error){phoneStatus.textContent=error.message;}
    finally{phoneSubmitting=false;renderPhone();}
  });
@@ -177,6 +179,7 @@
  function showSuccess(){
    document.getElementById('mainView').style.display='none';
    success.style.display='flex';
+   if(successTitle)successTitle.textContent='通知已发送！';
    if(waiting)waiting.textContent='正在等待车主回应…';
    if(successCard)successCard.style.display='block';
    const feedback=success.querySelector('#ownerFeedback');if(feedback){feedback.classList.add('hidden');feedback.style.display='none';}

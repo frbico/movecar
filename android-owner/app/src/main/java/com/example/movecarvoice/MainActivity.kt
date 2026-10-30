@@ -629,7 +629,11 @@ class MainActivity : Activity() {
         val count=config.optInt("requestCount")
         val limit=config.optInt("requestRetentionLimit",50)
         val banner=OwnerUi.vertical(this).apply {
-            background=OwnerUi.pressable(this@MainActivity,OwnerUi.white,22,OwnerUi.line)
+            background=OwnerUi.pressableGradient(this@MainActivity,intArrayOf(
+                android.graphics.Color.rgb(248,252,255),
+                android.graphics.Color.rgb(228,244,253),
+                android.graphics.Color.rgb(210,234,249)
+            ),22,android.graphics.Color.rgb(208,229,241))
             setPadding(px(20),px(26),px(20),px(18))
             isClickable=true;isFocusable=true
             contentDescription="查看挪车记录，共 $count 条"
@@ -649,10 +653,12 @@ class MainActivity : Activity() {
             contentDescription=null
         },LinearLayout.LayoutParams(px(96),px(76)).apply{marginStart=px(4)})
         banner.addView(hero)
-        banner.addView(OwnerUi.line(this),LinearLayout.LayoutParams(-1,px(1)).apply{topMargin=px(20)})
+        banner.addView(OwnerUi.line(this).apply{
+            setBackgroundColor(android.graphics.Color.rgb(194,220,235))
+        },LinearLayout.LayoutParams(-1,px(1)).apply{topMargin=px(20)})
         val footer=OwnerUi.horizontal(this).apply{gravity=Gravity.RIGHT or Gravity.CENTER_VERTICAL}
-        footer.addView(OwnerUi.label(this,"$count / $limit 条记录",13f,OwnerUi.muted))
-        footer.addView(OwnerUi.icon(this,R.drawable.ic_chevron_right,OwnerUi.muted,20),
+        footer.addView(OwnerUi.label(this,"$count / $limit 条记录",13f,OwnerUi.blueDeep))
+        footer.addView(OwnerUi.icon(this,R.drawable.ic_chevron_right,OwnerUi.blueDeep,20),
             LinearLayout.LayoutParams(px(20),px(20)).apply{marginStart=px(8)})
         banner.addView(footer,LinearLayout.LayoutParams(-1,-2).apply{topMargin=px(10)})
         root.addView(banner,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(22)})

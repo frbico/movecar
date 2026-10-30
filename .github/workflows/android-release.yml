@@ -113,6 +113,7 @@ jobs:
           - 保留 FCM 锁屏来电、WebRTC 和 TURN 通话功能
           - 路人可在车主允许时留下 11 位电话，车主在挪车请求中直接打开拨号
           - 站点设置新增「允许路人留下电话」开关，默认关闭
+          - 首页主卡片采用淡蓝色渐变，与快捷入口保持一致
           - Android 版本代码：${APP_VERSION_CODE}；源代码：$(git rev-parse --short HEAD)
           - 附带 APK SHA-256 校验文件
           
