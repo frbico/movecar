@@ -104,7 +104,7 @@ export function createMobileOwner({db,setting,save,deleteSetting,inputJson,json,
       voice.unregisterMobileDevice(data.deviceAuth);del.run(hash(current));json(res,200,{ok:true});return true;
     }
     if(action==='device'){
-      const deviceAuth=voice.registerMobileDevice(data.fcmToken);
+      const deviceAuth=voice.registerMobileDevice(data.fcmToken,data.deviceAuth);
       json(res,200,{ok:true,deviceAuth});return true;
     }
     if(action==='requests/confirm'){

@@ -21,14 +21,15 @@ object VoiceApi {
     }
 
     /** Must be invoked from a worker thread, never on the UI thread. */
-    fun post(base: String, path: String, body: JSONObject, auth: String? = null): JSONObject {
+    fun post(base: String, path: String, body: JSONObject, auth: String? = null,
+             timeoutMs: Int = 10000): JSONObject {
         require(base.startsWith("https://")) { "必须使用 HTTPS" }
         val url = URL(base + path)
         val con = url.openConnection() as HttpURLConnection
         try {
             con.requestMethod = "POST"
-            con.connectTimeout = 10000
-            con.readTimeout = 10000
+            con.connectTimeout = timeoutMs
+            con.readTimeout = timeoutMs
             con.instanceFollowRedirects = false
             con.doOutput = true
             con.setRequestProperty("Content-Type", "application/json")

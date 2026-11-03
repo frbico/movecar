@@ -104,16 +104,27 @@
   function releaseMedia(){
     if(pc){try{pc.close();}catch{}pc=null;}
     localStream?.getTracks().forEach(t=>t.stop());localStream=null;
+    remote.srcObject=null;
   }
-  async function stop(sendEnd=true,message='通话已结束'){
+  function endRemote(){
+    if(!callId||!auth)return;
+    const url=endpoint('end');
+    const body=JSON.stringify({token:auth});
+    // Keepalive survives the return navigation; a beacon covers WebViews that
+    // cancel ordinary fetches as soon as the page becomes hidden.
+    try{
+      void fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body,
+        cache:'no-store',keepalive:true}).catch(()=>{});
+    }catch{}
+    try{navigator.sendBeacon?.(url,new Blob([body],{type:'application/json'}));}catch{}
+  }
+  function stop(sendEnd=true,message='通话已结束'){
     if(closed)return;
     closed=true;
     if(poller)clearTimeout(poller);
     poller=null;
-    if(sendEnd&&callId&&auth){
-      api(endpoint('end'),{token:auth}).catch(()=>{});
-    }
-    if(inCallAt)await sendQuality('ended');
+    if(sendEnd)endRemote();
+    if(inCallAt)void sendQuality('ended');
     releaseMedia();
     hangup.hidden=true;start.hidden=true;
     if(message)say(message);
@@ -263,10 +274,12 @@
       localStream=await navigator.mediaDevices.getUserMedia({
         audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:false
       });
+      if(closed){releaseMedia();return;}
       if(!owner){
         say('正在通知车主…');
         const currentRetry=retryTicket;
         const response=await api('/api/voice/start',currentRetry?{retryToken:currentRetry}:{});
+        if(closed){callId=response.callId;auth=response.token;endRemote();releaseMedia();return;}
         retryTicket='';callId=response.callId;auth=response.token;
         iceServers=response.iceServers||defaultIce;
         say('已发送来电，等待车主接听…');
@@ -282,9 +295,8 @@
   start.addEventListener('click',()=>void begin());
   hangup.addEventListener('click',()=>{
     const wasConnected=Boolean(inCallAt);
-    void stop().then(()=>{
-      if(!owner&&wasConnected)window.setTimeout(goBackToContact,700);
-    });
+    stop();
+    if(!owner&&wasConnected)window.setTimeout(goBackToContact,700);
   });
   window.addEventListener('pagehide',()=>{
     if(!closed&&callId&&auth){

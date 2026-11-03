@@ -15,7 +15,7 @@ test('native owner sign-in, authentication, notifications, records, and account 
   let deviceAuth='';let revokeCount=0;let confirmationId='',deletedId='';let pushes=[];
   let callHistory=[{callId:'test',status:'ended',startedAt:123456,updatedAt:123457}];
   const voice={
-    registerMobileDevice(fcm){assert.ok(fcm.length>10);deviceAuth=crypto.randomBytes(32).toString('base64url');return deviceAuth;},
+    registerMobileDevice(fcm,currentAuth){assert.ok(fcm.length>10);if(currentAuth===deviceAuth)return deviceAuth;deviceAuth=crypto.randomBytes(32).toString('base64url');return deviceAuth;},
     unregisterMobileDevice(auth){if(auth===deviceAuth){revokeCount++;deviceAuth='';return true;}return false;},
     revokeAllMobileDevices(){if(deviceAuth)revokeCount++;deviceAuth='';},
     isDeviceReady(){return !!deviceAuth;},
@@ -59,6 +59,8 @@ test('native owner sign-in, authentication, notifications, records, and account 
     assert.equal(login.status,200);assert.ok(login.data.deviceAuth);const token=login.data.token;
     const config=await call('config',undefined,token);
     assert.equal(config.status,200);assert.equal(config.data.channels.app.configured,true);
+    const refreshed=await call('device',{fcmToken:'updated-fcm-token-for-local-unit-test',deviceAuth:login.data.deviceAuth},token);
+    assert.equal(refreshed.status,200);assert.equal(refreshed.data.deviceAuth,login.data.deviceAuth);
     assert.equal(config.data.visitorPhoneEnabled,false);
     const quality=await call('voice/quality',undefined,token);
     assert.equal(quality.status,200);

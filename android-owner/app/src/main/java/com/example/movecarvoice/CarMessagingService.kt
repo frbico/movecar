@@ -14,6 +14,7 @@ import org.json.JSONObject
 class CarMessagingService : FirebaseMessagingService() {
     companion object {
         const val CHANNEL = "movecar_voice_calls_v3"
+        const val PARKING_CHANNEL = "movecar_parking_alerts"
         const val NOTIFICATION_ID = 1001
         const val TEST_NOTIFICATION_ID = 1003
         fun ensureIncomingCallChannel(context: android.content.Context) {
@@ -28,7 +29,17 @@ class CarMessagingService : FirebaseMessagingService() {
                 lockscreenVisibility=Notification.VISIBILITY_PUBLIC
             })
         }
-        fun postIncomingNotification(context:android.content.Context,callId:String,testing:Boolean=false,issuedAt:Long=0L) {
+        fun ensureParkingChannel(context: android.content.Context) {
+            val nm=context.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.createNotificationChannel(NotificationChannel(
+                PARKING_CHANNEL,"挪车留言通知",NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description="路人扫码发送的挪车留言、照片和重要通知"
+                enableVibration(true)
+                lockscreenVisibility=Notification.VISIBILITY_PRIVATE
+            })
+        }
+        fun postIncomingNotification(context:android.content.Context,callId:String,testing:Boolean=false,issuedAt:Long=0L):Boolean {
         val nm = context.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as NotificationManager
         ensureIncomingCallChannel(context)
         // Android notification-channel importance is immutable. Never override
@@ -44,14 +55,14 @@ class CarMessagingService : FirebaseMessagingService() {
             val previousIssue=prefs.getLong("lastIncomingIssuedAt",0L)
             if(issuedAt>0L && previousIssue>0L && issuedAt<previousIssue){
                 Log.i("MoveCarIncoming","Out-of-order FCM call suppressed")
-                return
+                return false
             }
             // FCM can redeliver one incoming_call. Reposting the same notification
             // after the user rejected/answered it can produce a phantom ring.
             if(prefs.getString("lastIncomingCallId","")==callId &&
                 receivedAt-prefs.getLong("lastReceivedAt",0L) in 0L..45000L) {
                 Log.i("MoveCarIncoming","Duplicate call notification suppressed")
-                return
+                return prefs.getLong("lastCallPostedAt",0L)>=prefs.getLong("lastReceivedAt",0L)
             }
             prefs.edit().putLong("lastReceivedAt",receivedAt)
                 .putLong("lastIncomingIssuedAt",if(issuedAt>0L)issuedAt else previousIssue)
@@ -112,6 +123,7 @@ class CarMessagingService : FirebaseMessagingService() {
         }
         try {
             nm.notify(if(testing) TEST_NOTIFICATION_ID else NOTIFICATION_ID, builder.build())
+            if(!testing)prefs.edit().putLong("lastCallPostedAt",System.currentTimeMillis()).apply()
             // Strictly gated by the user's full-screen call entitlement; a
             // A short timeout lets the system wake the display before opening the call UI.
             // before Android starts the full-screen incoming-call Activity.
@@ -128,8 +140,11 @@ class CarMessagingService : FirebaseMessagingService() {
                     if(!testing)prefs.edit().putLong("lastWakeFallbackAt",System.currentTimeMillis()).apply()
                 }
             }
+            return true
         } catch (e: SecurityException) {
+            if(!testing)prefs.edit().putLong("lastCallPostFailedAt",System.currentTimeMillis()).apply()
             Log.w("MoveCarCalls","Notification or wake-up permission denied",e)
+            return false
         }
         }
         fun cancel(context: android.content.Context,expectedCallId:String) {
@@ -141,46 +156,46 @@ class CarMessagingService : FirebaseMessagingService() {
     }
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        val base = VoiceApi.base(this)
-        val login = VoiceApi.mobileAuth(this)
-        if (base.isNotBlank() && login.isNotBlank()) {
-            Thread {
-                runCatching {
-                    VoiceApi.post(base, "/api/mobile/device", JSONObject().put("fcmToken", token), login)
-                }.onSuccess { data ->
-                    VoiceApi.prefs(this).edit().putString("auth", data.optString("deviceAuth")).apply()
-                }
-            }.start()
-        } else {
-            val oldAuth = VoiceApi.auth(this)
-            if (base.isNotBlank() && oldAuth.isNotBlank()) {
-                Thread { runCatching { VoiceApi.post(base, "/api/voice/device/token", JSONObject().put("fcmToken", token), oldAuth) } }.start()
-            }
-        }
+        // A fire-and-forget Thread can be killed when this FCM callback returns.
+        // JobScheduler retains the upload and retries when connectivity returns.
+        if(VoiceApi.auth(this).isNotBlank())PushBindingJob.schedule(this)
     }
     override fun onMessageReceived(message: RemoteMessage) {
+        val kind=message.data["type"]
+        val health=getSharedPreferences("movecar_call_health",MODE_PRIVATE)
+        val arrived=System.currentTimeMillis()
+        health.edit()
+            .putLong(if(kind=="incoming_call")"lastCallMessageAt" else "lastParkingMessageAt",arrived)
+            .putInt("lastFcmPriority",message.priority)
+            .putInt("lastFcmOriginalPriority",message.originalPriority).apply()
         if (message.data["type"] == "move_request") {
             showParkingAlert(message)
             return
         }
         if (message.data["type"] != "incoming_call") return
         val callId = message.data["callId"] ?: return
-        if (!VoiceApi.validCallId(callId) || VoiceApi.auth(this).isBlank()) return
+        if (!VoiceApi.validCallId(callId) || VoiceApi.auth(this).isBlank()) {
+            health.edit().putLong("lastCallDiscardedAt",arrived).apply()
+            return
+        }
+        if(message.sentTime>0L && arrived-message.sentTime>35_000L){
+            health.edit().putLong("lastCallDiscardedAt",arrived).apply()
+            return
+        }
         if(OngoingCallService.currentCallId==callId)return // Already answered; late FCM is not a new call.
         val issuedAt=message.data["sentAtMs"]?.toLongOrNull()?:0L
-        postIncomingNotification(this,callId,issuedAt=issuedAt)
+        if(!postIncomingNotification(this,callId,issuedAt=issuedAt))return
+        // A short authenticated receipt lets the server avoid a second,
+        // system-rendered notification when our full-screen alert was posted.
+        runCatching {
+            VoiceApi.post(VoiceApi.base(this),"/api/voice/calls/$callId/delivered",
+                JSONObject(),VoiceApi.auth(this),3000)
+        }.onFailure { Log.w("MoveCarIncoming","Call receipt failed",it) }
     }
     private fun showParkingAlert(message: RemoteMessage) {
         if (VoiceApi.mobileAuth(this).isBlank()) return
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        val channel = "movecar_parking_alerts"
-        nm.createNotificationChannel(NotificationChannel(
-            channel, "挪车留言通知", NotificationManager.IMPORTANCE_HIGH
-        ).apply {
-            description = "路人扫码发送的挪车留言、照片和重要通知"
-            enableVibration(true)
-            lockscreenVisibility = Notification.VISIBILITY_PRIVATE
-        })
+        ensureParkingChannel(this)
         val title = message.data["title"]?.take(90) ?: "有人请求挪车"
         val text = (message.data["message"] ?: "点击查看挪车请求")
             .replace(Regex("!\\[[^]]*]\\([^)]*\\)"), "现场照片已上传")
@@ -194,7 +209,7 @@ class CarMessagingService : FirebaseMessagingService() {
                 addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val notification = Notification.Builder(this, channel)
+        val notification = Notification.Builder(this, PARKING_CHANNEL)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(title)
             .setContentText(text)
@@ -204,7 +219,13 @@ class CarMessagingService : FirebaseMessagingService() {
             .setAutoCancel(true)
             .setContentIntent(view)
             .build()
-        try { nm.notify((System.currentTimeMillis() % 2000000000).toInt(), notification) }
-        catch (_: SecurityException) { /* notification permission disabled */ }
+        try {
+            nm.notify((System.currentTimeMillis() % 2000000000).toInt(), notification)
+            getSharedPreferences("movecar_call_health",MODE_PRIVATE).edit()
+                .putLong("lastParkingPostedAt",System.currentTimeMillis()).apply()
+        }catch (_: SecurityException) {
+            getSharedPreferences("movecar_call_health",MODE_PRIVATE).edit()
+                .putLong("lastParkingPostFailedAt",System.currentTimeMillis()).apply()
+        }
     }
 }

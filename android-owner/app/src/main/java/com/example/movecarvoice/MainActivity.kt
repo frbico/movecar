@@ -3,6 +3,7 @@ package com.example.movecarvoice
 import android.Manifest
 import java.io.ByteArrayOutputStream
 import android.app.Activity
+import android.app.ActivityManager
 import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -38,17 +39,25 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        CarMessagingService.ensureParkingChannel(this)
+        CarMessagingService.ensureIncomingCallChannel(this)
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 10)
         }
         if (VoiceApi.mobileAuth(this).isEmpty()) loginPage() else {
-            navigate(if(intent.getStringExtra("openPage")=="requests")"requests" else "home")
+            navigate(if(intent.getStringExtra("openPage")=="requests"||
+                intent.getStringExtra("type")=="move_request")"requests" else "home")
+            openIncomingFromNotification(intent)
         }
     }
 
 
     override fun onResume() {
         super.onResume()
+        if(VoiceApi.mobileAuth(this).isNotBlank() &&
+            (VoiceApi.auth(this).isBlank() ||
+             System.currentTimeMillis()-VoiceApi.prefs(this).getLong(PushBindingJob.LAST_SYNC_AT,0L)>24*60*60*1000L))
+            PushBindingJob.schedule(this)
         refreshHandler.removeCallbacks(periodicRefresh)
         refreshHandler.postDelayed(periodicRefresh, 120_000)
         // Returning from system notification/full-screen settings must
@@ -64,11 +73,19 @@ class MainActivity : Activity() {
     }
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        if (intent.getStringExtra("openPage") == "requests" && token().isNotBlank()) {
+        if ((intent.getStringExtra("openPage") == "requests" ||
+             intent.getStringExtra("type")=="move_request") && token().isNotBlank()) {
             OwnerCache.invalidate(this)
             historyPage=1
             navigate("requests")
         }
+        openIncomingFromNotification(intent)
+    }
+    private fun openIncomingFromNotification(intent:Intent){
+        if(intent.getStringExtra("type")!="incoming_call" || VoiceApi.auth(this).isBlank())return
+        val callId=intent.getStringExtra("callId")?:return
+        if(!VoiceApi.validCallId(callId))return
+        startActivity(Intent(this,IncomingCallActivity::class.java).putExtra("callId",callId))
     }
     @Deprecated("Uses platform back handling without an extra dependency")
     override fun onBackPressed() {
@@ -81,6 +98,17 @@ class MainActivity : Activity() {
         if(parent==null)super.onBackPressed() else navigate(parent)
     }
     private fun px(value: Int) = OwnerUi.dp(this, value)
+    private fun backgroundRestricted():Boolean {
+        if(Build.VERSION.SDK_INT<28)return false
+        val explicit=(getSystemService(ACTIVITY_SERVICE) as ActivityManager).isBackgroundRestricted
+        val bucket=(getSystemService(USAGE_STATS_SERVICE) as android.app.usage.UsageStatsManager)
+            .appStandbyBucket
+        return explicit || bucket>=android.app.usage.UsageStatsManager.STANDBY_BUCKET_RESTRICTED
+    }
+    private fun openBatterySettings(){
+        startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+            .setData(Uri.parse("package:$packageName")))
+    }
     private fun spacer(size: Int = 12) {
         root.addView(android.view.View(this), LinearLayout.LayoutParams(1, px(size)))
     }
@@ -525,11 +553,13 @@ class MainActivity : Activity() {
         FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
             if (!task.isSuccessful) {
                 notify("推送绑定未完成，请在设置中重新绑定")
+                PushBindingJob.schedule(this)
                 return@addOnCompleteListener
             }
             val fcmToken = task.result
             if (fcmToken.isNullOrBlank()) {
                 notify("推送绑定未完成，请在设置中重新绑定")
+                PushBindingJob.schedule(this)
                 return@addOnCompleteListener
             }
             Thread {
@@ -542,11 +572,14 @@ class MainActivity : Activity() {
                         // Do not restore a device token if the user logged out meanwhile.
                         if (VoiceApi.mobileAuth(this) == bearer) {
                             VoiceApi.prefs(this).edit()
-                                .putString("auth", obj.optString("deviceAuth")).apply()
+                                .putString("auth", obj.optString("deviceAuth"))
+                                .putLong(PushBindingJob.LAST_SYNC_AT,System.currentTimeMillis())
+                                .remove(PushBindingJob.LAST_FAILURE_AT).apply()
                             notify("消息推送和来电已绑定成功")
                         }
                     }.onFailure {
                         notify("后台已登录，但推送绑定失败：" + (it.message ?: "网络异常"))
+                        PushBindingJob.schedule(this)
                     }
                 }
             }.start()
@@ -622,6 +655,25 @@ class MainActivity : Activity() {
                 warning.addView(OwnerUi.icon(this,R.drawable.ic_chevron_right,OwnerUi.muted,18))
                 root.addView(warning,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(12)})
             }
+        }
+        if(backgroundRestricted()){
+            val warning=OwnerUi.horizontal(this).apply{
+                gravity=Gravity.CENTER_VERTICAL
+                setPadding(px(14),px(10),px(14),px(10))
+                minimumHeight=px(48)
+                background=OwnerUi.pressable(this@MainActivity,OwnerUi.warningSurface,14)
+                isClickable=true;isFocusable=true
+                contentDescription="后台运行受限制，前往系统设置"
+                setOnClickListener{openBatterySettings()}
+            }
+            warning.addView(OwnerUi.label(this,"!",16f,OwnerUi.amber,true).apply{
+                gravity=Gravity.CENTER
+                background=OwnerUi.bg(OwnerUi.white,18,this@MainActivity)
+            },LinearLayout.LayoutParams(px(30),px(30)).apply{marginEnd=px(10)})
+            warning.addView(OwnerUi.label(this,"后台受限制，可能错过通知和来电",13.5f,OwnerUi.navy,true),
+                LinearLayout.LayoutParams(0,-2,1f))
+            warning.addView(OwnerUi.icon(this,R.drawable.ic_chevron_right,OwnerUi.muted,18))
+            root.addView(warning,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=px(12)})
         }
         val channel=config.getJSONObject("channels")
         val app=channel.getJSONObject("app")
@@ -710,9 +762,16 @@ class MainActivity : Activity() {
     }
     private fun syncFcm(){
         FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
-            if(!task.isSuccessful){notify("无法绑定手机推送");return@addOnCompleteListener}
-            api("/api/mobile/device",JSONObject().put("fcmToken",task.result)) {
-                VoiceApi.prefs(this).edit().putString("auth",it.optString("deviceAuth")).apply()
+            if(!task.isSuccessful){
+                notify("无法绑定手机推送，稍后自动重试")
+                PushBindingJob.schedule(this)
+                return@addOnCompleteListener
+            }
+            api("/api/mobile/device",JSONObject().put("fcmToken",task.result)
+                .put("deviceAuth",VoiceApi.auth(this))) {
+                VoiceApi.prefs(this).edit().putString("auth",it.optString("deviceAuth"))
+                    .putLong(PushBindingJob.LAST_SYNC_AT,System.currentTimeMillis())
+                    .remove(PushBindingJob.LAST_FAILURE_AT).apply()
                 notify("手机推送已重新绑定")
                 refreshCurrent(true)
             }
@@ -1026,7 +1085,19 @@ class MainActivity : Activity() {
             "Device: "+Build.MANUFACTURER+" "+Build.MODEL+" / SDK "+Build.VERSION.SDK_INT,
             "Notifications: "+nm.areNotificationsEnabled(),
             "Call channel importance: "+(channel?.importance?:0),
+            "Call channel sound enabled: "+(channel?.sound!=null),
+            "Ringer mode: "+(getSystemService(AUDIO_SERVICE) as android.media.AudioManager).ringerMode,
             "Full-screen permission: "+(Build.VERSION.SDK_INT<34||nm.canUseFullScreenIntent()),
+            "Background restricted: "+backgroundRestricted(),
+            "Push token synced at: "+VoiceApi.prefs(this).getLong(PushBindingJob.LAST_SYNC_AT,0L),
+            "Push token sync failed at: "+VoiceApi.prefs(this).getLong(PushBindingJob.LAST_FAILURE_AT,0L),
+            "FCM call callback at: "+saved.getLong("lastCallMessageAt",0L),
+            "Call notification posted at: "+saved.getLong("lastCallPostedAt",0L),
+            "Call notification failed at: "+saved.getLong("lastCallPostFailedAt",0L),
+            "Call callback discarded at: "+saved.getLong("lastCallDiscardedAt",0L),
+            "FCM request callback at: "+saved.getLong("lastParkingMessageAt",0L),
+            "Request notification posted at: "+saved.getLong("lastParkingPostedAt",0L),
+            "FCM original/current priority: "+saved.getInt("lastFcmOriginalPriority",0)+"/"+saved.getInt("lastFcmPriority",0),
             "Real FCM received at: "+saved.getLong("lastReceivedAt",0L),
             "Short wake fallback at: "+saved.getLong("lastWakeFallbackAt",0L),
             "Incoming UI opened at: "+saved.getLong("lastUiOpenedAt",0L),
@@ -1049,6 +1120,10 @@ class MainActivity : Activity() {
         val full=Build.VERSION.SDK_INT<34||nm.canUseFullScreenIntent()
         section("来电提醒")
         inCard {
+            permissionRow("后台运行",!backgroundRestricted(),
+                "若系统电池模式设为“受限制”，APP 可能无法在后台接收挪车通知和来电。进入应用信息的电池设置，改为“不受限制”。"){
+                openBatterySettings()
+            }
             permissionRow("APP 通知",notifications,
                 "允许应用发送通知，才能及时收到挪车来电。"){
                 startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
@@ -1103,7 +1178,7 @@ class MainActivity : Activity() {
                 LinearLayout.LayoutParams(px(32),px(32)))
             root.addView(help)
             action("电池与后台设置"){
-                startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                openBatterySettings()
             }
             action("复制诊断信息"){copySafeCallDiagnostics()}
         }
@@ -1392,6 +1467,7 @@ class MainActivity : Activity() {
     }
     private fun clearLogin(){
         OwnerCache.invalidate(this)
+        PushBindingJob.cancel(this)
         VoiceApi.prefs(this).edit().remove("mobileAuth").remove("auth").apply()
         loginPage()
     }

@@ -23,7 +23,28 @@ const validFcm=x=>typeof x==='string'&&x.length>=20&&x.length<=4096&&/^[\x21-\x7
 const validToken=x=>typeof x==='string'&&/^[A-Za-z0-9_-]{43}$/.test(x);
 const readStatic=name=>fs.readFileSync(new URL(name,import.meta.url));
 
-export function createVoiceService({db,json,reply,inputJson,pairingSecret=process.env.VOICE_PAIRING_SECRET||'',serviceAccountPath=process.env.FCM_SERVICE_ACCOUNT||'',pushCall=null,turnUrls=process.env.VOICE_TURN_URLS||'',turnSecret=process.env.VOICE_TURN_SHARED_SECRET||'',stunUrls=process.env.VOICE_STUN_URLS||'',turnConfig=()=>null,callPolicy=()=>({}),getClientIp=req=>String(req.socket.remoteAddress||'unknown'),allowLegacyPairing=process.env.VOICE_ALLOW_LEGACY_PAIRING==='1',now=()=>Date.now()}){
+export const callFcmMessage=(deviceToken,callId,issuedAt)=>({
+  token:deviceToken,data:{type:'incoming_call',callId,sentAtMs:String(issuedAt)},
+  android:{priority:'HIGH',ttl:'35s'}
+});
+export const fallbackCallFcmMessage=(deviceToken,callId)=>({
+  token:deviceToken,data:{type:'incoming_call',callId},
+  notification:{title:'有人请求挪车',body:'扫码者正在呼叫车主，点击接听'},
+  android:{priority:'HIGH',ttl:'20s',notification:{
+    channel_id:'movecar_voice_calls_v3',visibility:'PUBLIC'
+  }}
+});
+export const parkingFcmMessage=(deviceToken,title,message,ownerUrl)=>({
+  token:deviceToken,
+  data:{type:'move_request',title:String(title).slice(0,90),
+    message:String(message).slice(0,1300),url:String(ownerUrl||'').slice(0,500)},
+  notification:{title:String(title).slice(0,90),body:'点击查看挪车请求'},
+  android:{priority:'HIGH',ttl:'600s',notification:{
+    channel_id:'movecar_parking_alerts',visibility:'PRIVATE'
+  }}
+});
+
+export function createVoiceService({db,json,reply,inputJson,pairingSecret=process.env.VOICE_PAIRING_SECRET||'',serviceAccountPath=process.env.FCM_SERVICE_ACCOUNT||'',pushCall=null,fallbackDelayMs=0,turnUrls=process.env.VOICE_TURN_URLS||'',turnSecret=process.env.VOICE_TURN_SHARED_SECRET||'',stunUrls=process.env.VOICE_STUN_URLS||'',turnConfig=()=>null,callPolicy=()=>({}),getClientIp=req=>String(req.socket.remoteAddress||'unknown'),allowLegacyPairing=process.env.VOICE_ALLOW_LEGACY_PAIRING==='1',now=()=>Date.now()}){
   db.exec(`CREATE TABLE IF NOT EXISTS voice_owner_device (
     id INTEGER PRIMARY KEY CHECK(id=1), auth_digest TEXT NOT NULL,
     fcm_token TEXT NOT NULL, updated_at INTEGER NOT NULL
@@ -94,7 +115,7 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
     if(!device||!auth||!eq(sha(auth),device.auth_digest))throw bad(401,'手机未配对或登录已失效');
     return device;
   }
-  function setStatus(c,status){if(c.status!==status){c.status=status;updateHistory.run(status,now(),c.id);}}
+  function setStatus(c,status){if(c.status!==status){c.status=status;if(status!=='ringing')clearTimeout(c.fallbackTimer);updateHistory.run(status,now(),c.id);}}
   function cleanup(){
     for(const [k,c] of calls){
       if(c.status==='ringing'&&now()>c.created+35000)setStatus(c,'missed');
@@ -148,10 +169,21 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
     const access=await fcmAccess();
     const response=await fetch(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(sa.project_id)}/messages:send`,{
       method:'POST',headers:{Authorization:`Bearer ${access}`,'Content-Type':'application/json'},
-      body:JSON.stringify({message:{token:deviceToken,data:{type:'incoming_call',callId,sentAtMs:String(issuedAt)},android:{priority:'HIGH',ttl:'35s'}}}),
+      body:JSON.stringify({message:callFcmMessage(deviceToken,callId,issuedAt)}),
       signal:AbortSignal.timeout(10000)
     });
     if(!response.ok)throw bad(502,'FCM 未接受来电通知，请检查设备注册');
+  }
+  async function sendCallFallback(callId,deviceToken){
+    if(pushCall)return pushCall({type:'incoming_call_backup',callId,deviceToken});
+    const sa=JSON.parse(fs.readFileSync(serviceAccountPath,'utf8'));
+    const access=await fcmAccess();
+    const response=await fetch(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(sa.project_id)}/messages:send`,{
+      method:'POST',headers:{Authorization:`Bearer ${access}`,'Content-Type':'application/json'},
+      body:JSON.stringify({message:fallbackCallFcmMessage(deviceToken,callId)}),
+      signal:AbortSignal.timeout(10000)
+    });
+    if(!response.ok)throw bad(502,'FCM 未接受备用来电提醒');
   }
   async function notifyOwner({title,message,ownerUrl}){
     const device=getDevice.get();
@@ -161,14 +193,18 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
     const access=await fcmAccess();
     const response=await fetch('https://fcm.googleapis.com/v1/projects/'+encodeURIComponent(sa.project_id)+'/messages:send',{
       method:'POST',headers:{Authorization:'Bearer '+access,'Content-Type':'application/json'},
-      body:JSON.stringify({message:{token:device.fcm_token,
-        data:{type:'move_request',title:String(title).slice(0,90),message:String(message).slice(0,1300),url:String(ownerUrl||'').slice(0,500)},
-        android:{priority:'HIGH',ttl:'600s'}}}),signal:AbortSignal.timeout(10000)});
+      body:JSON.stringify({message:parkingFcmMessage(device.fcm_token,title,message,ownerUrl)}),
+      signal:AbortSignal.timeout(10000)});
     if(!response.ok)throw bad(502,'FCM 无法发送挪车消息');
   }
-  function registerMobileDevice(fcmToken){
+  function registerMobileDevice(fcmToken,currentAuth=''){
     if(!enabled)throw bad(503,'语音服务端未配置');
     if(!validFcm(fcmToken))throw bad(400,'FCM Token 不合法');
+    const current=getDevice.get();
+    if(validToken(currentAuth)&&current&&eq(sha(currentAuth),current.auth_digest)){
+      updateFcm.run(fcmToken,now(),current.auth_digest);
+      return currentAuth;
+    }
     const ownerToken=token();
     saveDevice.run(sha(ownerToken),fcmToken,now());
     return ownerToken;
@@ -286,9 +322,17 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
         }
         throw e;
       }
+      if(fallbackDelayMs>0){
+        c.fallbackTimer=setTimeout(()=>{
+          if(c.status==='ringing'&&!c.deliveredAt)
+            void sendCallFallback(callId,device.fcm_token)
+              .catch(()=>console.warn('Backup call notification failed (credentials hidden).'));
+        },fallbackDelayMs);
+        c.fallbackTimer.unref?.();
+      }
       json(res,200,{callId,token:callerToken,expiresIn:35,iceServers:iceServers()});return true;
     }
-    const match=route.match(/^\/api\/voice\/calls\/([A-Za-z0-9_-]{24})\/(incoming|answer|reject|events|signal|end|retry|diagnostic)$/);
+    const match=route.match(/^\/api\/voice\/calls\/([A-Za-z0-9_-]{24})\/(incoming|delivered|answer|reject|events|signal|end|retry|diagnostic)$/);
     if(!match)throw bad(404,'接口不存在');
     const c=getCall(match[1]),action=match[2];
     // A delayed FCM message or an old PendingIntent must not be shown as a live
@@ -298,6 +342,14 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
       requireOwner(req);
       json(res,200,{status:c.status,ringing:c.status==='ringing'});
       return true;
+    }
+    if(action==='delivered'){
+      requireOwner(req);
+      if(c.status==='ringing'){
+        c.deliveredAt=now();
+        clearTimeout(c.fallbackTimer);
+      }
+      json(res,200,{ok:true});return true;
     }
     if(action==='answer'||action==='reject'){
       requireOwner(req);
@@ -364,5 +416,5 @@ export function createVoiceService({db,json,reply,inputJson,pairingSecret=proces
       return count;
     },
     listQuality:()=>readQuality.all(),
-    getCallPolicy:resolvedPolicy,resetCallRateLimits:()=>limit.clear(),resetFirebaseAccess:()=>{cachedAccess=null;},close:()=>clearInterval(cleanupTimer),_debug:{calls}};
+    getCallPolicy:resolvedPolicy,resetCallRateLimits:()=>limit.clear(),resetFirebaseAccess:()=>{cachedAccess=null;},close:()=>{clearInterval(cleanupTimer);for(const c of calls.values())clearTimeout(c.fallbackTimer);},_debug:{calls}};
 }

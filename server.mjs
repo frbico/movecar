@@ -333,7 +333,7 @@ function staticFile(res,name,type) {
 const infrastructure=createInfrastructure({setting,save,dataDir,deploymentId});
 const updater=createUpdateService();
 const requestFlow=createRequestFlow({db,setting,random,hash,notifyChannels,inputJson,inputPhoto,json,reply,rateGet,ratePut,notificationAvailable:()=>voice.isDeviceReady()&&setting('notify_app_enabled','1')==='1'});
-const voice=createVoiceService({db,json,reply,inputJson,turnConfig:infrastructure.ice,
+const voice=createVoiceService({db,json,reply,inputJson,turnConfig:infrastructure.ice,fallbackDelayMs:8000,
   callPolicy:()=>({
     dailyLimit:Number(setting('voice_daily_limit','8')),
     cooldownSeconds:Number(setting('voice_cooldown_seconds','90')),

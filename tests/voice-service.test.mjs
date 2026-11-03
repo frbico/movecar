@@ -9,6 +9,7 @@ function createHarness(options={}){
   const messages=[];
   let clock=Date.now();
   const api=createVoiceService({db,pairingSecret:'test-voice-secret-which-is-long-and-private',
+    fallbackDelayMs:options.fallbackDelayMs||0,
     now:()=>clock,allowLegacyPairing:true,pushCall:async (m)=>messages.push(m),
     stunUrls:options.stunUrls||'',turnUrls:options.turnUrls||'',turnSecret:options.turnSecret||'',
     callPolicy:()=>options.policy||{},
@@ -34,6 +35,38 @@ async function withServer(run,options={}){
   try {await run({...h,post,url});}
   finally {h.api.close();await new Promise(resolve=>h.server.close(resolve));h.db.close();}
 }
+
+test('token refresh keeps the paired owner credential when authenticated',()=>{
+  const {api,db}=createHarness();
+  try{
+    const original=api.registerMobileDevice('fcm:initial-registration-token-xxxxxx');
+    const renewed=api.registerMobileDevice('fcm:renewed-registration-token-xxxxxx',original);
+    assert.equal(renewed,original);
+    assert.equal(db.prepare('SELECT fcm_token FROM voice_owner_device WHERE id=1').get().fcm_token,
+      'fcm:renewed-registration-token-xxxxxx');
+    const replaced=api.registerMobileDevice('fcm:replacement-registration-xxxxxx','x'.repeat(43));
+    assert.notEqual(replaced,original,'an unrecognized credential must not retain control');
+  } finally {api.close();db.close();}
+});
+
+test('an unacknowledged call gets a system notification fallback, but an acknowledged call does not',
+  async()=>withServer(async({post,messages})=>{
+    const registered=await post('/api/voice/device/register',{
+      pairingSecret:'test-voice-secret-which-is-long-and-private',
+      fcmToken:'fcm:abc_this-is-a-pretend-token-xxxxxxxxx'});
+    const first=await post('/api/voice/start');
+    assert.equal(first.status,200);
+    assert.equal((await post('/api/voice/calls/'+first.body.callId+'/delivered')).status,401);
+    await new Promise(resolve=>setTimeout(resolve,130));
+    assert.equal(messages.filter(m=>m.type==='incoming_call_backup').length,1);
+    await post('/api/voice/calls/'+first.body.callId+'/end',{token:first.body.token});
+    const second=await post('/api/voice/start');
+    assert.equal(second.status,200);
+    assert.equal((await post('/api/voice/calls/'+second.body.callId+'/delivered',{},registered.body.deviceAuth)).status,200);
+    await new Promise(resolve=>setTimeout(resolve,130));
+    assert.equal(messages.filter(m=>m.type==='incoming_call_backup').length,1,
+      'the owner receipt must suppress a duplicate fallback');
+  },{fallbackDelayMs:100,policy:{testMode:true}}));
 
 test('owner pairing, caller starts, call offer/answer, finish',async()=>withServer(async({post,messages})=>{
   const reg=await post('/api/voice/device/register',{pairingSecret:'test-voice-secret-which-is-long-and-private',fcmToken:'fcm:abc_this-is-a-pretend-token-xxxxxxxxx'});
